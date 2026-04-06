@@ -19,6 +19,10 @@ import {
   Menu,
   X,
   ChevronDown,
+  RefreshCw,
+  Image,
+  Code2,
+  BookTemplate,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
@@ -41,6 +45,10 @@ const navItems = [
   { href: "/ai", icon: Sparkles, label: "AI Studio" },
   { href: "/analytics", icon: BarChart3, label: "Analytics" },
   { href: "/clients", icon: Users, label: "Clients" },
+  { href: "/repurpose", icon: RefreshCw, label: "Repurpose" },
+  { href: "/media", icon: Image, label: "Media Library" },
+  { href: "/templates", icon: BookTemplate, label: "Templates" },
+  { href: "/developer", icon: Code2, label: "Developer API" },
   { href: "/settings", icon: Settings2, label: "Settings" },
 ];
 
@@ -52,6 +60,10 @@ const pageTitles: Record<string, string> = {
   "/ai": "AI Studio",
   "/analytics": "Analytics",
   "/clients": "Client Workspaces",
+  "/repurpose": "Content Repurpose",
+  "/media": "Media Library",
+  "/templates": "Templates",
+  "/developer": "Developer API",
   "/settings": "Settings",
 };
 

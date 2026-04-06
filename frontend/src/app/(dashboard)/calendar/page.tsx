@@ -196,12 +196,12 @@ export default function CalendarPage() {
 
   const getPostsForDate = (date: Date): Post[] => {
     const dateStr = format(date, "yyyy-MM-dd");
-    const entry = calendarEntries.find((e) => e.date === dateStr);
+    const entry = calendarEntries.find((e: { date: string }) => e.date === dateStr);
     if (!entry) return [];
-    let posts = entry.posts;
+    let posts: Post[] = entry.posts;
     if (!selectedPlatforms.includes("all")) {
-      posts = posts.filter((p) =>
-        p.platforms.some((pp) => selectedPlatforms.includes(pp.platform))
+      posts = posts.filter((p: Post) =>
+        p.platforms.some((pp: { platform: string }) => selectedPlatforms.includes(pp.platform))
       );
     }
     return posts;
@@ -381,8 +381,8 @@ export default function CalendarPage() {
                 </p>
               </div>
             ) : (
-              calendarEntries.flatMap((entry) =>
-                entry.posts.map((post) => (
+              calendarEntries.flatMap((entry: { date: string; posts: Post[] }) =>
+                entry.posts.map((post: Post) => (
                   <div
                     key={post.id}
                     className="flex items-start gap-3 p-4 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800 hover:border-violet-200 dark:hover:border-violet-800 transition-colors"
@@ -392,7 +392,7 @@ export default function CalendarPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                        {post.platforms.map((pp) => (
+                        {post.platforms.map((pp: { platform: string }) => (
                           <span
                             key={pp.platform}
                             className={cn(
@@ -400,7 +400,7 @@ export default function CalendarPage() {
                               platformColors[pp.platform] ?? "bg-gray-100 text-gray-600"
                             )}
                           >
-                            {getPlatformDisplayName(pp.platform)}
+                            {getPlatformDisplayName(pp.platform as Platform)}
                           </span>
                         ))}
                         <StatusBadge status={post.status} />

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Building2, CreditCard, Share2,
   Sparkles, FileText, Settings, Zap, LogOut, Menu, X, Shield,
+  TrendingUp, Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
@@ -18,6 +19,8 @@ const adminNav = [
   { href: "/admin/platforms", icon: Share2, label: "Platforms" },
   { href: "/admin/ai-jobs", icon: Sparkles, label: "AI Jobs" },
   { href: "/admin/audit-logs", icon: FileText, label: "Audit Logs" },
+  { href: "/admin/revenue", icon: TrendingUp, label: "Revenue" },
+  { href: "/admin/broadcast", icon: Megaphone, label: "Broadcast" },
   { href: "/admin/settings", icon: Settings, label: "Settings" },
 ];
 

@@ -52,6 +52,14 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	billingH := handlers.NewBillingHandler(deps.BillingService, deps.Log)
 	analyticsH := handlers.NewAnalyticsHandler(deps.AnalyticsService, deps.Log)
 	whitelabelH := handlers.NewWhitelabelHandler(deps.DB, deps.Config, deps.Log)
+	adminH := handlers.NewAdminHandler(deps.DB, repos, deps.Log)
+	mediaH := handlers.NewMediaHandler(deps.DB,
+		deps.Config.Storage.Endpoint,
+		deps.Config.Storage.Bucket,
+		deps.Config.Storage.AccessKeyID,
+		deps.Config.Storage.SecretAccessKey,
+		deps.Log)
+	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
 
 	// ── Health ──────────────────────────────────────────────────────────────
 	app.Get("/health", func(c *fiber.Ctx) error {
@@ -113,6 +121,14 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	// Billing (workspace-scoped usage)
 	ws.Get("/billing/usage", billingH.GetUsage)
 
+	// Media
+	ws.Post("/media/presign", mediaH.GetPresignedUploadURL)
+	ws.Get("/media", mediaH.ListMedia)
+	ws.Delete("/media/:key", mediaH.DeleteMedia)
+
+	// Repurpose
+	ws.Post("/repurpose", repurposeH.RepurposeContent)
+
 	// Whitelabel (member-readable, admin-writable)
 	ws.Get("/whitelabel", whitelabelH.GetWhitelabelConfig)
 	ws.Patch("/whitelabel", mw.RequireRole(models.WorkspaceRoleAdmin), whitelabelH.UpdateWhitelabelConfig)
@@ -122,6 +138,17 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	wsAdmin.Get("/clients", whitelabelH.ListClients)
 	wsAdmin.Post("/clients", whitelabelH.CreateClient)
 	wsAdmin.Delete("/clients/:id", whitelabelH.RemoveClient)
+
+	// ── Admin ─────────────────────────────────────────────────────────────────────
+	admin := v1.Group("/admin", mw.JWTAuth()) // TODO: add admin role check middleware
+	admin.Get("/stats", adminH.GetAdminStats)
+	admin.Get("/users", adminH.ListAllUsers)
+	admin.Get("/users/:id", adminH.GetUser)
+	admin.Post("/users/:id/suspend", adminH.SuspendUser)
+	admin.Get("/workspaces", adminH.ListAllWorkspaces)
+	admin.Get("/ai-jobs", adminH.ListAllAIJobs)
+	admin.Get("/audit-logs", adminH.ListAuditLogs)
+	admin.Get("/revenue", adminH.GetRevenueStats)
 
 	// ── Billing ───────────────────────────────────────────────────────────────
 	billing := v1.Group("/billing")

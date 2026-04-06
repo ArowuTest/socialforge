@@ -172,7 +172,8 @@ export const authApi = {
 // Posts API
 // ============================================================
 
-export const postsApi = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const postsApi: Record<string, any> = {
   list: (params?: {
     status?: PostStatus;
     platform?: Platform;

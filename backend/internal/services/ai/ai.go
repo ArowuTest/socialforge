@@ -598,6 +598,30 @@ func extractImageResult(raw map[string]interface{}) *ImageResult {
 	return result
 }
 
+// ─── Repurpose ────────────────────────────────────────────────────────────────
+
+// RepurposeInput describes a repurpose request from the API layer.
+type RepurposeInput struct {
+	SourceType  string   // "text" | "url" | "youtube" | "tiktok"
+	SourceURL   string
+	SourceText  string
+	Platforms   []string
+	YoutubeAPIKey string
+}
+
+// Repurpose dispatches to the appropriate package-level repurpose function and
+// returns a map of platform → PlatformDraft.
+func (s *Service) Repurpose(ctx context.Context, input RepurposeInput) (map[string]PlatformDraft, error) {
+	switch input.SourceType {
+	case "url", "tiktok":
+		return RepurposeFromURL(ctx, input.SourceURL, input.Platforms, s.openaiClient)
+	case "youtube":
+		return RepurposeFromYouTube(ctx, input.SourceURL, input.Platforms, input.YoutubeAPIKey, s.openaiClient)
+	default: // "text" or anything else
+		return RepurposeFromText(ctx, input.SourceText, input.SourceType, input.Platforms, s.openaiClient)
+	}
+}
+
 // ─── utility ──────────────────────────────────────────────────────────────────
 
 func truncate(s string, n int) string {
