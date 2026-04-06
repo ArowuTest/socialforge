@@ -4,7 +4,7 @@ import * as React from "react";
 import {
   Settings, Key, Shield, Wrench, Save, Eye, EyeOff,
   CheckCircle2, AlertTriangle, Trash2, RefreshCw,
-  AlertCircle, ToggleLeft, ToggleRight,
+  AlertCircle, ToggleLeft, ToggleRight, Gift, Search, X, Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +83,20 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
+type FreeGrant = {
+  id: string;
+  email: string;
+  name: string;
+  plan: string;
+  expiresAt: string;
+  grantedAt: string;
+};
+
+const MOCK_GRANTS: FreeGrant[] = [
+  { id: "1", email: "alice@startup.io", name: "Alice Martin", plan: "Pro", expiresAt: "2026-04-20", grantedAt: "2026-04-06" },
+  { id: "2", email: "bob@agency.co", name: "Bob Chen", plan: "Agency", expiresAt: "2026-05-06", grantedAt: "2026-04-06" },
+];
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = React.useState<TabId>("general");
 
@@ -94,6 +108,16 @@ export default function SettingsPage() {
   const [maxAccountsStarter, setMaxAccountsStarter] = React.useState("5");
   const [maxAccountsPro, setMaxAccountsPro] = React.useState("15");
   const [maxAccountsAgency, setMaxAccountsAgency] = React.useState("50");
+
+  // Free access grant state
+  const [grantEmail, setGrantEmail] = React.useState("");
+  const [grantPlan, setGrantPlan] = React.useState("pro");
+  const [grantDuration, setGrantDuration] = React.useState("14");
+  const [grantCustomDays, setGrantCustomDays] = React.useState("");
+  const [grantSubmitting, setGrantSubmitting] = React.useState(false);
+  const [grantSuccess, setGrantSuccess] = React.useState(false);
+  const [activeGrants, setActiveGrants] = React.useState<FreeGrant[]>(MOCK_GRANTS);
+  const [revoking, setRevoking] = React.useState<string | null>(null);
 
   // Security state
   const [sessionTimeout, setSessionTimeout] = React.useState("30");
@@ -107,6 +131,36 @@ export default function SettingsPage() {
   const [confirmMigrations, setConfirmMigrations] = React.useState(false);
   const [cacheClearing, setCacheClearing] = React.useState(false);
   const [migrationsRunning, setMigrationsRunning] = React.useState(false);
+
+  const handleGrantAccess = () => {
+    if (!grantEmail) return;
+    setGrantSubmitting(true);
+    setTimeout(() => {
+      const days = grantDuration === "custom" ? parseInt(grantCustomDays) || 30 : parseInt(grantDuration);
+      const expires = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+      const newGrant: FreeGrant = {
+        id: String(Date.now()),
+        email: grantEmail,
+        name: grantEmail.split("@")[0],
+        plan: grantPlan.charAt(0).toUpperCase() + grantPlan.slice(1),
+        expiresAt: expires,
+        grantedAt: new Date().toISOString().slice(0, 10),
+      };
+      setActiveGrants((prev) => [newGrant, ...prev]);
+      setGrantSubmitting(false);
+      setGrantSuccess(true);
+      setGrantEmail("");
+      setTimeout(() => setGrantSuccess(false), 3000);
+    }, 1200);
+  };
+
+  const handleRevokeGrant = (id: string) => {
+    setRevoking(id);
+    setTimeout(() => {
+      setActiveGrants((prev) => prev.filter((g) => g.id !== id));
+      setRevoking(null);
+    }, 800);
+  };
 
   const handleClearCache = () => {
     if (!confirmClearCache) { setConfirmClearCache(true); return; }
@@ -151,6 +205,7 @@ export default function SettingsPage() {
 
       {/* General tab */}
       {activeTab === "general" && (
+        <div className="space-y-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5 max-w-2xl">
           <h3 className="text-sm font-semibold text-white">General Settings</h3>
 
@@ -202,6 +257,162 @@ export default function SettingsPage() {
 
           <SaveButton onClick={() => {}} />
         </div>
+
+        {/* ── Grant Free Access ────────────────────────────────── */}
+        <div className="bg-slate-900 border border-violet-900/40 rounded-xl p-5 space-y-5 max-w-2xl">
+          <div className="flex items-center gap-2">
+            <Gift className="h-4 w-4 text-violet-400" />
+            <h3 className="text-sm font-semibold text-white">Grant Free Access</h3>
+          </div>
+          <p className="text-xs text-slate-500 -mt-3">
+            Override a user&#39;s plan with free premium access for a fixed period.
+          </p>
+
+          {/* Form */}
+          <div className="space-y-4">
+            {/* Email search */}
+            <div>
+              <label className={labelClass}>User Email</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500 pointer-events-none" />
+                <input
+                  type="email"
+                  value={grantEmail}
+                  onChange={(e) => setGrantEmail(e.target.value)}
+                  placeholder="user@example.com"
+                  className={cn(inputClass, "pl-9")}
+                />
+                {grantEmail && (
+                  <button
+                    onClick={() => setGrantEmail("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Plan selector */}
+              <div>
+                <label className={labelClass}>Plan to Grant</label>
+                <select
+                  value={grantPlan}
+                  onChange={(e) => setGrantPlan(e.target.value)}
+                  className={cn(inputClass, "appearance-none")}
+                >
+                  <option value="starter">Starter</option>
+                  <option value="pro">Pro</option>
+                  <option value="agency">Agency</option>
+                </select>
+              </div>
+
+              {/* Duration selector */}
+              <div>
+                <label className={labelClass}>Duration</label>
+                <select
+                  value={grantDuration}
+                  onChange={(e) => setGrantDuration(e.target.value)}
+                  className={cn(inputClass, "appearance-none")}
+                >
+                  <option value="7">7 days</option>
+                  <option value="14">14 days</option>
+                  <option value="30">30 days</option>
+                  <option value="60">60 days</option>
+                  <option value="90">90 days</option>
+                  <option value="custom">Custom…</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Custom days input */}
+            {grantDuration === "custom" && (
+              <div>
+                <label className={labelClass}>Custom Duration (days)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={grantCustomDays}
+                  onChange={(e) => setGrantCustomDays(e.target.value)}
+                  placeholder="e.g. 45"
+                  className={inputClass}
+                />
+              </div>
+            )}
+
+            {grantSuccess && (
+              <p className="text-xs text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Free access granted successfully.
+              </p>
+            )}
+
+            <button
+              onClick={handleGrantAccess}
+              disabled={!grantEmail || grantSubmitting}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+                "bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              )}
+            >
+              <Plus className={cn("h-4 w-4", grantSubmitting && "animate-spin")} />
+              {grantSubmitting ? "Granting…" : "Grant Access"}
+            </button>
+          </div>
+
+          {/* Active grants table */}
+          {activeGrants.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-slate-400 mb-3">Active Free Grants ({activeGrants.length})</p>
+              <div className="rounded-lg border border-slate-800 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-800/60 text-slate-500">
+                      <th className="text-left px-3 py-2 font-medium">User</th>
+                      <th className="text-left px-3 py-2 font-medium">Plan</th>
+                      <th className="text-left px-3 py-2 font-medium">Expires</th>
+                      <th className="text-left px-3 py-2 font-medium">Granted</th>
+                      <th className="px-3 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeGrants.map((grant) => (
+                      <tr key={grant.id} className="border-t border-slate-800/60 hover:bg-slate-800/30 transition-colors">
+                        <td className="px-3 py-2.5">
+                          <p className="text-white font-medium">{grant.name}</p>
+                          <p className="text-slate-500">{grant.email}</p>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="px-2 py-0.5 rounded-full bg-violet-900/40 text-violet-300 text-xs font-medium">
+                            {grant.plan}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-300">{grant.expiresAt}</td>
+                        <td className="px-3 py-2.5 text-slate-500">{grant.grantedAt}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          <button
+                            onClick={() => handleRevokeGrant(grant.id)}
+                            disabled={revoking === grant.id}
+                            className="text-slate-500 hover:text-red-400 transition-colors disabled:opacity-50"
+                            title="Revoke access"
+                          >
+                            {revoking === grant.id ? (
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <X className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+        </div>
       )}
 
       {/* Integrations tab */}
@@ -211,10 +422,10 @@ export default function SettingsPage() {
           <p className="text-xs text-slate-500 mb-4">Manage third-party service credentials. Values are stored encrypted.</p>
 
           <MaskedField label="Stripe Secret Key" value="sk_live_••••••••••••••••••••••••••••••" status="ok" />
-          <MaskedField label="OpenAI API Key" value="sk-proj-VT8mN2xKq4pL7rWj9Ys3Fb1cPmQd6AnXe5Zh" status="ok" />
-          <MaskedField label="Fal.ai API Key" value="fal-key-Xm9kP3vNq7tL2sW8cYr4Bj5nF1dQ6eAh" status="ok" />
-          <MaskedField label="Resend API Key" value="re_TvL3Km9pXq2nW5sY8cBj4Fr7dM1eN6aZ" status="ok" />
-          <MaskedField label="Upstash Redis URL" value="redis://default:Xm8pN3vK2qL9sW4cY7rBj1nF5dQ6eAhT@apn1-redis-12345.upstash.io:6379" status="ok" />
+          <MaskedField label="OpenAI API Key" value="sk-proj-••••••••••••••••••••••••••••••" status="ok" />
+          <MaskedField label="Fal.ai API Key" value="fal-key-••••••••••••••••••••••••••••" status="ok" />
+          <MaskedField label="Resend API Key" value="re_••••••••••••••••••••••••••••••••" status="ok" />
+          <MaskedField label="Upstash Redis URL" value="rediss://default:••••••••••••@••••.upstash.io:6379" status="ok" />
         </div>
       )}
 
