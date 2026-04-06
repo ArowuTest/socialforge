@@ -15,8 +15,11 @@ import (
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/config"
 	"github.com/socialforge/backend/internal/models"
+	"github.com/socialforge/backend/internal/repository"
 	ai "github.com/socialforge/backend/internal/services/ai"
+	analyticssvc "github.com/socialforge/backend/internal/services/analytics"
 	authsvc "github.com/socialforge/backend/internal/services/auth"
+	billingsvc "github.com/socialforge/backend/internal/services/billing"
 	scheduling "github.com/socialforge/backend/internal/services/scheduling"
 )
 
@@ -29,29 +32,35 @@ type PlatformOAuthClient interface {
 
 // Deps bundles all application-level dependencies passed to route handlers.
 type Deps struct {
-	DB              *gorm.DB
-	RDB             *redis.Client
-	Config          *config.Config
-	Log             *zap.Logger
-	AuthService     *authsvc.Service
-	AIService       *ai.Service
-	ScheduleService *scheduling.Service
-	AsynqClient     *asynq.Client
-	PlatformClients map[string]PlatformOAuthClient
+	DB               *gorm.DB
+	RDB              *redis.Client
+	Config           *config.Config
+	Log              *zap.Logger
+	AuthService      *authsvc.Service
+	AIService        *ai.Service
+	AnalyticsService *analyticssvc.Service
+	BillingService   *billingsvc.Service
+	ScheduleService  *scheduling.Service
+	AsynqClient      *asynq.Client
+	PlatformClients  map[string]PlatformOAuthClient
 }
 
 // SetupRoutes registers all API routes on the provided Fiber app.
 func SetupRoutes(app *fiber.App, deps Deps) {
+	// Build the repository container from the shared *gorm.DB.
+	repos := repository.NewContainer(deps.DB)
+
 	// Build middleware group.
 	mw := middleware.New(deps.AuthService, deps.DB, deps.RDB, deps.Config, deps.Log)
 
-	// Build handler groups.
-	authH := handlers.NewAuthHandler(deps.DB, deps.AuthService, deps.Log)
-	postsH := handlers.NewPostsHandler(deps.DB, deps.ScheduleService, deps.AsynqClient, deps.Log)
+	// Build handler groups, injecting repository interfaces instead of raw *gorm.DB.
+	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.Log)
+	postsH := handlers.NewPostsHandler(repos.Posts, deps.ScheduleService, deps.AsynqClient, deps.Log)
 	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.Config, deps.Log)
 	scheduleH := handlers.NewScheduleHandler(deps.DB, deps.ScheduleService, deps.Log)
-	aiH := handlers.NewAIHandler(deps.DB, deps.AIService, deps.AsynqClient, deps.Log)
-	billingH := handlers.NewBillingHandler(deps.DB, deps.Config, deps.Log)
+	aiH := handlers.NewAIHandler(deps.DB, deps.AIService, deps.AnalyticsService, deps.AsynqClient, deps.Log)
+	billingH := handlers.NewBillingHandler(deps.BillingService, deps.Log)
+	analyticsH := handlers.NewAnalyticsHandler(deps.AnalyticsService, deps.Log)
 	whitelabelH := handlers.NewWhitelabelHandler(deps.DB, deps.Config, deps.Log)
 
 	// ── Health ──────────────────────────────────────────────────────────────
@@ -107,6 +116,12 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/ai/repurpose", aiH.RepurposeContent)
 	ws.Get("/ai/jobs/:id", aiH.GetAIJobStatus)
 	ws.Post("/ai/analyse", aiH.AnalyseViralPotential)
+
+	// Analytics
+	ws.Get("/analytics", analyticsH.GetDashboard)
+
+	// Billing (workspace-scoped usage)
+	ws.Get("/billing/usage", billingH.GetUsage)
 
 	// Whitelabel (member-readable, admin-writable)
 	ws.Get("/whitelabel", whitelabelH.GetWhitelabelConfig)

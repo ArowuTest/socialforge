@@ -111,10 +111,10 @@ func (s *Service) saveJob(
 	now := time.Now().UTC()
 	job := &models.AIJob{
 		WorkspaceID:   workspaceID,
-		Type:          jobType,
-		Status:        status,
-		Input:         input,
-		Output:        output,
+		JobType:       models.AIJobType(jobType),
+		Status:        models.AIJobStatus(status),
+		InputData:     input,
+		OutputData:    output,
 		CreditsUsed:   credits,
 		ErrorMessage:  errMsg,
 		CompletedAt:   &now,
@@ -160,7 +160,7 @@ func (s *Service) GenerateCaption(
 	)
 
 	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4o,
+		Model: openai.GPT4TurboPreview,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: prompt},
@@ -211,7 +211,7 @@ func (s *Service) GenerateHashtags(
 	)
 
 	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4o,
+		Model: openai.GPT4TurboPreview,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: content},
@@ -312,9 +312,9 @@ func (s *Service) GenerateVideo(
 	// Create a pending job first so the client can poll it.
 	job := &models.AIJob{
 		WorkspaceID: workspaceID,
-		Type:        "video",
-		Status:      "processing",
-		Input: models.JSONMap{
+		JobType:     models.AIJobGenerateVideo,
+		Status:      models.AIJobStatusProcessing,
+		InputData: models.JSONMap{
 			"prompt":   prompt,
 			"duration": duration,
 			"style":    style,
@@ -407,7 +407,7 @@ func (s *Service) GenerateCarousel(
 	)
 
 	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4o,
+		Model: openai.GPT4TurboPreview,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: topic},
@@ -471,7 +471,7 @@ func (s *Service) AnalyseViralPotential(
 	)
 
 	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4o,
+		Model: openai.GPT4TurboPreview,
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: content},

@@ -12,19 +12,27 @@ import (
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/models"
 	ai "github.com/socialforge/backend/internal/services/ai"
+	analyticssvc "github.com/socialforge/backend/internal/services/analytics"
 )
 
-// AIHandler handles AI content generation endpoints.
+// AIHandler handles AI content generation and analytics endpoints.
 type AIHandler struct {
-	db    *gorm.DB
-	ai    *ai.Service
-	asynq *asynq.Client
-	log   *zap.Logger
+	db        *gorm.DB
+	ai        *ai.Service
+	analytics *analyticssvc.Service
+	asynq     *asynq.Client
+	log       *zap.Logger
 }
 
 // NewAIHandler creates a new AIHandler.
-func NewAIHandler(db *gorm.DB, aiService *ai.Service, asynqClient *asynq.Client, log *zap.Logger) *AIHandler {
-	return &AIHandler{db: db, ai: aiService, asynq: asynqClient, log: log.Named("ai_handler")}
+func NewAIHandler(db *gorm.DB, aiService *ai.Service, analyticsService *analyticssvc.Service, asynqClient *asynq.Client, log *zap.Logger) *AIHandler {
+	return &AIHandler{
+		db:        db,
+		ai:        aiService,
+		analytics: analyticsService,
+		asynq:     asynqClient,
+		log:       log.Named("ai_handler"),
+	}
 }
 
 // ── GenerateCaption ───────────────────────────────────────────────────────────
@@ -362,12 +370,37 @@ func (h *AIHandler) AnalyseViralPotential(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"data": fiber.Map{
-			"score":            analysis.Score,
-			"grade":            analysis.Grade,
-			"suggestions":      analysis.Improvements,
-			"strengths":        analysis.Strengths,
-			"estimated_reach":  analysis.EstimatedReach,
+			"score":             analysis.Score,
+			"grade":             analysis.Grade,
+			"suggestions":       analysis.Improvements,
+			"strengths":         analysis.Strengths,
+			"estimated_reach":   analysis.EstimatedReach,
 			"optimal_post_time": analysis.OptimalPostTime,
 		},
 	})
+}
+
+// ── GetAnalytics ──────────────────────────────────────────────────────────────
+
+// GetAnalytics returns aggregated dashboard analytics for a workspace.
+// GET /api/v1/workspaces/:wid/analytics?period=7d|30d|90d
+func (h *AIHandler) GetAnalytics(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+
+	period := c.Query("period", "30d")
+	from, to := h.analytics.GetDateRange(period)
+
+	stats, err := h.analytics.GetDashboardStats(c.Context(), wid, from, to)
+	if err != nil {
+		h.log.Error("GetAnalytics: analytics.GetDashboardStats",
+			zap.String("workspace_id", wid.String()),
+			zap.Error(err),
+		)
+		return internalError(c, "failed to load analytics")
+	}
+
+	return c.JSON(fiber.Map{"data": stats})
 }

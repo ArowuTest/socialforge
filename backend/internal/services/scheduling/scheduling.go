@@ -62,7 +62,7 @@ func (s *Service) CreateScheduleSlot(
 
 	slot := &models.ScheduleSlot{
 		WorkspaceID: workspaceID,
-		Platform:    platform,
+		Platform:    models.PlatformType(platform),
 		DayOfWeek:   dayOfWeek,
 		TimeOfDay:   timeOfDay,
 		Timezone:    timezone,
@@ -228,20 +228,24 @@ func (s *Service) BulkSchedule(posts []models.Post) []BulkScheduleResult {
 	for i, post := range posts {
 		// Find the first free slot for this post's platform.
 		var assigned time.Time
+		platform := ""
+		if len(post.Platforms) > 0 {
+			platform = string(post.Platforms[0])
+		}
 		for attempt := 0; attempt < 30; attempt++ {
-			candidate, err := s.GetNextFreeSlot(post.WorkspaceID, post.Platform)
+			candidate, err := s.GetNextFreeSlot(post.WorkspaceID, platform)
 			if err != nil {
 				results[i] = BulkScheduleResult{PostID: post.ID, Error: err.Error()}
 				break
 			}
-			if !isUsed(post.Platform, candidate) {
+			if !isUsed(platform, candidate) {
 				assigned = candidate
 				break
 			}
 			// If that slot is taken by a post we already assigned in this batch,
 			// advance by one week and try again.
 			candidate = candidate.AddDate(0, 0, 7)
-			if !isUsed(post.Platform, candidate) {
+			if !isUsed(platform, candidate) {
 				assigned = candidate
 				break
 			}
@@ -259,7 +263,7 @@ func (s *Service) BulkSchedule(posts []models.Post) []BulkScheduleResult {
 			continue
 		}
 
-		used = append(used, slotUsage{platform: post.Platform, at: assigned})
+		used = append(used, slotUsage{platform: platform, at: assigned})
 		results[i] = BulkScheduleResult{PostID: post.ID, ScheduledAt: assigned}
 	}
 

@@ -11,16 +11,17 @@ import (
 
 // Config holds all application configuration loaded from environment variables.
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	Stripe   StripeConfig
-	OpenAI   OpenAIConfig
-	FalAI    FalAIConfig
-	OAuth    OAuthConfig
-	App      AppConfig
-	Storage  StorageConfig
+	Server        ServerConfig
+	Database      DatabaseConfig
+	Redis         RedisConfig
+	JWT           JWTConfig
+	Stripe        StripeConfig
+	OpenAI        OpenAIConfig
+	FalAI         FalAIConfig
+	OAuth         OAuthConfig
+	App           AppConfig
+	Storage       StorageConfig
+	Notifications NotificationsConfig
 }
 
 // ServerConfig holds HTTP server settings.
@@ -115,6 +116,19 @@ type StorageConfig struct {
 	PublicURL       string
 }
 
+// ResendConfig holds Resend email API settings.
+type ResendConfig struct {
+	APIKey    string
+	FromEmail string
+}
+
+// NotificationsConfig holds notification / email settings.
+type NotificationsConfig struct {
+	Resend    ResendConfig
+	AppName   string
+	AppURL    string
+}
+
 // Load reads configuration from environment variables.
 // It attempts to load a .env file first; missing .env is not an error in production.
 func Load() (*Config, error) {
@@ -170,6 +184,12 @@ func Load() (*Config, error) {
 	cfg.Storage.AccessKeyID = requireEnv("STORAGE_ACCESS_KEY_ID")
 	cfg.Storage.SecretAccessKey = requireEnv("STORAGE_SECRET_ACCESS_KEY")
 	cfg.Storage.PublicURL = getEnvOrDefault("STORAGE_PUBLIC_URL", "")
+
+	// ── Notifications / Resend ──────────────────────────────────────────────────
+	cfg.Notifications.Resend.APIKey = getEnvOrDefault("RESEND_API_KEY", "")
+	cfg.Notifications.Resend.FromEmail = getEnvOrDefault("RESEND_FROM_EMAIL", "noreply@socialforge.io")
+	cfg.Notifications.AppName = getEnvOrDefault("APP_NAME", "SocialForge")
+	cfg.Notifications.AppURL = getEnvOrDefault("APP_FRONTEND_URL", cfg.App.BaseURL)
 
 	// ── OAuth – Instagram / Facebook ────────────────────────────────────────────
 	cfg.OAuth.Instagram = OAuthPlatformConfig{

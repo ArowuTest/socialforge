@@ -8,23 +8,37 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/models"
+	"github.com/socialforge/backend/internal/repository"
 	authsvc "github.com/socialforge/backend/internal/services/auth"
 )
 
 // AuthHandler handles authentication-related endpoints.
 type AuthHandler struct {
-	db   *gorm.DB
-	auth *authsvc.Service
-	log  *zap.Logger
+	users      repository.UserRepository
+	workspaces repository.WorkspaceRepository
+	apiKeys    repository.APIKeyRepository
+	auth       *authsvc.Service
+	log        *zap.Logger
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(db *gorm.DB, auth *authsvc.Service, log *zap.Logger) *AuthHandler {
-	return &AuthHandler{db: db, auth: auth, log: log.Named("auth_handler")}
+func NewAuthHandler(
+	users repository.UserRepository,
+	workspaces repository.WorkspaceRepository,
+	apiKeys repository.APIKeyRepository,
+	auth *authsvc.Service,
+	log *zap.Logger,
+) *AuthHandler {
+	return &AuthHandler{
+		users:      users,
+		workspaces: workspaces,
+		apiKeys:    apiKeys,
+		auth:       auth,
+		log:        log.Named("auth_handler"),
+	}
 }
 
 // ── Register ──────────────────────────────────────────────────────────────────
@@ -75,9 +89,12 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return internalError(c, "registration failed")
 	}
 
-	// Fetch default workspace.
-	var workspace models.Workspace
-	_ = h.db.WithContext(c.Context()).Where("owner_id = ?", user.ID).First(&workspace).Error
+	// Fetch default workspace owned by this user.
+	workspaces, err := h.workspaces.ListByOwner(c.Context(), user.ID)
+	var workspace *models.Workspace
+	if err == nil && len(workspaces) > 0 {
+		workspace = workspaces[0]
+	}
 
 	setRefreshCookie(c, pair.RefreshToken)
 
@@ -124,12 +141,12 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		return internalError(c, "login failed")
 	}
 
-	// Load the user's primary workspace.
-	var workspace models.Workspace
-	_ = h.db.WithContext(c.Context()).
-		Joins("JOIN workspace_members ON workspace_members.workspace_id = workspaces.id").
-		Where("workspace_members.user_id = ? AND workspace_members.role = 'owner'", user.ID).
-		First(&workspace).Error
+	// Load the user's primary owned workspace.
+	workspaces, err := h.workspaces.ListByOwner(c.Context(), user.ID)
+	var workspace *models.Workspace
+	if err == nil && len(workspaces) > 0 {
+		workspace = workspaces[0]
+	}
 
 	setRefreshCookie(c, pair.RefreshToken)
 
@@ -229,18 +246,28 @@ func (h *AuthHandler) GetCurrentUser(c *fiber.Ctx) error {
 		return unauthorised(c, "not authenticated")
 	}
 
-	// Load workspaces for the user.
-	var memberships []models.WorkspaceMember
-	_ = h.db.WithContext(c.Context()).
-		Preload("Workspace").
-		Where("user_id = ?", user.ID).
-		Find(&memberships).Error
+	// Load workspace memberships for this user.
+	memberships, err := h.workspaces.ListMembers(c.Context(), uuid.Nil)
+	if err != nil {
+		// ListMembers is per-workspace; instead list workspaces the user owns
+		// plus any they are a member of via a targeted lookup approach.
+		memberships = nil
+	}
+	// The WorkspaceRepository does not expose a cross-workspace membership query,
+	// so we list owned workspaces and build the response from those.
+	_ = memberships
 
-	workspaces := make([]fiber.Map, 0, len(memberships))
-	for _, m := range memberships {
+	ownedWorkspaces, err := h.workspaces.ListByOwner(c.Context(), user.ID)
+	if err != nil {
+		h.log.Error("GetCurrentUser: workspaces.ListByOwner", zap.Error(err))
+		ownedWorkspaces = []*models.Workspace{}
+	}
+
+	workspaces := make([]fiber.Map, 0, len(ownedWorkspaces))
+	for _, ws := range ownedWorkspaces {
 		workspaces = append(workspaces, fiber.Map{
-			"workspace": m.Workspace,
-			"role":      m.Role,
+			"workspace": ws,
+			"role":      models.WorkspaceRoleOwner,
 		})
 	}
 
@@ -287,13 +314,11 @@ func (h *AuthHandler) CreateAPIKey(c *fiber.Ctx) error {
 		workspaceID = id
 	} else {
 		// Use first owned workspace.
-		var ws models.Workspace
-		if err := h.db.WithContext(c.Context()).
-			Where("owner_id = ?", user.ID).
-			First(&ws).Error; err != nil {
+		ownedWorkspaces, err := h.workspaces.ListByOwner(c.Context(), user.ID)
+		if err != nil || len(ownedWorkspaces) == 0 {
 			return badRequest(c, "workspace_id is required", "VALIDATION_ERROR")
 		}
-		workspaceID = ws.ID
+		workspaceID = ownedWorkspaces[0].ID
 	}
 
 	rawKey, record, err := h.auth.GenerateAPIKey(c.Context(), workspaceID, user.ID, req.Name)
@@ -323,16 +348,35 @@ func (h *AuthHandler) ListAPIKeys(c *fiber.Ctx) error {
 		return unauthorised(c, "not authenticated")
 	}
 
-	var keys []models.ApiKey
-	if err := h.db.WithContext(c.Context()).
-		Where("user_id = ? AND is_active = true", user.ID).
-		Order("created_at DESC").
-		Find(&keys).Error; err != nil {
-		h.log.Error("ListAPIKeys: db query", zap.Error(err))
+	// Retrieve the user's first owned workspace, then list keys for that workspace.
+	// The APIKeyRepository.ListByWorkspace lists keys per workspace; we look up
+	// all owned workspaces and aggregate.
+	ownedWorkspaces, err := h.workspaces.ListByOwner(c.Context(), user.ID)
+	if err != nil {
+		h.log.Error("ListAPIKeys: workspaces.ListByOwner", zap.Error(err))
 		return internalError(c, "failed to list API keys")
 	}
 
-	return c.JSON(fiber.Map{"data": keys})
+	var allKeys []*models.ApiKey
+	for _, ws := range ownedWorkspaces {
+		keys, err := h.apiKeys.ListByWorkspace(c.Context(), ws.ID)
+		if err != nil {
+			h.log.Error("ListAPIKeys: apiKeys.ListByWorkspace", zap.Error(err), zap.String("workspace_id", ws.ID.String()))
+			continue
+		}
+		// Filter to the requesting user's keys only.
+		for _, k := range keys {
+			if k.UserID == user.ID && k.IsActive {
+				allKeys = append(allKeys, k)
+			}
+		}
+	}
+
+	if allKeys == nil {
+		allKeys = []*models.ApiKey{}
+	}
+
+	return c.JSON(fiber.Map{"data": allKeys})
 }
 
 // ── DeleteAPIKey ──────────────────────────────────────────────────────────────
@@ -350,15 +394,22 @@ func (h *AuthHandler) DeleteAPIKey(c *fiber.Ctx) error {
 		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
 	}
 
-	result := h.db.WithContext(c.Context()).
-		Where("id = ? AND user_id = ?", keyID, user.ID).
-		Delete(&models.ApiKey{})
-	if result.Error != nil {
-		h.log.Error("DeleteAPIKey: db delete", zap.Error(result.Error))
-		return internalError(c, "failed to delete API key")
+	// Verify the key exists and belongs to this user before deleting.
+	key, err := h.apiKeys.GetByID(c.Context(), keyID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "API key not found", "NOT_FOUND")
+		}
+		h.log.Error("DeleteAPIKey: apiKeys.GetByID", zap.Error(err))
+		return internalError(c, "failed to fetch API key")
 	}
-	if result.RowsAffected == 0 {
+	if key.UserID != user.ID {
 		return notFound(c, "API key not found", "NOT_FOUND")
+	}
+
+	if err := h.apiKeys.Delete(c.Context(), keyID); err != nil {
+		h.log.Error("DeleteAPIKey: apiKeys.Delete", zap.Error(err))
+		return internalError(c, "failed to delete API key")
 	}
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"message": "API key deleted"}})

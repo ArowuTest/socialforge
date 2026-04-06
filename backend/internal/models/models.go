@@ -273,8 +273,9 @@ type Workspace struct {
 	CurrentPeriodStart   *time.Time         `                                       json:"current_period_start,omitempty"`
 	CurrentPeriodEnd     *time.Time         `                                       json:"current_period_end,omitempty"`
 	// AI credits
-	AICreditsUsed  int `gorm:"not null;default:0"  json:"ai_credits_used"`
-	AICreditsLimit int `gorm:"not null;default:100" json:"ai_credits_limit"`
+	AICreditsUsed    int        `gorm:"not null;default:0"   json:"ai_credits_used"`
+	AICreditsLimit   int        `gorm:"not null;default:100" json:"ai_credits_limit"`
+	AICreditsResetAt *time.Time `                            json:"ai_credits_reset_at,omitempty"`
 	// Branding overrides for white-label
 	BrandName      string `gorm:"size:255"  json:"brand_name,omitempty"`
 	SecondaryColor string `gorm:"size:7"    json:"secondary_color,omitempty"`
@@ -369,8 +370,9 @@ type Post struct {
 	// Pinterest extras
 	BoardID string `gorm:"size:255"   json:"board_id,omitempty"`
 	LinkURL string `gorm:"size:2048"  json:"link_url,omitempty"`
-	// Retry
+	// Retry / publish attempts
 	RetryCount int `gorm:"default:0" json:"retry_count"`
+	Attempts   int `gorm:"default:0" json:"attempts"`
 
 	// Associations
 	Workspace     Workspace      `gorm:"foreignKey:WorkspaceID" json:"-"`

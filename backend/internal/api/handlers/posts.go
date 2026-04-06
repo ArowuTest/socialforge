@@ -9,25 +9,25 @@ import (
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/models"
 	"github.com/socialforge/backend/internal/queue"
+	"github.com/socialforge/backend/internal/repository"
 	scheduling "github.com/socialforge/backend/internal/services/scheduling"
 )
 
 // PostsHandler handles post CRUD and publishing endpoints.
 type PostsHandler struct {
-	db       *gorm.DB
+	repo     repository.PostRepository
 	schedule *scheduling.Service
 	asynq    *asynq.Client
 	log      *zap.Logger
 }
 
 // NewPostsHandler creates a new PostsHandler.
-func NewPostsHandler(db *gorm.DB, schedule *scheduling.Service, asynqClient *asynq.Client, log *zap.Logger) *PostsHandler {
-	return &PostsHandler{db: db, schedule: schedule, asynq: asynqClient, log: log.Named("posts_handler")}
+func NewPostsHandler(repo repository.PostRepository, schedule *scheduling.Service, asynqClient *asynq.Client, log *zap.Logger) *PostsHandler {
+	return &PostsHandler{repo: repo, schedule: schedule, asynq: asynqClient, log: log.Named("posts_handler")}
 }
 
 // resolveWorkspaceID extracts and validates the :wid parameter.
@@ -59,41 +59,36 @@ func (h *PostsHandler) ListPosts(c *fiber.Ctx) error {
 	if page < 1 {
 		page = 1
 	}
-	offset := (page - 1) * limit
 
-	q := h.db.WithContext(c.Context()).Model(&models.Post{}).
-		Where("workspace_id = ?", wid)
+	filter := repository.PostFilter{
+		WorkspaceID: wid,
+		Page:        page,
+		Limit:       limit,
+	}
 
 	if status := c.Query("status"); status != "" {
-		q = q.Where("status = ?", status)
+		filter.Status = status
 	}
 	if platform := c.Query("platform"); platform != "" {
-		// platforms is a JSON array column — use LIKE for basic filtering
-		q = q.Where("platforms LIKE ?", "%"+platform+"%")
+		filter.Platform = platform
 	}
 	if from := c.Query("from"); from != "" {
 		t, err := time.Parse("2006-01-02", from)
 		if err == nil {
-			q = q.Where("scheduled_at >= ?", t)
+			filter.From = &t
 		}
 	}
 	if to := c.Query("to"); to != "" {
 		t, err := time.Parse("2006-01-02", to)
 		if err == nil {
-			q = q.Where("scheduled_at < ?", t.AddDate(0, 0, 1))
+			end := t.AddDate(0, 0, 1)
+			filter.To = &end
 		}
 	}
 
-	var total int64
-	q.Count(&total)
-
-	var posts []models.Post
-	if err := q.Preload("PostPlatforms").
-		Order("created_at DESC").
-		Offset(offset).
-		Limit(limit).
-		Find(&posts).Error; err != nil {
-		h.log.Error("ListPosts: db query", zap.Error(err))
+	posts, total, err := h.repo.List(c.Context(), filter)
+	if err != nil {
+		h.log.Error("ListPosts: repo.List", zap.Error(err))
 		return internalError(c, "failed to list posts")
 	}
 
@@ -195,8 +190,8 @@ func (h *PostsHandler) CreatePost(c *fiber.Ctx) error {
 		post.Status = models.PostStatusScheduled
 	}
 
-	if err := h.db.WithContext(c.Context()).Create(post).Error; err != nil {
-		h.log.Error("CreatePost: db create", zap.Error(err))
+	if err := h.repo.Create(c.Context(), post); err != nil {
+		h.log.Error("CreatePost: repo.Create", zap.Error(err))
 		return internalError(c, "failed to create post")
 	}
 
@@ -217,17 +212,18 @@ func (h *PostsHandler) GetPost(c *fiber.Ctx) error {
 		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
 	}
 
-	var post models.Post
-	if err := h.db.WithContext(c.Context()).
-		Preload("PostPlatforms").
-		Preload("Author").
-		Where("id = ? AND workspace_id = ?", postID, wid).
-		First(&post).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
 			return notFound(c, "post not found", "NOT_FOUND")
 		}
-		h.log.Error("GetPost: db query", zap.Error(err))
+		h.log.Error("GetPost: repo.GetByID", zap.Error(err))
 		return internalError(c, "failed to get post")
+	}
+
+	// Verify post belongs to the requested workspace.
+	if post.WorkspaceID != wid {
+		return notFound(c, "post not found", "NOT_FOUND")
 	}
 
 	return c.JSON(fiber.Map{"data": post})
@@ -258,14 +254,17 @@ func (h *PostsHandler) UpdatePost(c *fiber.Ctx) error {
 		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
 	}
 
-	var post models.Post
-	if err := h.db.WithContext(c.Context()).
-		Where("id = ? AND workspace_id = ?", postID, wid).
-		First(&post).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
 			return notFound(c, "post not found", "NOT_FOUND")
 		}
 		return internalError(c, "failed to fetch post")
+	}
+
+	// Verify post belongs to the requested workspace.
+	if post.WorkspaceID != wid {
+		return notFound(c, "post not found", "NOT_FOUND")
 	}
 
 	if post.Status == models.PostStatusPublished || post.Status == models.PostStatusPublishing {
@@ -280,32 +279,38 @@ func (h *PostsHandler) UpdatePost(c *fiber.Ctx) error {
 		return badRequest(c, "invalid request body", "INVALID_BODY")
 	}
 
-	updates := map[string]interface{}{}
+	changed := false
 	if req.Title != nil {
-		updates["title"] = *req.Title
+		post.Title = *req.Title
+		changed = true
 	}
 	if req.Content != nil {
 		if *req.Content == "" {
 			return badRequest(c, "content cannot be empty", "VALIDATION_ERROR")
 		}
-		updates["content"] = *req.Content
+		post.Content = *req.Content
+		changed = true
 	}
 	if req.Platforms != nil {
-		updates["platforms"] = models.StringSlice(req.Platforms)
+		post.Platforms = req.Platforms
+		changed = true
 	}
 	if req.MediaURLs != nil {
-		updates["media_urls"] = models.StringSlice(req.MediaURLs)
+		post.MediaURLs = req.MediaURLs
+		changed = true
 	}
 	if req.Hashtags != nil {
-		updates["hashtags"] = models.StringSlice(req.Hashtags)
+		post.Hashtags = req.Hashtags
+		changed = true
 	}
 	if req.PostType != nil {
-		updates["type"] = *req.PostType
+		post.Type = models.PostType(*req.PostType)
+		changed = true
 	}
 	if req.ScheduledAt != nil {
 		if *req.ScheduledAt == "" {
-			updates["scheduled_at"] = nil
-			updates["status"] = models.PostStatusDraft
+			post.ScheduledAt = nil
+			post.Status = models.PostStatusDraft
 		} else {
 			t, err := time.Parse(time.RFC3339, *req.ScheduledAt)
 			if err != nil {
@@ -314,28 +319,33 @@ func (h *PostsHandler) UpdatePost(c *fiber.Ctx) error {
 			if !t.After(time.Now()) {
 				return badRequest(c, "scheduled_at must be in the future", "VALIDATION_ERROR")
 			}
-			updates["scheduled_at"] = t
-			updates["status"] = models.PostStatusScheduled
+			post.ScheduledAt = &t
+			post.Status = models.PostStatusScheduled
 		}
+		changed = true
 	}
 	if req.Status != nil {
 		// Allow demoting back to draft.
 		if *req.Status == string(models.PostStatusDraft) {
-			updates["status"] = models.PostStatusDraft
+			post.Status = models.PostStatusDraft
+			changed = true
 		}
 	}
 
-	if len(updates) == 0 {
+	if !changed {
 		return badRequest(c, "no fields to update", "VALIDATION_ERROR")
 	}
 
-	if err := h.db.WithContext(c.Context()).Model(&post).Updates(updates).Error; err != nil {
-		h.log.Error("UpdatePost: db update", zap.Error(err))
+	if err := h.repo.Update(c.Context(), post); err != nil {
+		h.log.Error("UpdatePost: repo.Update", zap.Error(err))
 		return internalError(c, "failed to update post")
 	}
 
-	// Reload.
-	_ = h.db.WithContext(c.Context()).Preload("PostPlatforms").First(&post, post.ID).Error
+	// Reload to get fresh PostPlatforms.
+	updated, err := h.repo.GetByID(c.Context(), post.ID)
+	if err == nil {
+		post = updated
+	}
 
 	return c.JSON(fiber.Map{"data": post})
 }
@@ -354,15 +364,22 @@ func (h *PostsHandler) DeletePost(c *fiber.Ctx) error {
 		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
 	}
 
-	result := h.db.WithContext(c.Context()).
-		Where("id = ? AND workspace_id = ?", postID, wid).
-		Delete(&models.Post{})
-	if result.Error != nil {
-		h.log.Error("DeletePost: db delete", zap.Error(result.Error))
-		return internalError(c, "failed to delete post")
+	// Verify ownership before deleting.
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "post not found", "NOT_FOUND")
+		}
+		h.log.Error("DeletePost: repo.GetByID", zap.Error(err))
+		return internalError(c, "failed to fetch post")
 	}
-	if result.RowsAffected == 0 {
+	if post.WorkspaceID != wid {
 		return notFound(c, "post not found", "NOT_FOUND")
+	}
+
+	if err := h.repo.Delete(c.Context(), postID); err != nil {
+		h.log.Error("DeletePost: repo.Delete", zap.Error(err))
+		return internalError(c, "failed to delete post")
 	}
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"message": "post deleted"}})
@@ -383,14 +400,15 @@ func (h *PostsHandler) PublishNow(c *fiber.Ctx) error {
 	}
 
 	// Verify post exists and belongs to workspace.
-	var post models.Post
-	if err := h.db.WithContext(c.Context()).
-		Where("id = ? AND workspace_id = ?", postID, wid).
-		First(&post).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
 			return notFound(c, "post not found", "NOT_FOUND")
 		}
 		return internalError(c, "failed to fetch post")
+	}
+	if post.WorkspaceID != wid {
+		return notFound(c, "post not found", "NOT_FOUND")
 	}
 
 	if post.Status == models.PostStatusPublished {
@@ -420,7 +438,9 @@ func (h *PostsHandler) PublishNow(c *fiber.Ctx) error {
 	}
 
 	// Mark as publishing.
-	_ = h.db.WithContext(c.Context()).Model(&post).Update("status", models.PostStatusPublishing).Error
+	if err := h.repo.UpdateStatus(c.Context(), postID, models.PostStatusPublishing, ""); err != nil {
+		h.log.Warn("PublishNow: failed to mark post as publishing", zap.Error(err))
+	}
 
 	return c.JSON(fiber.Map{
 		"data": fiber.Map{
@@ -461,7 +481,7 @@ func (h *PostsHandler) BulkCreatePosts(c *fiber.Ctx) error {
 		return badRequest(c, "bulk create supports at most 50 posts at once", "VALIDATION_ERROR")
 	}
 
-	created := make([]models.Post, 0, len(req.Posts))
+	created := make([]*models.Post, 0, len(req.Posts))
 	for i, pr := range req.Posts {
 		if pr.Content == "" {
 			return badRequest(c, "content is required for all posts", "VALIDATION_ERROR")
@@ -475,7 +495,7 @@ func (h *PostsHandler) BulkCreatePosts(c *fiber.Ctx) error {
 			postType = models.PostTypeText
 		}
 
-		post := models.Post{
+		post := &models.Post{
 			WorkspaceID:  wid,
 			AuthorID:     user.ID,
 			Title:        pr.Title,
@@ -506,9 +526,9 @@ func (h *PostsHandler) BulkCreatePosts(c *fiber.Ctx) error {
 		created = append(created, post)
 	}
 
-	// Batch insert.
-	if err := h.db.WithContext(c.Context()).Create(&created).Error; err != nil {
-		h.log.Error("BulkCreatePosts: db batch create", zap.Error(err))
+	// Batch insert via repository.
+	if err := h.repo.BulkCreate(c.Context(), created); err != nil {
+		h.log.Error("BulkCreatePosts: repo.BulkCreate", zap.Error(err))
 		return internalError(c, "failed to create posts")
 	}
 

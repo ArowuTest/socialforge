@@ -23,8 +23,11 @@ import (
 	"github.com/socialforge/backend/internal/config"
 	"github.com/socialforge/backend/internal/database"
 	"github.com/socialforge/backend/internal/queue"
+	"github.com/socialforge/backend/internal/repository"
 	"github.com/socialforge/backend/internal/services/ai"
+	analyticssvc "github.com/socialforge/backend/internal/services/analytics"
 	authsvc "github.com/socialforge/backend/internal/services/auth"
+	billingsvc "github.com/socialforge/backend/internal/services/billing"
 	"github.com/socialforge/backend/internal/services/publishing"
 	"github.com/socialforge/backend/internal/services/scheduling"
 
@@ -73,9 +76,13 @@ func main() {
 	// ── Services ──────────────────────────────────────────────────────────────
 	encryptionSecret := cfg.JWT.Secret // reuse JWT secret as encryption key
 
+	repos := repository.NewContainer(db)
+
 	authService := authsvc.New(db, rdb, cfg, log)
 	aiService := ai.New(db, cfg.OpenAI.APIKey, cfg.FalAI.APIKey, log)
 	scheduleService := scheduling.New(db, log)
+	analyticsService := analyticssvc.NewService(repos.Analytics, log)
+	billingService := billingsvc.NewService(cfg, repos, db, log)
 
 	// ── Platform clients ──────────────────────────────────────────────────────
 	igClient := instagram.New(cfg.OAuth.Instagram, encryptionSecret, db, log)
@@ -176,14 +183,16 @@ func main() {
 
 	// ── Routes ────────────────────────────────────────────────────────────────
 	deps := api.Deps{
-		DB:              db,
-		RDB:             rdb,
-		Config:          cfg,
-		Log:             log,
-		AuthService:     authService,
-		AIService:       aiService,
-		ScheduleService: scheduleService,
-		AsynqClient:     asynqClient,
+		DB:               db,
+		RDB:              rdb,
+		Config:           cfg,
+		Log:              log,
+		AuthService:      authService,
+		AIService:        aiService,
+		AnalyticsService: analyticsService,
+		BillingService:   billingService,
+		ScheduleService:  scheduleService,
+		AsynqClient:      asynqClient,
 		PlatformClients: map[string]api.PlatformOAuthClient{
 			"instagram": igClient,
 			"tiktok":    ttClient,

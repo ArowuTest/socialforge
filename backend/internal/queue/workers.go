@@ -80,7 +80,7 @@ func (h *PublishPostHandler) ProcessTask(ctx context.Context, t *asynq.Task) err
 
 	// Guard: skip if already published or cancelled.
 	if post.Status == "published" || post.Status == "cancelled" {
-		log.Info("post already in terminal state, skipping", zap.String("status", post.Status))
+		log.Info("post already in terminal state, skipping", zap.String("status", string(post.Status)))
 		return nil
 	}
 
@@ -90,20 +90,8 @@ func (h *PublishPostHandler) ProcessTask(ctx context.Context, t *asynq.Task) err
 		return fmt.Errorf("publishPostHandler: set status publishing: %w", err)
 	}
 
-	// Ensure social account is loaded.
-	if post.SocialAccount == nil {
-		if post.SocialAccountID == nil {
-			return h.failPost(ctx, &post, "no social account linked")
-		}
-		var account models.SocialAccount
-		if err := h.deps.DB.WithContext(ctx).First(&account, "id = ?", *post.SocialAccountID).Error; err != nil {
-			return h.failPost(ctx, &post, fmt.Sprintf("fetch social account: %s", err))
-		}
-		post.SocialAccount = &account
-	}
-
-	// Call platform publisher.
-	externalID, externalURL, err := h.deps.Publisher.PublishPost(ctx, &post, post.SocialAccount)
+	// Call platform publisher with no social account (account lookup via PostPlatforms).
+	externalID, externalURL, err := h.deps.Publisher.PublishPost(ctx, &post, nil)
 	if err != nil {
 		log.Error("platform publish failed", zap.Error(err))
 		return h.failPost(ctx, &post, err.Error())
@@ -267,7 +255,7 @@ func (h *RefreshTokensHandler) ProcessTask(ctx context.Context, _ *asynq.Task) e
 		if err := h.deps.OAuthRefresher.RefreshToken(ctx, acc); err != nil {
 			log.Error("failed to refresh token",
 				zap.String("account_id", acc.ID.String()),
-				zap.String("platform", acc.Platform),
+				zap.String("platform", string(acc.Platform)),
 				zap.Error(err),
 			)
 			refreshErrors++
