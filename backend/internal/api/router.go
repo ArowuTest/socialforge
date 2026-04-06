@@ -49,7 +49,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.Config, deps.Log)
 	scheduleH := handlers.NewScheduleHandler(deps.DB, deps.ScheduleService, deps.Log)
 	aiH := handlers.NewAIHandler(deps.DB, deps.AIService, deps.AnalyticsService, deps.AsynqClient, deps.Log)
-	billingH := handlers.NewBillingHandler(deps.BillingService, deps.Log)
+	billingH := handlers.NewBillingHandler(deps.BillingService, deps.Log, deps.RDB)
 	analyticsH := handlers.NewAnalyticsHandler(deps.AnalyticsService, deps.Log)
 	whitelabelH := handlers.NewWhitelabelHandler(deps.DB, deps.Config, deps.Log)
 	adminH := handlers.NewAdminHandler(deps.DB, repos, deps.Log)
@@ -60,6 +60,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 		deps.Config.Storage.SecretAccessKey,
 		deps.Log)
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
+	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Log)
 
 	// ── Health ──────────────────────────────────────────────────────────────
 	app.Get("/health", func(c *fiber.Ctx) error {
@@ -150,6 +151,15 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	admin.Get("/audit-logs", adminH.ListAuditLogs)
 	admin.Get("/revenue", adminH.GetRevenueStats)
 
+	// Cost configuration (admin-only)
+	admin.Get("/cost-config/ai-jobs",         costConfigH.GetAIJobCosts)
+	admin.Patch("/cost-config/ai-jobs/:jobType", costConfigH.UpdateAIJobCost)
+	admin.Put("/cost-config/ai-jobs",         costConfigH.BulkUpdateAIJobCosts)
+	admin.Get("/cost-config/packages",        costConfigH.GetCreditPackages)
+	admin.Patch("/cost-config/packages/:id",  costConfigH.UpdateCreditPackage)
+	admin.Get("/cost-config/settings",        costConfigH.GetPlatformSettings)
+	admin.Put("/cost-config/settings/:key",   costConfigH.UpdatePlatformSetting)
+
 	// ── Billing ───────────────────────────────────────────────────────────────
 	billing := v1.Group("/billing")
 	billing.Get("/plans", billingH.GetPlans)
@@ -157,4 +167,13 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	billing.Post("/portal", mw.JWTAuth(), billingH.CustomerPortal)
 	billing.Post("/webhook", billingH.StripeWebhook)
 	billing.Get("/usage", mw.JWTAuth(), billingH.GetUsage)
+
+	// Credit packages (public — no auth needed)
+	billing.Get("/credits/packages", billingH.GetCreditPackages)
+	billing.Post("/paystack/webhook", billingH.PaystackWebhook)
+
+	// Workspace-scoped credit routes (authenticated via ws group)
+	ws.Post("/billing/credits/topup", billingH.InitiateCreditTopUp)
+	ws.Get("/billing/credits/balance", billingH.GetCreditBalance)
+	ws.Get("/billing/credits/ledger", billingH.GetCreditLedger)
 }

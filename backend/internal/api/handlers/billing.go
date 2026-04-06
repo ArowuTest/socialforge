@@ -3,6 +3,7 @@ package handlers
 import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"github.com/socialforge/backend/internal/api/middleware"
@@ -13,13 +14,17 @@ import (
 // BillingHandler handles billing and Stripe webhook endpoints.
 type BillingHandler struct {
 	billing *billingsvc.Service
+	svc     *billingsvc.Service
+	rdb     *redis.Client
 	log     *zap.Logger
 }
 
 // NewBillingHandler creates a new BillingHandler backed by the billing service.
-func NewBillingHandler(billing *billingsvc.Service, log *zap.Logger) *BillingHandler {
+func NewBillingHandler(billing *billingsvc.Service, log *zap.Logger, rdb *redis.Client) *BillingHandler {
 	return &BillingHandler{
 		billing: billing,
+		svc:     billing,
+		rdb:     rdb,
 		log:     log.Named("billing_handler"),
 	}
 }

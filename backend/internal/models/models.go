@@ -116,6 +116,35 @@ const (
 	AIJobStatusFailed     AIJobStatus = "failed"
 )
 
+// LedgerEntryType classifies a credit ledger movement.
+type LedgerEntryType string
+
+const (
+	LedgerMonthlyGrant LedgerEntryType = "monthly_grant"
+	LedgerTopUp        LedgerEntryType = "top_up"
+	LedgerAIDebit      LedgerEntryType = "ai_debit"
+	LedgerRefund       LedgerEntryType = "refund"
+	LedgerAdjustment   LedgerEntryType = "adjustment"
+)
+
+// TopUpStatus tracks the lifecycle of a credit top-up purchase.
+type TopUpStatus string
+
+const (
+	TopUpPending   TopUpStatus = "pending"
+	TopUpCompleted TopUpStatus = "completed"
+	TopUpFailed    TopUpStatus = "failed"
+	TopUpRefunded  TopUpStatus = "refunded"
+)
+
+// PaymentProvider identifies the payment gateway used for a top-up.
+type PaymentProvider string
+
+const (
+	ProviderStripe   PaymentProvider = "stripe"
+	ProviderPaystack PaymentProvider = "paystack"
+)
+
 // ─── JSON column helpers ──────────────────────────────────────────────────────
 
 // StringSlice is a []string that serialises to/from a JSON array column.
@@ -276,6 +305,9 @@ type Workspace struct {
 	AICreditsUsed    int        `gorm:"not null;default:0"   json:"ai_credits_used"`
 	AICreditsLimit   int        `gorm:"not null;default:100" json:"ai_credits_limit"`
 	AICreditsResetAt *time.Time `                            json:"ai_credits_reset_at,omitempty"`
+	// Purchased credits (top-up balance, separate from plan allowance)
+	CreditBalance      int    `gorm:"not null;default:0" json:"credit_balance"`
+	PaystackCustomerID string `gorm:"size:255"           json:"paystack_customer_id,omitempty"`
 	// Branding overrides for white-label
 	BrandName      string `gorm:"size:255"  json:"brand_name,omitempty"`
 	SecondaryColor string `gorm:"size:7"    json:"secondary_color,omitempty"`
@@ -464,6 +496,7 @@ type AIJob struct {
 	Status        AIJobStatus `gorm:"not null;size:20;default:'pending';index" json:"status"`
 	ModelUsed     string      `gorm:"size:100"                                json:"model_used,omitempty"`
 	CreditsUsed   int         `gorm:"not null;default:0"                      json:"credits_used"`
+	USDCost       float64     `gorm:"type:numeric(10,6);not null;default:0"   json:"usd_cost"`
 	ErrorMessage  string      `gorm:"type:text"                               json:"error_message,omitempty"`
 	RequestedByID uuid.UUID   `gorm:"type:uuid;index"                         json:"requested_by_id"`
 	StartedAt     *time.Time  `                                               json:"started_at,omitempty"`
@@ -579,3 +612,55 @@ type Plan struct {
 	Limits         PlanLimits `json:"limits"`
 	Features       []string   `json:"features"`
 }
+
+// ─── CreditLedger ─────────────────────────────────────────────────────────────
+
+// CreditLedger records every credit movement (debits and credits) for a workspace.
+type CreditLedger struct {
+	ID           uuid.UUID       `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	WorkspaceID  uuid.UUID       `gorm:"type:uuid;not null;index"                       json:"workspace_id"`
+	UserID       *uuid.UUID      `gorm:"type:uuid"                                      json:"user_id,omitempty"`
+	EntryType    LedgerEntryType `gorm:"not null;size:30"                               json:"entry_type"`
+	Credits      int             `gorm:"not null"                                       json:"credits"`
+	BalanceAfter int             `gorm:"not null"                                       json:"balance_after"`
+	USDAmount    *float64        `gorm:"type:numeric(10,4)"                             json:"usd_amount,omitempty"`
+	Currency     string          `gorm:"size:3;default:'USD'"                           json:"currency"`
+	ExchangeRate *float64        `gorm:"type:numeric(12,6)"                             json:"exchange_rate,omitempty"`
+	Provider     string          `gorm:"size:20"                                        json:"provider,omitempty"`
+	ProviderRef  string          `gorm:"size:255;index"                                 json:"provider_ref,omitempty"`
+	AIJobID      *uuid.UUID      `gorm:"type:uuid"                                      json:"ai_job_id,omitempty"`
+	Metadata     JSONMap         `gorm:"type:text"                                      json:"metadata,omitempty"`
+	CreatedAt    time.Time       `gorm:"autoCreateTime"                                 json:"created_at"`
+}
+
+func (CreditLedger) TableName() string { return "credit_ledger" }
+
+// BeforeCreate sets the UUID when the database default is unavailable.
+func (c *CreditLedger) BeforeCreate(_ *gorm.DB) error {
+	if c.ID == uuid.Nil {
+		c.ID = uuid.New()
+	}
+	return nil
+}
+
+// ─── CreditTopUp ──────────────────────────────────────────────────────────────
+
+// CreditTopUp records a purchased credit top-up transaction.
+type CreditTopUp struct {
+	Base
+	WorkspaceID      uuid.UUID       `gorm:"type:uuid;not null;index"           json:"workspace_id"`
+	UserID           uuid.UUID       `gorm:"type:uuid;not null;index"           json:"user_id"`
+	Credits          int             `gorm:"not null"                           json:"credits"`
+	USDAmount        float64         `gorm:"type:numeric(10,4);not null"        json:"usd_amount"`
+	Currency         string          `gorm:"size:3;not null;default:'USD'"      json:"currency"`
+	AmountInCurrency float64         `gorm:"type:numeric(12,2);not null"        json:"amount_in_currency"`
+	ExchangeRate     *float64        `gorm:"type:numeric(12,6)"                 json:"exchange_rate,omitempty"`
+	Provider         PaymentProvider `gorm:"not null;size:20"                   json:"provider"`
+	ProviderRef      string          `gorm:"uniqueIndex;size:255"               json:"provider_ref,omitempty"`
+	Status           TopUpStatus     `gorm:"not null;size:20;default:'pending'" json:"status"`
+	Metadata         JSONMap         `gorm:"type:text"                          json:"metadata,omitempty"`
+	Workspace        Workspace       `gorm:"foreignKey:WorkspaceID"             json:"-"`
+	User             User            `gorm:"foreignKey:UserID"                  json:"-"`
+}
+
+func (CreditTopUp) TableName() string { return "credit_topups" }

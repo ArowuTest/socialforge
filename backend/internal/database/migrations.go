@@ -37,6 +37,8 @@ func Migrate(log *zap.Logger) error {
 		&models.AIJob{},
 		&models.ApiKey{},
 		&models.AuditLog{},
+		&models.CreditTopUp{},
+		&models.CreditLedger{},
 	}
 
 	if err := db.AutoMigrate(migrateTargets...); err != nil {
@@ -125,6 +127,8 @@ func MigrateWithDB(db *gorm.DB, log *zap.Logger) error {
 		&models.AIJob{},
 		&models.ApiKey{},
 		&models.AuditLog{},
+		&models.CreditTopUp{},
+		&models.CreditLedger{},
 	}
 
 	if err := db.AutoMigrate(migrateTargets...); err != nil {

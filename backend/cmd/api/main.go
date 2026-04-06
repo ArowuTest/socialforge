@@ -83,7 +83,7 @@ func main() {
 	aiService := ai.New(db, cfg.OpenAI.APIKey, cfg.FalAI.APIKey, log)
 	scheduleService := scheduling.New(db, log)
 	analyticsService := analyticssvc.NewService(repos.Analytics, log)
-	billingService := billingsvc.NewService(cfg, repos, db, log)
+	billingService := billingsvc.NewService(cfg, repos, db, log, rdb)
 
 	// ── Platform clients ──────────────────────────────────────────────────────
 	igClient := instagram.New(cfg.OAuth.Instagram, encryptionSecret, db, log)

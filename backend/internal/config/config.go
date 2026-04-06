@@ -16,6 +16,7 @@ type Config struct {
 	Redis         RedisConfig
 	JWT           JWTConfig
 	Stripe        StripeConfig
+	Paystack      PaystackConfig
 	OpenAI        OpenAIConfig
 	FalAI         FalAIConfig
 	OAuth         OAuthConfig
@@ -67,6 +68,13 @@ type StripePrices struct {
 	ProYearly      string
 	AgencyMonthly  string
 	AgencyYearly   string
+}
+
+// PaystackConfig holds Paystack payment settings.
+type PaystackConfig struct {
+	SecretKey     string
+	WebhookSecret string
+	PublicKey     string
 }
 
 // OpenAIConfig holds OpenAI API settings.
@@ -166,6 +174,11 @@ func Load() (*Config, error) {
 	cfg.Stripe.Prices.ProYearly = getEnvOrDefault("STRIPE_PRICE_PRO_YEARLY", "")
 	cfg.Stripe.Prices.AgencyMonthly = getEnvOrDefault("STRIPE_PRICE_AGENCY_MONTHLY", "")
 	cfg.Stripe.Prices.AgencyYearly = getEnvOrDefault("STRIPE_PRICE_AGENCY_YEARLY", "")
+
+	// ── Paystack ────────────────────────────────────────────────────────────────
+	cfg.Paystack.SecretKey = getEnvOrDefault("PAYSTACK_SECRET_KEY", "")
+	cfg.Paystack.WebhookSecret = getEnvOrDefault("PAYSTACK_WEBHOOK_SECRET", "")
+	cfg.Paystack.PublicKey = getEnvOrDefault("PAYSTACK_PUBLIC_KEY", "")
 
 	// ── OpenAI ──────────────────────────────────────────────────────────────────
 	cfg.OpenAI.APIKey = requireEnv("OPENAI_API_KEY")

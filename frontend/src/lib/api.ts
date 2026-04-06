@@ -23,6 +23,10 @@ import {
   WhitelabelConfig,
   Client,
   ApiKey,
+  CreditPackage,
+  CreditBalance,
+  CreditLedgerEntry,
+  CreditTopUpSession,
 } from "@/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -377,6 +381,25 @@ export const billingApi = {
 
   cancelSubscription: () =>
     request<ApiResponse<Subscription>>("/api/billing/cancel", { method: "POST" }),
+
+  getCreditPackages: () =>
+    request<{ currency: string; packages: CreditPackage[] }>("/api/v1/billing/credits/packages"),
+
+  initiateCreditTopUp: (workspaceId: string, packageId: string) =>
+    request<CreditTopUpSession>(`/api/v1/workspaces/${workspaceId}/billing/credits/topup`, {
+      method: "POST",
+      body: JSON.stringify({ package_id: packageId }),
+    }),
+
+  getCreditBalance: (workspaceId: string) =>
+    request<{ data: CreditBalance }>(`/api/v1/workspaces/${workspaceId}/billing/credits/balance`),
+
+  getCreditLedger: (workspaceId: string, params?: { limit?: number; offset?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.offset) q.set("offset", String(params.offset));
+    return request<{ data: CreditLedgerEntry[]; total: number }>(`/api/v1/workspaces/${workspaceId}/billing/credits/ledger?${q}`);
+  },
 };
 
 // ============================================================

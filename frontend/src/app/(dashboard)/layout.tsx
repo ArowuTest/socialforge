@@ -23,6 +23,7 @@ import {
   Image,
   Code2,
   BookTemplate,
+  CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
@@ -49,6 +50,7 @@ const navItems = [
   { href: "/media", icon: Image, label: "Media Library" },
   { href: "/templates", icon: BookTemplate, label: "Templates" },
   { href: "/developer", icon: Code2, label: "Developer API" },
+  { href: "/billing", icon: CreditCard, label: "Billing" },
   { href: "/settings", icon: Settings2, label: "Settings" },
 ];
 
@@ -64,6 +66,7 @@ const pageTitles: Record<string, string> = {
   "/media": "Media Library",
   "/templates": "Templates",
   "/developer": "Developer API",
+  "/billing": "Billing",
   "/settings": "Settings",
 };
 

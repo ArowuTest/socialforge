@@ -340,6 +340,47 @@ export interface ApiKey {
 }
 
 // ============================================================
+// Credits & Top-up Models
+// ============================================================
+
+export type Currency = "USD" | "NGN";
+
+export interface CreditPackage {
+  id: string;
+  credits: number;
+  price_usd: number;
+  display_price: string;
+  currency: Currency;
+  best_value?: boolean;
+}
+
+export interface CreditBalance {
+  credit_balance: number;
+  plan_credits_used: number;
+  plan_credits_limit: number;
+  monthly_usd_cost: number;
+}
+
+export interface CreditLedgerEntry {
+  id: string;
+  entry_type: "monthly_grant" | "top_up" | "ai_debit" | "refund" | "adjustment";
+  credits: number;
+  balance_after: number;
+  usd_amount?: number;
+  currency: string;
+  provider?: string;
+  provider_ref?: string;
+  ai_job_id?: string;
+  created_at: string;
+}
+
+export interface CreditTopUpSession {
+  provider: "stripe" | "paystack";
+  checkout_url: string;
+  reference?: string;
+}
+
+// ============================================================
 // UI Helper Types
 // ============================================================
 

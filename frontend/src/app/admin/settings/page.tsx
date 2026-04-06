@@ -5,16 +5,55 @@ import {
   Settings, Key, Shield, Wrench, Save, Eye, EyeOff,
   CheckCircle2, AlertTriangle, Trash2, RefreshCw,
   AlertCircle, ToggleLeft, ToggleRight, Gift, Search, X, Plus,
+  Zap, DollarSign, Package, Edit2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type TabId = "general" | "integrations" | "security" | "maintenance";
+type TabId = "general" | "integrations" | "security" | "ai-costs" | "maintenance";
 
 const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "integrations", label: "Integrations", icon: Key },
   { id: "security", label: "Security", icon: Shield },
+  { id: "ai-costs", label: "AI Costs", icon: Zap },
   { id: "maintenance", label: "Maintenance", icon: Wrench },
+];
+
+// ── AI cost config types ────────────────────────────────────────────────────
+type AIJobCostRow = {
+  id: string;
+  label: string;
+  jobType: string;
+  usdCost: string;
+  credits: string;
+  description: string;
+};
+
+type CreditPackageRow = {
+  id: string;
+  label: string;
+  credits: string;
+  usdPrice: string;
+  ngnPrice: string;
+  bestValue: boolean;
+};
+
+const DEFAULT_AI_COSTS: AIJobCostRow[] = [
+  { id: "caption",   label: "Caption Generation",  jobType: "caption",   usdCost: "0.005", credits: "1",  description: "GPT-4o prompt + completion" },
+  { id: "hashtags",  label: "Hashtag Generation",  jobType: "hashtags",  usdCost: "0.003", credits: "1",  description: "GPT-4o short completion" },
+  { id: "carousel",  label: "Carousel Copy",        jobType: "carousel",  usdCost: "0.010", credits: "2",  description: "Multi-slide caption set" },
+  { id: "analyse",   label: "Viral Analysis",       jobType: "analyse",   usdCost: "0.005", credits: "1",  description: "Engagement scoring prompt" },
+  { id: "repurpose", label: "Repurpose Content",    jobType: "repurpose", usdCost: "0.015", credits: "3",  description: "8-platform repurpose (8× prompts)" },
+  { id: "improve",   label: "Improve Caption",      jobType: "improve",   usdCost: "0.004", credits: "1",  description: "Rewrite / tone-adjust" },
+  { id: "image",     label: "AI Image",             jobType: "image",     usdCost: "0.030", credits: "5",  description: "FLUX schnell on Fal.ai" },
+  { id: "video",     label: "AI Video",             jobType: "video",     usdCost: "0.200", credits: "20", description: "Kling / Seedance on Fal.ai" },
+];
+
+const DEFAULT_PACKAGES: CreditPackageRow[] = [
+  { id: "credits_100",  label: "Starter Pack",   credits: "100",  usdPrice: "5",   ngnPrice: "8000",   bestValue: false },
+  { id: "credits_500",  label: "Growth Pack",    credits: "500",  usdPrice: "20",  ngnPrice: "32000",  bestValue: false },
+  { id: "credits_1500", label: "Pro Pack",       credits: "1500", usdPrice: "50",  ngnPrice: "80000",  bestValue: true  },
+  { id: "credits_5000", label: "Agency Pack",    credits: "5000", usdPrice: "150", ngnPrice: "240000", bestValue: false },
 ];
 
 function SaveButton({ onClick }: { onClick: () => void }) {
@@ -108,6 +147,25 @@ export default function SettingsPage() {
   const [maxAccountsStarter, setMaxAccountsStarter] = React.useState("5");
   const [maxAccountsPro, setMaxAccountsPro] = React.useState("15");
   const [maxAccountsAgency, setMaxAccountsAgency] = React.useState("50");
+
+  // AI Costs state
+  const [aiCosts, setAiCosts] = React.useState<AIJobCostRow[]>(DEFAULT_AI_COSTS);
+  const [packages, setPackages] = React.useState<CreditPackageRow[]>(DEFAULT_PACKAGES);
+  const [ngnRate, setNgnRate] = React.useState("1600");
+  const [editingCostId, setEditingCostId] = React.useState<string | null>(null);
+  const [editingPkgId, setEditingPkgId] = React.useState<string | null>(null);
+  const [costSaving, setCostSaving] = React.useState(false);
+
+  const handleSaveCosts = () => {
+    setCostSaving(true);
+    setTimeout(() => setCostSaving(false), 1500);
+  };
+
+  const updateCost = (id: string, field: keyof AIJobCostRow, value: string) =>
+    setAiCosts((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+
+  const updatePkg = (id: string, field: keyof CreditPackageRow, value: string | boolean) =>
+    setPackages((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
 
   // Free access grant state
   const [grantEmail, setGrantEmail] = React.useState("");
@@ -476,6 +534,272 @@ export default function SettingsPage() {
           </div>
 
           <SaveButton onClick={() => {}} />
+        </div>
+      )}
+
+      {/* AI Costs tab */}
+      {activeTab === "ai-costs" && (
+        <div className="space-y-6 max-w-4xl">
+
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Zap className="h-4 w-4 text-violet-400" /> AI Job Costs
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                USD cost charged to your OpenAI / Fal.ai account per generation. Changes apply within 5 minutes.
+              </p>
+            </div>
+            <button
+              onClick={handleSaveCosts}
+              disabled={costSaving}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-60"
+            >
+              {costSaving
+                ? <RefreshCw className="h-4 w-4 animate-spin" />
+                : <Save className="h-4 w-4" />}
+              {costSaving ? "Saving…" : "Save All"}
+            </button>
+          </div>
+
+          {/* Per-job cost table */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-800/60 text-xs text-slate-400">
+                  <th className="text-left px-4 py-3 font-medium">Job Type</th>
+                  <th className="text-left px-4 py-3 font-medium hidden sm:table-cell">Description</th>
+                  <th className="text-left px-4 py-3 font-medium">USD Cost</th>
+                  <th className="text-left px-4 py-3 font-medium">Credits</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {aiCosts.map((row) => (
+                  <tr key={row.id} className="border-t border-slate-800/60 hover:bg-slate-800/20 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="text-white font-medium">{row.label}</p>
+                      <p className="text-xs text-slate-500 font-mono">{row.jobType}</p>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500 hidden sm:table-cell">
+                      {row.description}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCostId === row.id ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-400 text-xs">$</span>
+                          <input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            value={row.usdCost}
+                            onChange={(e) => updateCost(row.id, "usdCost", e.target.value)}
+                            className="w-24 px-2 py-1 bg-slate-800 border border-violet-600 rounded text-xs text-white focus:outline-none"
+                            autoFocus
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-emerald-400 font-mono text-xs">${row.usdCost}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCostId === row.id ? (
+                        <input
+                          type="number"
+                          min="1"
+                          value={row.credits}
+                          onChange={(e) => updateCost(row.id, "credits", e.target.value)}
+                          className="w-16 px-2 py-1 bg-slate-800 border border-violet-600 rounded text-xs text-white focus:outline-none"
+                        />
+                      ) : (
+                        <span className="text-slate-300 font-mono text-xs">{row.credits} cr</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {editingCostId === row.id ? (
+                        <button
+                          onClick={() => setEditingCostId(null)}
+                          className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 ml-auto"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Done
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setEditingCostId(row.id)}
+                          className="text-slate-500 hover:text-white transition-colors"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* NGN Exchange Rate */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-amber-400" /> NGN Exchange Rate
+                </h4>
+                <p className="text-xs text-slate-500 mt-1">
+                  Naira per USD used to calculate NGN credit package prices. Update periodically.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-slate-400 text-sm">₦</span>
+                <input
+                  type="number"
+                  value={ngnRate}
+                  onChange={(e) => setNgnRate(e.target.value)}
+                  className="w-28 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-violet-600"
+                />
+                <span className="text-slate-500 text-sm">/ $1</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Credit Packages */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Package className="h-4 w-4 text-violet-400" /> Credit Packages
+              </h4>
+              <p className="text-xs text-slate-500">Prices shown to users on the billing page</p>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-800/40 text-xs text-slate-400">
+                  <th className="text-left px-4 py-3 font-medium">Package</th>
+                  <th className="text-left px-4 py-3 font-medium">Credits</th>
+                  <th className="text-left px-4 py-3 font-medium">USD Price</th>
+                  <th className="text-left px-4 py-3 font-medium">NGN Price</th>
+                  <th className="text-left px-4 py-3 font-medium">Best Value</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {packages.map((pkg) => (
+                  <tr key={pkg.id} className="border-t border-slate-800/60 hover:bg-slate-800/20 transition-colors">
+                    <td className="px-4 py-3">
+                      {editingPkgId === pkg.id ? (
+                        <input
+                          type="text"
+                          value={pkg.label}
+                          onChange={(e) => updatePkg(pkg.id, "label", e.target.value)}
+                          className="w-32 px-2 py-1 bg-slate-800 border border-violet-600 rounded text-xs text-white focus:outline-none"
+                          autoFocus
+                        />
+                      ) : (
+                        <span className="text-white font-medium">{pkg.label}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingPkgId === pkg.id ? (
+                        <input
+                          type="number"
+                          value={pkg.credits}
+                          onChange={(e) => updatePkg(pkg.id, "credits", e.target.value)}
+                          className="w-20 px-2 py-1 bg-slate-800 border border-violet-600 rounded text-xs text-white focus:outline-none"
+                        />
+                      ) : (
+                        <span className="text-slate-300 font-mono text-xs">{parseInt(pkg.credits).toLocaleString()}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingPkgId === pkg.id ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-400 text-xs">$</span>
+                          <input
+                            type="number"
+                            value={pkg.usdPrice}
+                            onChange={(e) => updatePkg(pkg.id, "usdPrice", e.target.value)}
+                            className="w-20 px-2 py-1 bg-slate-800 border border-violet-600 rounded text-xs text-white focus:outline-none"
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-emerald-400 font-mono text-xs">${pkg.usdPrice}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingPkgId === pkg.id ? (
+                        <div className="flex items-center gap-1">
+                          <span className="text-slate-400 text-xs">₦</span>
+                          <input
+                            type="number"
+                            value={pkg.ngnPrice}
+                            onChange={(e) => updatePkg(pkg.id, "ngnPrice", e.target.value)}
+                            className="w-24 px-2 py-1 bg-slate-800 border border-violet-600 rounded text-xs text-white focus:outline-none"
+                          />
+                        </div>
+                      ) : (
+                        <span className="text-amber-400 font-mono text-xs">₦{parseInt(pkg.ngnPrice).toLocaleString()}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => updatePkg(pkg.id, "bestValue", !pkg.bestValue)}
+                        className={cn("text-xs px-2 py-0.5 rounded-full border transition-colors",
+                          pkg.bestValue
+                            ? "bg-violet-900/40 text-violet-300 border-violet-700"
+                            : "text-slate-600 border-slate-700 hover:text-slate-400"
+                        )}
+                      >
+                        {pkg.bestValue ? "✓ Best Value" : "Set Best Value"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {editingPkgId === pkg.id ? (
+                        <button
+                          onClick={() => setEditingPkgId(null)}
+                          className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 ml-auto"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Done
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setEditingPkgId(pkg.id)}
+                          className="text-slate-500 hover:text-white transition-colors"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Cost summary */}
+          <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-400 font-medium mb-3">Margin preview — at current prices</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {packages.map((pkg) => {
+                const cost = aiCosts.reduce((sum, r) => sum + parseFloat(r.usdCost || "0") * parseFloat(r.credits || "1"), 0);
+                const revenuePerCredit = parseFloat(pkg.usdPrice || "0") / (parseInt(pkg.credits || "1") || 1);
+                const costPerCredit = cost / aiCosts.reduce((s, r) => s + parseInt(r.credits || "1"), 0);
+                const margin = revenuePerCredit > 0 ? ((revenuePerCredit - costPerCredit) / revenuePerCredit * 100) : 0;
+                return (
+                  <div key={pkg.id} className="text-center">
+                    <p className="text-xs text-slate-500">{pkg.label}</p>
+                    <p className={cn("text-lg font-bold mt-1", margin > 60 ? "text-emerald-400" : margin > 30 ? "text-amber-400" : "text-red-400")}>
+                      {margin.toFixed(0)}%
+                    </p>
+                    <p className="text-xs text-slate-600">est. margin</p>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-slate-600 mt-3">
+              * Margin is approximate. Actual cost depends on model, token count, and image resolution.
+            </p>
+          </div>
+
         </div>
       )}
 
