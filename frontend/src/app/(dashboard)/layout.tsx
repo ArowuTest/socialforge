@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  LayoutDashboard,
   CalendarDays,
   PenSquare,
   Share2,
@@ -33,6 +34,7 @@ import { PlanType } from "@/types";
 import { toast } from "sonner";
 
 const navItems = [
+  { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/calendar", icon: CalendarDays, label: "Calendar" },
   { href: "/compose", icon: PenSquare, label: "Compose" },
   { href: "/accounts", icon: Share2, label: "Accounts" },
@@ -43,6 +45,7 @@ const navItems = [
 ];
 
 const pageTitles: Record<string, string> = {
+  "/dashboard": "Dashboard",
   "/calendar": "Content Calendar",
   "/compose": "Compose Post",
   "/accounts": "Connected Accounts",
