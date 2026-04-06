@@ -179,52 +179,64 @@ func (c *Client) ExchangeCode(
 func (c *Client) Post(
 	ctx context.Context,
 	account *models.SocialAccount,
-	req PostRequest,
-) (string, error) {
+	req *models.PostRequest,
+) (*models.PostResult, error) {
 	token, err := crypto.Decrypt(account.AccessToken, c.secret)
 	if err != nil {
-		return "", fmt.Errorf("pinterest: decrypt access token: %w", err)
+		return nil, fmt.Errorf("pinterest: decrypt access token: %w", err)
 	}
 
-	if req.BoardID == "" {
-		return "", fmt.Errorf("pinterest: BoardID is required to create a pin")
+	imageURL := ""
+	if len(req.MediaURLs) > 0 {
+		imageURL = req.MediaURLs[0]
 	}
-	if req.ImageURL == "" {
-		return "", fmt.Errorf("pinterest: ImageURL is required to create a pin")
+	localReq := PostRequest{
+		BoardID:     req.BoardID,
+		Title:       req.Title,
+		Description: req.Caption,
+		ImageURL:    imageURL,
+		LinkURL:     req.LinkURL,
+	}
+
+	if localReq.BoardID == "" {
+		return nil, fmt.Errorf("pinterest: BoardID is required to create a pin")
+	}
+	if localReq.ImageURL == "" {
+		return nil, fmt.Errorf("pinterest: ImageURL is required to create a pin")
 	}
 
 	pinBody := map[string]interface{}{
-		"board_id":    req.BoardID,
-		"title":       req.Title,
-		"description": req.Description,
+		"board_id":    localReq.BoardID,
+		"title":       localReq.Title,
+		"description": localReq.Description,
 		"media_source": map[string]interface{}{
 			"source_type": "image_url",
-			"url":         req.ImageURL,
+			"url":         localReq.ImageURL,
 		},
 	}
 
-	if req.LinkURL != "" {
-		pinBody["link"] = req.LinkURL
+	if localReq.LinkURL != "" {
+		pinBody["link"] = localReq.LinkURL
 	}
 
 	raw, err := c.doJSONPost(ctx, token, pinterestAPIBase+"/pins", pinBody)
 	if err != nil {
-		return "", fmt.Errorf("pinterest: create pin: %w", err)
+		return nil, fmt.Errorf("pinterest: create pin: %w", err)
 	}
 
 	var result struct {
-		ID    string         `json:"id"`
+		ID    string          `json:"id"`
 		Error *pinterestError `json:"message,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &result); err != nil {
-		return "", fmt.Errorf("pinterest: decode pin response: %w", err)
+		return nil, fmt.Errorf("pinterest: decode pin response: %w", err)
 	}
 
 	c.log.Info("pinterest pin created",
 		zap.String("pin_id", result.ID),
-		zap.String("board_id", req.BoardID),
+		zap.String("board_id", localReq.BoardID),
 	)
-	return result.ID, nil
+	return &models.PostResult{PlatformPostID: result.ID}, nil
 }
 
 // ─── API helpers ─────────────────────────────────────────────────────────────

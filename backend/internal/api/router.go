@@ -2,10 +2,7 @@
 package api
 
 import (
-	"context"
-
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -23,13 +20,6 @@ import (
 	scheduling "github.com/socialforge/backend/internal/services/scheduling"
 )
 
-// PlatformOAuthClient is the interface every platform adapter must satisfy for
-// OAuth initiation and callback handling.
-type PlatformOAuthClient interface {
-	GetAuthURL(workspaceID uuid.UUID, state string) string
-	ExchangeCode(ctx context.Context, code, state string, workspaceID uuid.UUID) (*models.SocialAccount, error)
-}
-
 // Deps bundles all application-level dependencies passed to route handlers.
 type Deps struct {
 	DB               *gorm.DB
@@ -42,7 +32,7 @@ type Deps struct {
 	BillingService   *billingsvc.Service
 	ScheduleService  *scheduling.Service
 	AsynqClient      *asynq.Client
-	PlatformClients  map[string]PlatformOAuthClient
+	PlatformClients  map[string]handlers.PlatformOAuthClient
 }
 
 // SetupRoutes registers all API routes on the provided Fiber app.

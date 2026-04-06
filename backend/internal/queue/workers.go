@@ -25,7 +25,7 @@ type Publisher interface {
 
 // AIService is the interface the queue worker uses to invoke AI jobs.
 type AIService interface {
-	ProcessJob(ctx context.Context, payload AIGeneratePayload) (map[string]interface{}, error)
+	ProcessJob(ctx context.Context, payload interface{}) (map[string]interface{}, error)
 }
 
 // RepurposeService is the interface the queue worker uses for repurposing.

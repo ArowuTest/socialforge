@@ -163,58 +163,64 @@ func (c *Client) ExchangeCode(
 func (c *Client) Post(
 	ctx context.Context,
 	account *models.SocialAccount,
-	req PostRequest,
-) (string, error) {
+	req *models.PostRequest,
+) (*models.PostResult, error) {
 	token, err := crypto.Decrypt(account.AccessToken, c.secret)
 	if err != nil {
-		return "", fmt.Errorf("threads: decrypt access token: %w", err)
+		return nil, fmt.Errorf("threads: decrypt access token: %w", err)
 	}
 
 	userID := account.AccountID
 
+	localReq := PostRequest{
+		Text:      req.Caption,
+		MediaURLs: req.MediaURLs,
+		PostType:  string(req.Type),
+	}
+
 	// Step 1: create the media container.
 	var containerID string
 
-	switch req.PostType {
+	switch localReq.PostType {
 	case "image":
-		if len(req.MediaURLs) == 0 {
-			return "", fmt.Errorf("threads: image post requires at least one media URL")
+		if len(localReq.MediaURLs) == 0 {
+			return nil, fmt.Errorf("threads: image post requires at least one media URL")
 		}
-		containerID, err = c.createImageContainer(ctx, token, userID, req.MediaURLs[0], req.Text)
+		containerID, err = c.createImageContainer(ctx, token, userID, localReq.MediaURLs[0], localReq.Text)
 	case "video":
-		if len(req.MediaURLs) == 0 {
-			return "", fmt.Errorf("threads: video post requires at least one media URL")
+		if len(localReq.MediaURLs) == 0 {
+			return nil, fmt.Errorf("threads: video post requires at least one media URL")
 		}
-		containerID, err = c.createVideoContainer(ctx, token, userID, req.MediaURLs[0], req.Text)
+		containerID, err = c.createVideoContainer(ctx, token, userID, localReq.MediaURLs[0], localReq.Text)
 	case "carousel":
-		if len(req.MediaURLs) < 2 {
-			return "", fmt.Errorf("threads: carousel post requires at least 2 media URLs")
+		if len(localReq.MediaURLs) < 2 {
+			return nil, fmt.Errorf("threads: carousel post requires at least 2 media URLs")
 		}
-		containerID, err = c.createCarouselContainer(ctx, token, userID, req.MediaURLs, req.Text)
+		containerID, err = c.createCarouselContainer(ctx, token, userID, localReq.MediaURLs, localReq.Text)
 	default:
 		// Text post.
-		containerID, err = c.createTextContainer(ctx, token, userID, req.Text)
+		containerID, err = c.createTextContainer(ctx, token, userID, localReq.Text)
 	}
 	if err != nil {
-		return "", fmt.Errorf("threads: create container: %w", err)
+		return nil, fmt.Errorf("threads: create container: %w", err)
 	}
 
 	// Step 2: poll until the container status is FINISHED.
 	if err := c.waitForContainerFinished(ctx, token, containerID); err != nil {
-		return "", fmt.Errorf("threads: container not ready: %w", err)
+		return nil, fmt.Errorf("threads: container not ready: %w", err)
 	}
 
 	// Step 3: publish.
 	threadID, err := c.publishContainer(ctx, token, userID, containerID)
 	if err != nil {
-		return "", fmt.Errorf("threads: publish container: %w", err)
+		return nil, fmt.Errorf("threads: publish container: %w", err)
 	}
 
 	c.log.Info("threads post published",
 		zap.String("thread_id", threadID),
-		zap.String("post_type", req.PostType),
+		zap.String("post_type", localReq.PostType),
 	)
-	return threadID, nil
+	return &models.PostResult{PlatformPostID: threadID}, nil
 }
 
 // ─── container creation helpers ──────────────────────────────────────────────

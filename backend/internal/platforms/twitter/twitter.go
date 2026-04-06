@@ -93,15 +93,17 @@ func generatePKCE() (verifier, challenge string, err error) {
 
 // GetAuthURL generates a PKCE pair, stores the verifier in Redis keyed by
 // state, and returns the OAuth 2.0 authorization URL.
-func (c *Client) GetAuthURL(workspaceID uuid.UUID, state string) (string, error) {
+func (c *Client) GetAuthURL(workspaceID uuid.UUID, state string) string {
 	verifier, challenge, err := generatePKCE()
 	if err != nil {
-		return "", err
+		c.log.Error("twitter: failed to generate PKCE", zap.Error(err))
+		return ""
 	}
 
 	redisKey := pkceKeyPrefix + state
 	if err := c.redis.Set(context.Background(), redisKey, verifier, pkceTTL).Err(); err != nil {
-		return "", fmt.Errorf("twitter: store PKCE verifier in Redis: %w", err)
+		c.log.Error("twitter: store PKCE verifier in Redis", zap.Error(err))
+		return ""
 	}
 
 	params := url.Values{
@@ -116,7 +118,7 @@ func (c *Client) GetAuthURL(workspaceID uuid.UUID, state string) (string, error)
 
 	authURL := twitterAuthURL + "?" + params.Encode()
 	c.log.Info("generated Twitter auth URL", zap.String("workspace_id", workspaceID.String()))
-	return authURL, nil
+	return authURL
 }
 
 // ExchangeCode retrieves the PKCE verifier from Redis and exchanges the
@@ -274,23 +276,36 @@ func (c *Client) RefreshToken(ctx context.Context, account *models.SocialAccount
 func (c *Client) Post(
 	ctx context.Context,
 	account *models.SocialAccount,
-	req PostRequest,
-) (string, error) {
+	req *models.PostRequest,
+) (*models.PostResult, error) {
 	token, err := crypto.Decrypt(account.AccessToken, c.secret)
 	if err != nil {
-		return "", fmt.Errorf("twitter: decrypt access token: %w", err)
+		return nil, fmt.Errorf("twitter: decrypt access token: %w", err)
 	}
 
-	switch req.PostType {
-	case "thread":
-		return c.postThread(ctx, token, req)
-	case "image":
-		return c.postWithMedia(ctx, token, req, false)
-	case "video":
-		return c.postWithMedia(ctx, token, req, true)
-	default:
-		return c.postText(ctx, token, req.Content, "")
+	localReq := PostRequest{
+		Content:      req.Caption,
+		MediaURLs:    req.MediaURLs,
+		PostType:     string(req.Type),
+		ThreadTweets: req.ThreadTweets,
 	}
+
+	var postID string
+	var postErr error
+	switch localReq.PostType {
+	case "thread":
+		postID, postErr = c.postThread(ctx, token, localReq)
+	case "image":
+		postID, postErr = c.postWithMedia(ctx, token, localReq, false)
+	case "video":
+		postID, postErr = c.postWithMedia(ctx, token, localReq, true)
+	default:
+		postID, postErr = c.postText(ctx, token, localReq.Content, "")
+	}
+	if postErr != nil {
+		return nil, postErr
+	}
+	return &models.PostResult{PlatformPostID: postID}, nil
 }
 
 // ─── text post ───────────────────────────────────────────────────────────────

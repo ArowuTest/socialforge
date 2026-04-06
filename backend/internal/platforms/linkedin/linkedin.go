@@ -179,19 +179,31 @@ func (c *Client) ExchangeCode(
 func (c *Client) Post(
 	ctx context.Context,
 	account *models.SocialAccount,
-	req PostRequest,
-) (string, error) {
+	req *models.PostRequest,
+) (*models.PostResult, error) {
 	token, err := crypto.Decrypt(account.AccessToken, c.secret)
 	if err != nil {
-		return "", fmt.Errorf("linkedin: decrypt access token: %w", err)
+		return nil, fmt.Errorf("linkedin: decrypt access token: %w", err)
 	}
 
 	authorURN := "urn:li:person:" + account.AccountID
 
-	if req.PostType == "image" && len(req.MediaURLs) > 0 {
-		return c.postImage(ctx, token, authorURN, req)
+	localReq := PostRequest{
+		Content:   req.Caption,
+		MediaURLs: req.MediaURLs,
+		PostType:  string(req.Type),
 	}
-	return c.postText(ctx, token, authorURN, req.Content)
+	var postID string
+	var postErr error
+	if localReq.PostType == "image" && len(localReq.MediaURLs) > 0 {
+		postID, postErr = c.postImage(ctx, token, authorURN, localReq)
+	} else {
+		postID, postErr = c.postText(ctx, token, authorURN, localReq.Content)
+	}
+	if postErr != nil {
+		return nil, postErr
+	}
+	return &models.PostResult{PlatformPostID: postID}, nil
 }
 
 // ─── text post ───────────────────────────────────────────────────────────────

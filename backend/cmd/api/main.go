@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/socialforge/backend/internal/api"
+	"github.com/socialforge/backend/internal/api/handlers"
 	"github.com/socialforge/backend/internal/config"
 	"github.com/socialforge/backend/internal/database"
 	"github.com/socialforge/backend/internal/queue"
@@ -61,7 +62,7 @@ func main() {
 
 	db := database.GetDB()
 
-	if err := database.AutoMigrate(db, log); err != nil {
+	if err := database.Migrate(log); err != nil {
 		log.Fatal("auto-migrate failed", zap.Error(err))
 	}
 
@@ -86,12 +87,12 @@ func main() {
 
 	// ── Platform clients ──────────────────────────────────────────────────────
 	igClient := instagram.New(cfg.OAuth.Instagram, encryptionSecret, db, log)
-	ttClient := tiktok.New(cfg.OAuth.TikTok, encryptionSecret, db, rdb, log)
+	ttClient := tiktok.New(cfg.OAuth.TikTok, encryptionSecret, db, log)
 	ytClient := youtube.New(cfg.OAuth.YouTube, encryptionSecret, db, log)
-	liClient := linkedin.New(cfg.OAuth.LinkedIn, encryptionSecret, db, rdb, log)
+	liClient := linkedin.New(cfg.OAuth.LinkedIn, encryptionSecret, db, log)
 	twClient := twitter.New(cfg.OAuth.Twitter, encryptionSecret, db, rdb, log)
 	fbClient := facebook.New(cfg.OAuth.Facebook, encryptionSecret, db, log)
-	piClient := pinterest.New(cfg.OAuth.Pinterest, encryptionSecret, db, rdb, log)
+	piClient := pinterest.New(cfg.OAuth.Pinterest, encryptionSecret, db, log)
 	thClient := threads.New(cfg.OAuth.Threads, encryptionSecret, db, log)
 
 	// ── Publishing service ────────────────────────────────────────────────────
@@ -193,7 +194,7 @@ func main() {
 		BillingService:   billingService,
 		ScheduleService:  scheduleService,
 		AsynqClient:      asynqClient,
-		PlatformClients: map[string]api.PlatformOAuthClient{
+		PlatformClients: map[string]handlers.PlatformOAuthClient{
 			"instagram": igClient,
 			"tiktok":    ttClient,
 			"youtube":   ytClient,

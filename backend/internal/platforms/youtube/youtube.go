@@ -83,7 +83,7 @@ func (c *Client) GetAuthURL(workspaceID uuid.UUID, state string) string {
 }
 
 // ExchangeCode exchanges the authorization code for tokens and saves the account.
-func (c *Client) ExchangeCode(ctx context.Context, code string, workspaceID uuid.UUID) (*models.SocialAccount, error) {
+func (c *Client) ExchangeCode(ctx context.Context, code, _ string, workspaceID uuid.UUID) (*models.SocialAccount, error) {
 	conf := c.oauthConfig()
 
 	tok, err := conf.Exchange(ctx, code)
@@ -120,8 +120,8 @@ func (c *Client) ExchangeCode(ctx context.Context, code string, workspaceID uuid
 		AvatarURL:    channel.Snippet.Thumbnails.Default.URL,
 		AccessToken:  encAccess,
 		RefreshToken: encRefresh,
-		TokenExpiry:  &expiry,
-		Scopes:       strings.Join(c.cfg.Scopes, " "),
+		TokenExpiresAt: &expiry,
+		Scopes:         models.StringSlice(c.cfg.Scopes),
 		IsActive:     true,
 	}
 
@@ -194,13 +194,13 @@ func (c *Client) RefreshToken(ctx context.Context, account *models.SocialAccount
 	expiry := time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
 	if err := c.db.WithContext(ctx).Model(account).Updates(map[string]interface{}{
 		"access_token": encAccess,
-		"token_expiry": expiry,
+		"token_expires_at": expiry,
 	}).Error; err != nil {
 		return fmt.Errorf("youtube: update token in db: %w", err)
 	}
 
 	account.AccessToken = encAccess
-	account.TokenExpiry = &expiry
+	account.TokenExpiresAt = &expiry
 
 	c.log.Info("youtube token refreshed",
 		zap.String("account_id", account.ID.String()),

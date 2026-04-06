@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,11 +51,12 @@ type PKCEParams struct {
 
 // Client is the TikTok platform adapter.
 type Client struct {
-	cfg    config.OAuthPlatformConfig
-	secret string
-	db     *gorm.DB
-	log    *zap.Logger
-	http   *http.Client
+	cfg          config.OAuthPlatformConfig
+	secret       string
+	db           *gorm.DB
+	log          *zap.Logger
+	http         *http.Client
+	pkceVerifiers sync.Map // state → codeVerifier
 }
 
 // New creates a new TikTok Client.
@@ -88,17 +90,22 @@ func GeneratePKCE() (*PKCEParams, error) {
 }
 
 // GetAuthURL returns the TikTok OAuth 2.0 authorization URL with PKCE.
-// codeChallenge should come from GeneratePKCE(); store the verifier in a
-// short-lived cache keyed by state so ExchangeCode can retrieve it.
-func (c *Client) GetAuthURL(workspaceID uuid.UUID, state, codeChallenge string) string {
+// PKCE is generated internally; the verifier is stored in-memory keyed by state.
+func (c *Client) GetAuthURL(workspaceID uuid.UUID, state string) string {
+	pkce, err := GeneratePKCE()
+	if err != nil {
+		c.log.Error("tiktok: failed to generate PKCE", zap.Error(err))
+		return ""
+	}
+	c.pkceVerifiers.Store(state, pkce.CodeVerifier)
 	params := url.Values{
-		"client_key":             {c.cfg.ClientID},
-		"response_type":          {"code"},
-		"scope":                  {strings.Join(c.cfg.Scopes, ",")},
-		"redirect_uri":           {c.cfg.RedirectURL},
-		"state":                  {state},
-		"code_challenge":         {codeChallenge},
-		"code_challenge_method":  {"S256"},
+		"client_key":            {c.cfg.ClientID},
+		"response_type":         {"code"},
+		"scope":                 {strings.Join(c.cfg.Scopes, ",")},
+		"redirect_uri":          {c.cfg.RedirectURL},
+		"state":                 {state},
+		"code_challenge":        {pkce.CodeChallenge},
+		"code_challenge_method": {"S256"},
 	}
 	authURL := tiktokAuthURL + "?" + params.Encode()
 	c.log.Info("generated TikTok auth URL", zap.String("workspace_id", workspaceID.String()))
@@ -107,7 +114,13 @@ func (c *Client) GetAuthURL(workspaceID uuid.UUID, state, codeChallenge string) 
 
 // ExchangeCode exchanges the authorization code for access/refresh tokens and
 // persists a SocialAccount for the workspace.
-func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier string, workspaceID uuid.UUID) (*models.SocialAccount, error) {
+// state is used to retrieve the stored PKCE verifier.
+func (c *Client) ExchangeCode(ctx context.Context, code, state string, workspaceID uuid.UUID) (*models.SocialAccount, error) {
+	val, ok := c.pkceVerifiers.LoadAndDelete(state)
+	if !ok {
+		return nil, fmt.Errorf("tiktok: PKCE verifier not found for state %s", state)
+	}
+	codeVerifier, _ := val.(string)
 	tokenResp, err := c.exchangeCodeForTokens(ctx, code, codeVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("tiktok: exchange code: %w", err)
@@ -138,8 +151,8 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier string, wo
 		AvatarURL:    userInfo.AvatarURL,
 		AccessToken:  encAccess,
 		RefreshToken: encRefresh,
-		TokenExpiry:  &accessExpiry,
-		Scopes:       tokenResp.Scope,
+		TokenExpiresAt: &accessExpiry,
+		Scopes:         models.StringSlice(strings.Split(tokenResp.Scope, ",")),
 		IsActive:     true,
 	}
 
@@ -207,14 +220,14 @@ func (c *Client) RefreshToken(ctx context.Context, account *models.SocialAccount
 	if err := c.db.WithContext(ctx).Model(account).Updates(map[string]interface{}{
 		"access_token":  encAccess,
 		"refresh_token": encRefresh,
-		"token_expiry":  expiry,
+		"token_expires_at": expiry,
 	}).Error; err != nil {
 		return fmt.Errorf("tiktok: update tokens in db: %w", err)
 	}
 
 	account.AccessToken = encAccess
 	account.RefreshToken = encRefresh
-	account.TokenExpiry = &expiry
+	account.TokenExpiresAt = &expiry
 
 	c.log.Info("tiktok token refreshed",
 		zap.String("account_id", account.ID.String()),

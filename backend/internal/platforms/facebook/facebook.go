@@ -90,11 +90,12 @@ func (c *Client) GetAuthURL(workspaceID uuid.UUID, state string) string {
 
 // ExchangeCode exchanges the short-lived code for a long-lived user token,
 // then fetches and persists all managed Facebook pages as SocialAccount records.
+// Returns the first page account to satisfy the PlatformOAuthClient interface.
 func (c *Client) ExchangeCode(
 	ctx context.Context,
 	code, state string,
 	workspaceID uuid.UUID,
-) ([]*models.SocialAccount, error) {
+) (*models.SocialAccount, error) {
 	conf := c.oauthConfig()
 
 	// Step 1: exchange code for short-lived user token.
@@ -121,7 +122,7 @@ func (c *Client) ExchangeCode(
 
 	expiry := time.Now().Add(time.Duration(expiresIn) * time.Second)
 
-	accounts := make([]*models.SocialAccount, 0, len(pages))
+	var firstAccount *models.SocialAccount
 	for _, page := range pages {
 		encPageToken, err := crypto.Encrypt(page.AccessToken, c.secret)
 		if err != nil {
@@ -129,20 +130,20 @@ func (c *Client) ExchangeCode(
 		}
 
 		account := &models.SocialAccount{
-			WorkspaceID:   workspaceID,
-			Platform:      models.PlatformFacebook,
-			AccountID:     page.ID,
-			AccountName:   page.Name,
-			AccountType:   "page",
-			AvatarURL:     page.PictureURL,
-			AccessToken:   encPageToken,
-			RefreshToken:  "",
+			WorkspaceID:    workspaceID,
+			Platform:       models.PlatformFacebook,
+			AccountID:      page.ID,
+			AccountName:    page.Name,
+			AccountType:    "page",
+			AvatarURL:      page.PictureURL,
+			AccessToken:    encPageToken,
+			RefreshToken:   "",
 			TokenExpiresAt: &expiry,
-			Scopes:        models.StringSlice(conf.Scopes),
-			IsActive:      true,
-			ProfileURL:    "https://www.facebook.com/" + page.ID,
+			Scopes:         models.StringSlice(conf.Scopes),
+			IsActive:       true,
+			ProfileURL:     "https://www.facebook.com/" + page.ID,
 			Metadata: models.JSONMap{
-				"category": page.Category,
+				"category":  page.Category,
 				"fan_count": page.FanCount,
 			},
 		}
@@ -154,7 +155,9 @@ func (c *Client) ExchangeCode(
 			return nil, fmt.Errorf("facebook: upsert social account for page %s: %w", page.ID, err)
 		}
 
-		accounts = append(accounts, account)
+		if firstAccount == nil {
+			firstAccount = account
+		}
 		c.log.Info("facebook page connected",
 			zap.String("workspace_id", workspaceID.String()),
 			zap.String("page_id", page.ID),
@@ -162,30 +165,47 @@ func (c *Client) ExchangeCode(
 		)
 	}
 
-	return accounts, nil
+	return firstAccount, nil
 }
 
 // Post publishes content to a Facebook page, dispatching by post type.
 func (c *Client) Post(
 	ctx context.Context,
 	account *models.SocialAccount,
-	req PostRequest,
-) (string, error) {
+	req *models.PostRequest,
+) (*models.PostResult, error) {
 	pageToken, err := crypto.Decrypt(account.AccessToken, c.secret)
 	if err != nil {
-		return "", fmt.Errorf("facebook: decrypt page token: %w", err)
+		return nil, fmt.Errorf("facebook: decrypt page token: %w", err)
 	}
 
 	pageID := account.AccountID
 
-	switch req.PostType {
-	case "photo":
-		return c.postPhoto(ctx, pageID, pageToken, req)
-	case "video":
-		return c.postVideo(ctx, pageID, pageToken, req)
-	default:
-		return c.postFeed(ctx, pageID, pageToken, req.Content)
+	mediaURL := ""
+	if len(req.MediaURLs) > 0 {
+		mediaURL = req.MediaURLs[0]
 	}
+	localReq := PostRequest{
+		Content:  req.Caption,
+		MediaURL: mediaURL,
+		PostType: string(req.Type),
+		Caption:  req.Caption,
+	}
+
+	var postID string
+	var postErr error
+	switch localReq.PostType {
+	case "photo":
+		postID, postErr = c.postPhoto(ctx, pageID, pageToken, localReq)
+	case "video":
+		postID, postErr = c.postVideo(ctx, pageID, pageToken, localReq)
+	default:
+		postID, postErr = c.postFeed(ctx, pageID, pageToken, localReq.Content)
+	}
+	if postErr != nil {
+		return nil, postErr
+	}
+	return &models.PostResult{PlatformPostID: postID}, nil
 }
 
 // ─── post types ──────────────────────────────────────────────────────────────

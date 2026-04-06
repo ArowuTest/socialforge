@@ -127,8 +127,8 @@ func (c *Client) ExchangeCode(ctx context.Context, code, state string, workspace
 		AvatarURL:    igAccount.ProfilePictureURL,
 		AccessToken:  encAccess,
 		RefreshToken: "", // Instagram uses long-lived tokens, no separate refresh token
-		TokenExpiry:  &expiryTime,
-		Scopes:       strings.Join(conf.Scopes, " "),
+		TokenExpiresAt: &expiryTime,
+		Scopes:         models.StringSlice(conf.Scopes),
 		PageID:       igAccount.PageID,
 		PageName:     igAccount.PageName,
 		IsActive:     true,
@@ -189,13 +189,13 @@ func (c *Client) RefreshToken(ctx context.Context, account *models.SocialAccount
 	expiry := time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
 	if err := c.db.WithContext(ctx).Model(account).Updates(map[string]interface{}{
 		"access_token": encAccess,
-		"token_expiry": expiry,
+		"token_expires_at": expiry,
 	}).Error; err != nil {
 		return fmt.Errorf("instagram: update token in db: %w", err)
 	}
 
 	account.AccessToken = encAccess
-	account.TokenExpiry = &expiry
+	account.TokenExpiresAt = &expiry
 
 	c.log.Info("instagram token refreshed",
 		zap.String("account_id", account.ID.String()),

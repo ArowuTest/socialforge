@@ -1,0 +1,33 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Frontend (Next.js)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "./frontend",
+      "port": 3000
+    },
+    {
+      "name": "Backend (Go/Fiber)",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./cmd/api"],
+      "cwd": "./backend",
+      "port": 8080
+    },
+    {
+      "name": "Full Stack (Docker Compose)",
+      "runtimeExecutable": "docker",
+      "runtimeArgs": ["compose", "-f", "docker-compose.yml", "-f", "docker-compose.dev.yml", "up"],
+      "cwd": ".",
+      "port": 3000
+    },
+    {
+      "name": "Frontend Tests (Vitest)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "test"],
+      "cwd": "./frontend",
+      "port": 51204
+    }
+  ]
+}
