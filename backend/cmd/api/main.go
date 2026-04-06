@@ -111,9 +111,10 @@ func main() {
 
 	// ── Asynq client ──────────────────────────────────────────────────────────
 	redisOpt := asynq.RedisClientOpt{
-		Addr:     rdb.Options().Addr,
-		Password: rdb.Options().Password,
-		DB:       rdb.Options().DB,
+		Addr:      rdb.Options().Addr,
+		Password:  rdb.Options().Password,
+		DB:        rdb.Options().DB,
+		TLSConfig: rdb.Options().TLSConfig, // required for rediss:// (Upstash)
 	}
 	asynqClient := asynq.NewClient(redisOpt)
 	defer asynqClient.Close()

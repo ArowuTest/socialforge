@@ -309,9 +309,10 @@ func DefaultServerConfig() ServerConfig {
 func NewServer(redisClient *redis.Client, deps WorkerDeps, cfg ServerConfig) (*asynq.Server, *asynq.ServeMux) {
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{
-			Addr:     redisClient.Options().Addr,
-			Password: redisClient.Options().Password,
-			DB:       redisClient.Options().DB,
+			Addr:      redisClient.Options().Addr,
+			Password:  redisClient.Options().Password,
+			DB:        redisClient.Options().DB,
+			TLSConfig: redisClient.Options().TLSConfig, // required for rediss:// (Upstash)
 		},
 		asynq.Config{
 			Concurrency: cfg.Concurrency,

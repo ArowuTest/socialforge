@@ -27,9 +27,10 @@ type Scheduler struct {
 // Call Start() to begin executing jobs and Stop() for graceful shutdown.
 func NewScheduler(redisClient *redis.Client, db *gorm.DB, log *zap.Logger) (*Scheduler, error) {
 	opt := asynq.RedisClientOpt{
-		Addr:     redisClient.Options().Addr,
-		Password: redisClient.Options().Password,
-		DB:       redisClient.Options().DB,
+		Addr:      redisClient.Options().Addr,
+		Password:  redisClient.Options().Password,
+		DB:        redisClient.Options().DB,
+		TLSConfig: redisClient.Options().TLSConfig, // required for rediss:// (Upstash)
 	}
 
 	inner := asynq.NewScheduler(opt, &asynq.SchedulerOpts{
@@ -177,9 +178,10 @@ func NewSchedulerWorker(redisClient *redis.Client, db *gorm.DB, log *zap.Logger)
 		db:  db,
 		log: log,
 		client: asynq.NewClient(asynq.RedisClientOpt{
-			Addr:     redisClient.Options().Addr,
-			Password: redisClient.Options().Password,
-			DB:       redisClient.Options().DB,
+			Addr:      redisClient.Options().Addr,
+			Password:  redisClient.Options().Password,
+			DB:        redisClient.Options().DB,
+			TLSConfig: redisClient.Options().TLSConfig,
 		}),
 	}
 }
