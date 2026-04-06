@@ -165,9 +165,9 @@ func Load() (*Config, error) {
 	cfg.JWT.AccessTokenExpiry = getEnvDuration("JWT_ACCESS_EXPIRY", 15*time.Minute)
 	cfg.JWT.RefreshTokenExpiry = getEnvDuration("JWT_REFRESH_EXPIRY", 30*24*time.Hour)
 
-	// ── Stripe ──────────────────────────────────────────────────────────────────
-	cfg.Stripe.SecretKey = requireEnv("STRIPE_SECRET_KEY")
-	cfg.Stripe.WebhookSecret = requireEnv("STRIPE_WEBHOOK_SECRET")
+	// ── Stripe (optional — billing disabled when not configured) ────────────────
+	cfg.Stripe.SecretKey = getEnvOrDefault("STRIPE_SECRET_KEY", "")
+	cfg.Stripe.WebhookSecret = getEnvOrDefault("STRIPE_WEBHOOK_SECRET", "")
 	cfg.Stripe.Prices.StarterMonthly = getEnvOrDefault("STRIPE_PRICE_STARTER_MONTHLY", "")
 	cfg.Stripe.Prices.StarterYearly = getEnvOrDefault("STRIPE_PRICE_STARTER_YEARLY", "")
 	cfg.Stripe.Prices.ProMonthly = getEnvOrDefault("STRIPE_PRICE_PRO_MONTHLY", "")
@@ -181,21 +181,21 @@ func Load() (*Config, error) {
 	cfg.Paystack.PublicKey = getEnvOrDefault("PAYSTACK_PUBLIC_KEY", "")
 
 	// ── OpenAI ──────────────────────────────────────────────────────────────────
-	cfg.OpenAI.APIKey = requireEnv("OPENAI_API_KEY")
+	cfg.OpenAI.APIKey = getEnvOrDefault("OPENAI_API_KEY", "")
 
 	// ── Fal.ai ──────────────────────────────────────────────────────────────────
-	cfg.FalAI.APIKey = requireEnv("FAL_API_KEY")
+	cfg.FalAI.APIKey = getEnvOrDefault("FAL_API_KEY", "")
 
 	// ── App ─────────────────────────────────────────────────────────────────────
-	cfg.App.BaseURL = requireEnv("APP_BASE_URL")
+	cfg.App.BaseURL = getEnvOrDefault("APP_BASE_URL", "http://localhost:8080")
 	cfg.App.FrontendURL = getEnvOrDefault("APP_FRONTEND_URL", cfg.App.BaseURL)
 
-	// ── Storage ─────────────────────────────────────────────────────────────────
+	// ── Storage (optional — media upload disabled when not configured) ────────────
 	cfg.Storage.Endpoint = getEnvOrDefault("STORAGE_ENDPOINT", "")
-	cfg.Storage.Bucket = requireEnv("STORAGE_BUCKET")
+	cfg.Storage.Bucket = getEnvOrDefault("STORAGE_BUCKET", "")
 	cfg.Storage.Region = getEnvOrDefault("STORAGE_REGION", "auto")
-	cfg.Storage.AccessKeyID = requireEnv("STORAGE_ACCESS_KEY_ID")
-	cfg.Storage.SecretAccessKey = requireEnv("STORAGE_SECRET_ACCESS_KEY")
+	cfg.Storage.AccessKeyID = getEnvOrDefault("STORAGE_ACCESS_KEY_ID", "")
+	cfg.Storage.SecretAccessKey = getEnvOrDefault("STORAGE_SECRET_ACCESS_KEY", "")
 	cfg.Storage.PublicURL = getEnvOrDefault("STORAGE_PUBLIC_URL", "")
 
 	// ── Notifications / Resend ──────────────────────────────────────────────────
