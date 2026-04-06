@@ -62,10 +62,17 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
 	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Log)
 
-	// ── Health ──────────────────────────────────────────────────────────────
+	// ── Health & root probe ──────────────────────────────────────────────────
+	// GET /health — structured health check used by Render, k8s, etc.
 	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"status": "ok"})
+		return c.JSON(fiber.Map{"status": "ok", "service": "socialforge-api"})
 	})
+	// HEAD / GET / — respond 200 for infrastructure probes (Render, load
+	// balancers, uptime monitors) that hit the root path before the
+	// healthCheckPath setting has been applied or during cold-start.
+	rootHandler := func(c *fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) }
+	app.Head("/", rootHandler)
+	app.Get("/", rootHandler)
 
 	v1 := app.Group("/api/v1")
 

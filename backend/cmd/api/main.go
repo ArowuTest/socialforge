@@ -283,6 +283,10 @@ func fiberZapLogger(log *zap.Logger) fiber.Handler {
 }
 
 // globalErrorHandler is the Fiber application-level error handler.
+// Log levels:
+//   - 404 Not Found  → debug  (expected: unknown paths, probes, bots)
+//   - 4xx client err → warn   (bad requests, auth failures)
+//   - 5xx server err → error  (genuine server faults)
 func globalErrorHandler(log *zap.Logger) fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
 		code := fiber.StatusInternalServerError
@@ -294,11 +298,28 @@ func globalErrorHandler(log *zap.Logger) fiber.ErrorHandler {
 			msg = fe.Message
 		}
 
-		log.Error("unhandled error",
-			zap.Error(err),
-			zap.String("path", c.Path()),
-			zap.String("method", c.Method()),
-		)
+		switch {
+		case code == fiber.StatusNotFound:
+			// 404s are noisy and expected (health probes, unknown paths).
+			// Log at debug so they don't pollute production dashboards.
+			log.Debug("route not found",
+				zap.String("method", c.Method()),
+				zap.String("path", c.Path()),
+			)
+		case code >= 500:
+			log.Error("server error",
+				zap.Error(err),
+				zap.String("method", c.Method()),
+				zap.String("path", c.Path()),
+			)
+		default:
+			// 4xx — client did something wrong; warn is appropriate.
+			log.Warn("client error",
+				zap.Int("status", code),
+				zap.String("method", c.Method()),
+				zap.String("path", c.Path()),
+			)
+		}
 
 		return c.Status(code).JSON(fiber.Map{
 			"error": msg,
