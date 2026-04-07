@@ -410,7 +410,7 @@ function Scene2({ frame }: { frame: number }) {
   const outputChars = Math.floor(ci(localFrame, 32, 70, 0, AI_OUTPUT.length));
   const outputOpacity = ci(localFrame, 30, 38, 0, 1);
 
-  // GPT badge pulse
+  // AI badge pulse
   const badgePulse = 0.85 + 0.15 * Math.sin((localFrame / 10) * Math.PI);
   const badgeOpacity = ci(localFrame, 28, 38, 0, 1);
 
@@ -535,7 +535,7 @@ function Scene2({ frame }: { frame: number }) {
           </div>
         </div>
 
-        {/* GPT badge */}
+        {/* AI badge */}
         <div
           style={{
             display: "flex",
@@ -574,7 +574,7 @@ function Scene2({ frame }: { frame: number }) {
                 fontWeight: 700,
               }}
             >
-              GPT-4o
+              SocialForge AI
             </span>
           </div>
           <span style={{ color: C.muted, fontSize: 11 }}>

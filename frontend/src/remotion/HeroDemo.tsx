@@ -3,7 +3,7 @@
  *
  * 0-25f    Dark bg, "SocialForge AI Studio" label + violet orb pulses
  * 25-60f   Text editor card slides up, cursor blinks, text types out
- * 60-80f   "Generating with GPT-4o…" spinner (3 violet dots)
+ * 60-80f   "Generating with SocialForge AI…" spinner (3 violet dots)
  * 80-110f  "✓ Generated!" + 8 platform icons spring in with stagger
  * 110-150f "Scheduling…" calendar view + progress bar fills
  * 150-185f "All posted! 🎉" success screen with stat counters
@@ -355,7 +355,7 @@ function GeneratingSpinner({ frame }: { frame: number }) {
         })}
       </div>
       <span style={{ color: C.violetLight, fontSize: 13, fontWeight: 600 }}>
-        Generating with GPT-4o...
+        Generating with SocialForge AI...
       </span>
     </div>
   );

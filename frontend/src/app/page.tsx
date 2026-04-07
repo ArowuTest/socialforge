@@ -114,14 +114,19 @@ function Navbar() {
 
           {/* Center nav */}
           <div className="hidden md:flex items-center gap-8">
-            {["Features", "Pricing", "About", "Blog"].map((item) => (
-              <Link
-                key={item}
-                href={`/${item.toLowerCase()}`}
+            {[
+              { label: "Features", href: "#features" },
+              { label: "Pricing", href: "#pricing" },
+              { label: "How it works", href: "#how-it-works" },
+              { label: "Testimonials", href: "#testimonials" },
+            ].map((item) => (
+              <a
+                key={item.label}
+                href={item.href}
                 className="text-slate-400 hover:text-white text-sm font-medium transition-colors duration-200"
               >
-                {item}
-              </Link>
+                {item.label}
+              </a>
             ))}
           </div>
 
@@ -153,15 +158,20 @@ function Navbar() {
       {mobileOpen && (
         <div className="md:hidden glass border-t border-white/5">
           <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col gap-2">
-            {["Features", "Pricing", "About", "Blog"].map((item) => (
-              <Link
-                key={item}
-                href={`/${item.toLowerCase()}`}
+            {[
+              { label: "Features", href: "#features" },
+              { label: "Pricing", href: "#pricing" },
+              { label: "How it works", href: "#how-it-works" },
+              { label: "Testimonials", href: "#testimonials" },
+            ].map((item) => (
+              <a
+                key={item.label}
+                href={item.href}
                 className="text-slate-300 hover:text-white py-2.5 px-3 rounded-lg hover:bg-white/5 text-sm font-medium transition-all"
                 onClick={() => setMobileOpen(false)}
               >
-                {item}
-              </Link>
+                {item.label}
+              </a>
             ))}
             <div className="border-t border-white/5 pt-3 mt-1 flex flex-col gap-2">
               <Link
@@ -415,7 +425,7 @@ function Features() {
   }, []);
 
   return (
-    <section className="py-24 md:py-32" style={{ background: "#020617" }}>
+    <section id="features" className="py-24 md:py-32" style={{ background: "#020617" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Heading */}
         <div className="text-center mb-16">
@@ -439,7 +449,7 @@ function Features() {
               </div>
             </div>
             <p className="text-slate-400 leading-relaxed mb-6">
-              GPT-4o writes captions, hashtags, and full thread series. One brief → 8 platform-optimised posts in seconds.
+              Our AI writes captions, hashtags, and full thread series. One brief → 8 platform-optimised posts in seconds.
             </p>
             {/* Mini mockup */}
             <div className="rounded-2xl p-4 mb-6" style={{ background: "rgba(2,6,23,0.8)", border: "1px solid rgba(255,255,255,0.06)" }}>
@@ -458,7 +468,7 @@ function Features() {
             </div>
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-violet-300" style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.25)" }}>
               <Cpu size={12} />
-              Powered by GPT-4o
+              Powered by SocialForge AI
             </div>
           </div>
 
@@ -573,7 +583,7 @@ function HowItWorks() {
     { num: "03", title: "Schedule", desc: "Post at peak times, automatically." },
   ];
   return (
-    <section className="py-24 md:py-32" style={{ background: "rgba(9,14,31,0.8)" }}>
+    <section id="how-it-works" className="py-24 md:py-32" style={{ background: "rgba(9,14,31,0.8)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <h2 className="text-5xl font-black text-white tracking-tight">Simple enough to start in minutes.</h2>
@@ -714,7 +724,7 @@ function Pricing() {
   ];
 
   return (
-    <section className="py-24 md:py-32" style={{ background: "rgba(9,14,31,0.9)" }}>
+    <section id="pricing" className="py-24 md:py-32" style={{ background: "rgba(9,14,31,0.9)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <h2 className="text-5xl font-black text-white tracking-tight">Transparent pricing. No surprises.</h2>
@@ -829,7 +839,7 @@ function Testimonials() {
   const visibleMobile = TESTIMONIALS[page % TESTIMONIALS.length];
 
   return (
-    <section className="py-24 md:py-32" style={{ background: "#020617" }}>
+    <section id="testimonials" className="py-24 md:py-32" style={{ background: "#020617" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12">
           <h2 className="text-5xl font-black text-white tracking-tight">

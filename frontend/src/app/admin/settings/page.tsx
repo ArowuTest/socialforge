@@ -480,7 +480,7 @@ export default function SettingsPage() {
           <p className="text-xs text-slate-500 mb-4">Manage third-party service credentials. Values are stored encrypted.</p>
 
           <MaskedField label="Stripe Secret Key" value="sk_live_••••••••••••••••••••••••••••••" status="ok" />
-          <MaskedField label="OpenAI API Key" value="sk-proj-••••••••••••••••••••••••••••••" status="ok" />
+          <MaskedField label="AI Provider API Key" value="sk-proj-••••••••••••••••••••••••••••••" status="ok" />
           <MaskedField label="Fal.ai API Key" value="fal-key-••••••••••••••••••••••••••••" status="ok" />
           <MaskedField label="Resend API Key" value="re_••••••••••••••••••••••••••••••••" status="ok" />
           <MaskedField label="Upstash Redis URL" value="rediss://default:••••••••••••@••••.upstash.io:6379" status="ok" />
@@ -548,7 +548,7 @@ export default function SettingsPage() {
                 <Zap className="h-4 w-4 text-violet-400" /> AI Job Costs
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                USD cost charged to your OpenAI / Fal.ai account per generation. Changes apply within 5 minutes.
+                USD cost charged to your AI provider account per generation. Changes apply within 5 minutes.
               </p>
             </div>
             <button
