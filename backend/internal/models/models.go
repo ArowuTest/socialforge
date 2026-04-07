@@ -273,6 +273,8 @@ type User struct {
 	APIKey               string             `gorm:"index;size:128"                          json:"-"`
 	EmailVerifiedAt      *time.Time         `                                               json:"email_verified_at,omitempty"`
 	LastLoginAt          *time.Time         `                                               json:"last_login_at,omitempty"`
+	IsSuperAdmin         bool               `gorm:"not null;default:false"                  json:"is_super_admin"`
+	IsSuspended          bool               `gorm:"not null;default:false"                  json:"is_suspended"`
 
 	// Associations (not loaded by default)
 	Workspaces []Workspace       `gorm:"foreignKey:OwnerID" json:"-"`

@@ -226,6 +226,27 @@ func roleLevel(r models.WorkspaceRole) int {
 	}
 }
 
+// ─── RequireSuperAdmin ────────────────────────────────────────────────────────
+
+// RequireSuperAdmin enforces that the authenticated user has is_super_admin = true.
+// Must be used after JWTAuth. Any non-super-admin receives 403 Forbidden.
+// Suspended accounts are also rejected even if they hold the flag.
+func (m *MiddlewareGroup) RequireSuperAdmin() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		user, ok := c.Locals(LocalsUser).(*models.User)
+		if !ok || user == nil {
+			return unauthorised(c, "authentication required")
+		}
+		if user.IsSuspended {
+			return forbidden(c, "account suspended")
+		}
+		if !user.IsSuperAdmin {
+			return forbidden(c, "platform admin access required")
+		}
+		return c.Next()
+	}
+}
+
 // ─── RateLimiter ─────────────────────────────────────────────────────────────
 
 // RateLimiterConfig holds settings for the Redis-backed rate limiter.

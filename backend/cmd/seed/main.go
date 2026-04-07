@@ -110,8 +110,9 @@ func upsertAdminUser(db *sql.DB) (uuid.UUID, error) {
 	_, err = db.Exec(`
 		INSERT INTO users (
 			id, email, password_hash, full_name, plan,
-			subscription_status, email_verified, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, 'agency', 'active', TRUE, NOW(), NOW())`,
+			subscription_status, email_verified, is_super_admin, is_suspended,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 'agency', 'active', TRUE, TRUE, FALSE, NOW(), NOW())`,
 		id, email, string(hash), "Admin User",
 	)
 	if err != nil {

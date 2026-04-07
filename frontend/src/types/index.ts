@@ -65,6 +65,8 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   currentWorkspaceId: string;
+  is_super_admin?: boolean;
+  is_suspended?: boolean;
 }
 
 export interface Workspace {

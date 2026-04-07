@@ -93,6 +93,25 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, isAuthenticated } = useAuthStore();
+
+  // Guard: must be logged in AND have the super-admin flag.
+  React.useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace("/login?next=/admin");
+      return;
+    }
+    if (user && !user.is_super_admin) {
+      // Authenticated but not a platform admin — send to their dashboard.
+      router.replace("/dashboard");
+    }
+  }, [isAuthenticated, user, router]);
+
+  // Render nothing while redirecting.
+  if (!isAuthenticated || (user && !user.is_super_admin)) {
+    return null;
+  }
 
   const pageTitle = adminNav.find((n) => n.href === pathname)?.label ?? "Admin";
 

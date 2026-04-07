@@ -148,7 +148,8 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	wsAdmin.Delete("/clients/:id", whitelabelH.RemoveClient)
 
 	// ── Admin ─────────────────────────────────────────────────────────────────────
-	admin := v1.Group("/admin", mw.JWTAuth()) // TODO: add admin role check middleware
+	// Double guard: valid JWT + is_super_admin flag. Any other user gets 403.
+	admin := v1.Group("/admin", mw.JWTAuth(), mw.RequireSuperAdmin())
 	admin.Get("/stats", adminH.GetAdminStats)
 	admin.Get("/users", adminH.ListAllUsers)
 	admin.Get("/users/:id", adminH.GetUser)
