@@ -4,8 +4,7 @@ services:
     name: socialforge-api
     runtime: go
     rootDir: backend
-    buildCommand: go build -o ./api ./cmd/api && go build -o ./migrate ./cmd/migrate
-    preDeployCommand: ./migrate
+    buildCommand: go build -o ./api ./cmd/api
     startCommand: ./api
     healthCheckPath: /health
     envVars:

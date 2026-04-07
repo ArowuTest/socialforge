@@ -62,8 +62,15 @@ func main() {
 
 	db := database.GetDB()
 
+	// Run SQL migration files (embedded in the binary at build time).
+	// This ensures all schema changes are applied before the server starts,
+	// regardless of whether a separate migrate job ran.
+	if err := database.RunSQLMigrations(log); err != nil {
+		log.Fatal("SQL migrations failed", zap.Error(err))
+	}
+
 	if err := database.Migrate(log); err != nil {
-		log.Fatal("auto-migrate failed", zap.Error(err))
+		log.Fatal("supplementary index migration failed", zap.Error(err))
 	}
 
 	// ── Redis ─────────────────────────────────────────────────────────────────
