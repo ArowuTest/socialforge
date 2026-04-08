@@ -18,6 +18,19 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`
 
+// bootstrapMigrations are the migration versions that were applied manually
+// (via the seeder or DB console) before the embedded runner existed.
+// If the schema_migrations table is empty but the users table exists, we mark
+// these as already applied so the runner doesn't try to re-run CREATE TABLE
+// statements against an existing schema.
+var bootstrapMigrations = []string{
+	"001_initial",
+	"002_plans",
+	"003_credit_system",
+	"004_ai_cost_config",
+	"005_super_admin",
+}
+
 // RunSQLMigrations applies all pending SQL migration files embedded in the
 // migrations package. Each file is run exactly once; applied versions are
 // tracked in the schema_migrations table.
@@ -44,6 +57,30 @@ func runEmbeddedMigrations(db *sql.DB, fsys fs.FS, log *zap.Logger) error {
 	applied, err := appliedMigrationVersions(db)
 	if err != nil {
 		return fmt.Errorf("query applied versions: %w", err)
+	}
+
+	// Bootstrap detection: if schema_migrations is empty but the users table
+	// already exists, this is an existing deployment that pre-dates the embedded
+	// runner. Mark early migrations as applied without re-running them (those
+	// CREATE TABLE statements would fail on an existing schema).
+	if len(applied) == 0 {
+		if exists, _ := tableExists(db, "users"); exists {
+			log.Info("existing schema detected — bootstrapping schema_migrations table")
+			for _, v := range bootstrapMigrations {
+				if _, err := db.Exec(
+					`INSERT INTO schema_migrations (version, applied_at) VALUES ($1, NOW()) ON CONFLICT DO NOTHING`,
+					v,
+				); err != nil {
+					log.Warn("bootstrap: failed to record migration version",
+						zap.String("version", v), zap.Error(err))
+				}
+			}
+			// Re-read applied versions after bootstrap.
+			applied, err = appliedMigrationVersions(db)
+			if err != nil {
+				return fmt.Errorf("re-query applied versions after bootstrap: %w", err)
+			}
+		}
 	}
 
 	// Collect *.sql files from the embedded FS.
@@ -126,4 +163,17 @@ func appliedMigrationVersions(db *sql.DB) (map[string]bool, error) {
 		m[v] = true
 	}
 	return m, rows.Err()
+}
+
+// tableExists returns true if the named table exists in the public schema.
+func tableExists(db *sql.DB, tableName string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(
+		`SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = $1
+		)`,
+		tableName,
+	).Scan(&exists)
+	return exists, err
 }
