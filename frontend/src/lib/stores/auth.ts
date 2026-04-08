@@ -34,10 +34,22 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           const res = await authApi.login(data);
-          setTokens(res.data.tokens);
+          // Backend returns: { data: { access_token, refresh_token, expires_at, user, workspace } }
+          const d = res.data as unknown as {
+            access_token: string;
+            refresh_token: string;
+            expires_at: string;
+            user: User;
+            workspace: Workspace;
+          };
+          setTokens({
+            accessToken: d.access_token,
+            refreshToken: d.refresh_token,
+            expiresIn: new Date(d.expires_at).getTime() - Date.now(),
+          });
           set({
-            user: res.data.user,
-            workspace: res.data.workspace,
+            user: d.user,
+            workspace: d.workspace,
             isAuthenticated: true,
             isLoading: false,
           });

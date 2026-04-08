@@ -66,7 +66,7 @@ async function doRefreshToken(): Promise<string> {
   const rt = refreshToken ?? localStorage.getItem("sf_refresh_token");
   if (!rt) throw new Error("No refresh token available");
 
-  const res = await fetch(`${BASE_URL}/api/auth/refresh`, {
+  const res = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refreshToken: rt }),
@@ -146,30 +146,60 @@ async function request<T>(
 export const authApi = {
   login: (data: LoginRequest) =>
     request<ApiResponse<{ user: User; workspace: Workspace; tokens: AuthTokens }>>(
-      "/api/auth/login",
+      "/api/v1/auth/login",
       { method: "POST", body: JSON.stringify(data) }
     ),
 
   register: (data: RegisterRequest) =>
     request<ApiResponse<{ user: User; workspace: Workspace; tokens: AuthTokens }>>(
-      "/api/auth/register",
+      "/api/v1/auth/register",
       { method: "POST", body: JSON.stringify(data) }
     ),
 
   refreshToken: (token: string) =>
-    request<ApiResponse<AuthTokens>>("/api/auth/refresh", {
+    request<ApiResponse<AuthTokens>>("/api/v1/auth/refresh", {
       method: "POST",
       body: JSON.stringify({ refreshToken: token }),
     }),
 
   logout: () =>
-    request<void>("/api/auth/logout", { method: "POST" }),
-
-  getOAuthUrl: (provider: string) =>
-    request<ApiResponse<{ url: string }>>(`/api/auth/oauth/${provider}`),
+    request<void>("/api/v1/auth/logout", { method: "POST" }),
 
   me: () =>
-    request<ApiResponse<User>>("/api/auth/me"),
+    request<ApiResponse<User>>("/api/v1/auth/me"),
+
+  getApiKeys: () =>
+    request<ApiResponse<ApiKey[]>>("/api/v1/auth/api-keys"),
+
+  createApiKey: (data: { name: string; permissions?: string[] }) =>
+    request<ApiResponse<ApiKey & { key: string }>>("/api/v1/auth/api-keys", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  deleteApiKey: (id: string) =>
+    request<void>(`/api/v1/auth/api-keys/${id}`, { method: "DELETE" }),
+};
+
+// ============================================================
+// OAuth API
+// ============================================================
+
+export const oauthApi = {
+  getConnectUrl: (platform: Platform, workspaceId: string) =>
+    `${BASE_URL}/api/v1/oauth/${platform}/connect?workspaceId=${workspaceId}`,
+};
+
+// ============================================================
+// Social Accounts API
+// ============================================================
+
+export const accountsApi = {
+  list: (workspaceId: string) =>
+    request<ApiResponse<SocialAccount[]>>(`/api/v1/workspaces/${workspaceId}/accounts`),
+
+  disconnect: (workspaceId: string, id: string) =>
+    request<void>(`/api/v1/workspaces/${workspaceId}/accounts/${id}`, { method: "DELETE" }),
 };
 
 // ============================================================
@@ -178,86 +208,65 @@ export const authApi = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const postsApi: Record<string, any> = {
-  list: (params?: {
-    status?: PostStatus;
-    platform?: Platform;
-    page?: number;
-    pageSize?: number;
-    startDate?: string;
-    endDate?: string;
-  }) => {
+  list: (
+    workspaceId: string,
+    params?: {
+      status?: PostStatus;
+      platform?: Platform;
+      page?: number;
+      pageSize?: number;
+      startDate?: string;
+      endDate?: string;
+    }
+  ) => {
     const query = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
         if (v !== undefined) query.set(k, String(v));
       });
     }
-    return request<PaginatedResponse<Post>>(`/api/posts?${query}`);
+    return request<PaginatedResponse<Post>>(
+      `/api/v1/workspaces/${workspaceId}/posts?${query}`
+    );
   },
 
-  get: (id: string) =>
-    request<ApiResponse<Post>>(`/api/posts/${id}`),
+  get: (workspaceId: string, id: string) =>
+    request<ApiResponse<Post>>(`/api/v1/workspaces/${workspaceId}/posts/${id}`),
 
-  create: (data: {
-    caption: string;
-    platforms: Platform[];
-    mediaIds?: string[];
-    scheduledAt?: string;
-    postType: PostType;
-    tags?: string[];
-  }) =>
-    request<ApiResponse<Post>>("/api/posts", {
+  create: (
+    workspaceId: string,
+    data: {
+      caption: string;
+      platforms: Platform[];
+      mediaIds?: string[];
+      scheduledAt?: string;
+      postType: PostType;
+      tags?: string[];
+    }
+  ) =>
+    request<ApiResponse<Post>>(`/api/v1/workspaces/${workspaceId}/posts`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  update: (id: string, data: Partial<Post>) =>
-    request<ApiResponse<Post>>(`/api/posts/${id}`, {
+  update: (workspaceId: string, id: string, data: Partial<Post>) =>
+    request<ApiResponse<Post>>(`/api/v1/workspaces/${workspaceId}/posts/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
 
-  delete: (id: string) =>
-    request<void>(`/api/posts/${id}`, { method: "DELETE" }),
+  delete: (workspaceId: string, id: string) =>
+    request<void>(`/api/v1/workspaces/${workspaceId}/posts/${id}`, { method: "DELETE" }),
 
-  publishNow: (id: string) =>
-    request<ApiResponse<Post>>(`/api/posts/${id}/publish`, { method: "POST" }),
-
-  reschedule: (id: string, scheduledAt: string) =>
-    request<ApiResponse<Post>>(`/api/posts/${id}/reschedule`, {
+  publishNow: (workspaceId: string, id: string) =>
+    request<ApiResponse<Post>>(`/api/v1/workspaces/${workspaceId}/posts/${id}/publish`, {
       method: "POST",
-      body: JSON.stringify({ scheduledAt }),
     }),
 
-  bulkCreate: (posts: Parameters<typeof postsApi.create>[0][]) =>
-    request<ApiResponse<Post[]>>("/api/posts/bulk", {
+  bulkCreate: (workspaceId: string, posts: Parameters<typeof postsApi.create>[1][]) =>
+    request<ApiResponse<Post[]>>(`/api/v1/workspaces/${workspaceId}/posts/bulk`, {
       method: "POST",
       body: JSON.stringify({ posts }),
-    }),
-
-  getCalendar: (month: string) =>
-    request<ApiResponse<CalendarEntry[]>>(`/api/posts/calendar?month=${month}`),
-};
-
-// ============================================================
-// Social Accounts API
-// ============================================================
-
-export const accountsApi = {
-  list: () =>
-    request<ApiResponse<SocialAccount[]>>("/api/accounts"),
-
-  disconnect: (id: string) =>
-    request<void>(`/api/accounts/${id}`, { method: "DELETE" }),
-
-  getOAuthUrl: (platform: Platform, workspaceId: string) =>
-    request<ApiResponse<{ url: string }>>(
-      `/api/accounts/oauth/${platform}?workspaceId=${workspaceId}`
-    ),
-
-  refresh: (id: string) =>
-    request<ApiResponse<SocialAccount>>(`/api/accounts/${id}/refresh`, {
-      method: "POST",
     }),
 };
 
@@ -266,34 +275,39 @@ export const accountsApi = {
 // ============================================================
 
 export const scheduleApi = {
-  getSlots: () =>
-    request<ApiResponse<ScheduleSlot[]>>("/api/schedule/slots"),
+  getSlots: (workspaceId: string) =>
+    request<ApiResponse<ScheduleSlot[]>>(`/api/v1/workspaces/${workspaceId}/schedule/slots`),
 
-  createSlot: (data: {
-    platform?: Platform;
-    dayOfWeek: number;
-    time: string;
-    timezone: string;
-  }) =>
-    request<ApiResponse<ScheduleSlot>>("/api/schedule/slots", {
+  createSlot: (
+    workspaceId: string,
+    data: {
+      platform?: Platform;
+      dayOfWeek: number;
+      time: string;
+      timezone: string;
+    }
+  ) =>
+    request<ApiResponse<ScheduleSlot>>(`/api/v1/workspaces/${workspaceId}/schedule/slots`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  deleteSlot: (id: string) =>
-    request<void>(`/api/schedule/slots/${id}`, { method: "DELETE" }),
+  deleteSlot: (workspaceId: string, id: string) =>
+    request<void>(`/api/v1/workspaces/${workspaceId}/schedule/slots/${id}`, {
+      method: "DELETE",
+    }),
 
-  getCalendar: (startDate: string, endDate: string) =>
-    request<ApiResponse<CalendarEntry[]>>(
-      `/api/schedule/calendar?startDate=${startDate}&endDate=${endDate}`
-    ),
-
-  getNextSlot: (platform?: Platform) => {
+  getNextSlot: (workspaceId: string, platform?: Platform) => {
     const query = platform ? `?platform=${platform}` : "";
     return request<ApiResponse<{ slot: ScheduleSlot; scheduledAt: string }>>(
-      `/api/schedule/next${query}`
+      `/api/v1/workspaces/${workspaceId}/schedule/next-slot${query}`
     );
   },
+
+  getCalendar: (workspaceId: string, startDate: string, endDate: string) =>
+    request<ApiResponse<CalendarEntry[]>>(
+      `/api/v1/workspaces/${workspaceId}/schedule/calendar?startDate=${startDate}&endDate=${endDate}`
+    ),
 };
 
 // ============================================================
@@ -301,190 +315,48 @@ export const scheduleApi = {
 // ============================================================
 
 export const aiApi = {
-  generateCaption: (data: GenerateCaptionRequest) =>
-    request<ApiResponse<AIJob>>("/api/ai/caption", {
+  generateCaption: (workspaceId: string, data: GenerateCaptionRequest) =>
+    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/generate-caption`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  generateImage: (data: GenerateImageRequest) =>
-    request<ApiResponse<AIJob>>("/api/ai/image", {
+  generateImage: (workspaceId: string, data: GenerateImageRequest) =>
+    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/generate-image`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  generateVideo: (data: {
-    concept: string;
-    duration: 15 | 30 | 60;
-    style: string;
-  }) =>
-    request<ApiResponse<AIJob>>("/api/ai/video", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  repurpose: (data: RepurposeRequest) =>
-    request<ApiResponse<AIJob>>("/api/ai/repurpose", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  analyseViral: (data: { postId?: string; content?: string; platform: Platform }) =>
-    request<ApiResponse<AIJob>>("/api/ai/analyse-viral", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  improveCaption: (data: { caption: string; platform: Platform; instruction?: string }) =>
-    request<ApiResponse<AIJob>>("/api/ai/improve", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  addHashtags: (data: { caption: string; platform: Platform; count?: number }) =>
-    request<ApiResponse<AIJob>>("/api/ai/hashtags", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  getJobStatus: (jobId: string) =>
-    request<ApiResponse<AIJob>>(`/api/ai/jobs/${jobId}`),
-
-  getCreditsUsage: () =>
-    request<ApiResponse<{ used: number; limit: number; resetAt: string }>>(
-      "/api/ai/credits"
-    ),
-};
-
-// ============================================================
-// Billing API
-// ============================================================
-
-export const billingApi = {
-  getPlans: () =>
-    request<ApiResponse<Plan[]>>("/api/billing/plans"),
-
-  getSubscription: () =>
-    request<ApiResponse<Subscription>>("/api/billing/subscription"),
-
-  createSubscription: (data: { planType: string; interval: "monthly" | "yearly" }) =>
-    request<ApiResponse<{ checkoutUrl: string }>>("/api/billing/subscribe", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  getPortalUrl: () =>
-    request<ApiResponse<{ url: string }>>("/api/billing/portal"),
-
-  getUsage: () =>
-    request<ApiResponse<BillingUsage>>("/api/billing/usage"),
-
-  cancelSubscription: () =>
-    request<ApiResponse<Subscription>>("/api/billing/cancel", { method: "POST" }),
-
-  getCreditPackages: () =>
-    request<{ currency: string; packages: CreditPackage[] }>("/api/v1/billing/credits/packages"),
-
-  initiateCreditTopUp: (workspaceId: string, packageId: string) =>
-    request<CreditTopUpSession>(`/api/v1/workspaces/${workspaceId}/billing/credits/topup`, {
-      method: "POST",
-      body: JSON.stringify({ package_id: packageId }),
-    }),
-
-  getCreditBalance: (workspaceId: string) =>
-    request<{ data: CreditBalance }>(`/api/v1/workspaces/${workspaceId}/billing/credits/balance`),
-
-  getCreditLedger: (workspaceId: string, params?: { limit?: number; offset?: number }) => {
-    const q = new URLSearchParams();
-    if (params?.limit) q.set("limit", String(params.limit));
-    if (params?.offset) q.set("offset", String(params.offset));
-    return request<{ data: CreditLedgerEntry[]; total: number }>(`/api/v1/workspaces/${workspaceId}/billing/credits/ledger?${q}`);
-  },
-};
-
-// ============================================================
-// White-label API
-// ============================================================
-
-export const whitelabelApi = {
-  getConfig: () =>
-    request<ApiResponse<WhitelabelConfig>>("/api/whitelabel"),
-
-  updateConfig: (data: Partial<WhitelabelConfig>) =>
-    request<ApiResponse<WhitelabelConfig>>("/api/whitelabel", {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    }),
-
-  listClients: (params?: { page?: number; pageSize?: number }) => {
-    const query = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined) query.set(k, String(v));
-      });
+  generateVideo: (
+    workspaceId: string,
+    data: {
+      concept: string;
+      duration: 15 | 30 | 60;
+      style: string;
     }
-    return request<PaginatedResponse<Client>>(`/api/agency/clients?${query}`);
-  },
-
-  createClient: (data: {
-    name: string;
-    email: string;
-    plan: string;
-  }) =>
-    request<ApiResponse<Client>>("/api/agency/clients", {
+  ) =>
+    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/generate-video`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  impersonateClient: (clientId: string) =>
-    request<ApiResponse<{ token: string }>>(`/api/agency/clients/${clientId}/impersonate`, {
-      method: "POST",
-    }),
-
-  removeClient: (clientId: string) =>
-    request<void>(`/api/agency/clients/${clientId}`, { method: "DELETE" }),
-};
-
-// ============================================================
-// Workspace API
-// ============================================================
-
-export const workspaceApi = {
-  get: (id: string) =>
-    request<ApiResponse<Workspace>>(`/api/workspaces/${id}`),
-
-  list: () =>
-    request<ApiResponse<Workspace[]>>("/api/workspaces"),
-
-  update: (id: string, data: Partial<Workspace>) =>
-    request<ApiResponse<Workspace>>(`/api/workspaces/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    }),
-
-  create: (data: { name: string; slug?: string; timezone?: string }) =>
-    request<ApiResponse<Workspace>>("/api/workspaces", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-};
-
-// ============================================================
-// API Keys API
-// ============================================================
-
-export const apiKeysApi = {
-  list: () =>
-    request<ApiResponse<ApiKey[]>>("/api/keys"),
-
-  create: (data: { name: string; permissions?: string[] }) =>
-    request<ApiResponse<ApiKey & { key: string }>>("/api/keys", {
+  repurpose: (workspaceId: string, data: RepurposeRequest) =>
+    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/repurpose`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  revoke: (id: string) =>
-    request<void>(`/api/keys/${id}`, { method: "DELETE" }),
+  analyse: (
+    workspaceId: string,
+    data: { postId?: string; content?: string; platform: Platform }
+  ) =>
+    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/analyse`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getJobStatus: (workspaceId: string, jobId: string) =>
+    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/jobs/${jobId}`),
 };
 
 // ============================================================
@@ -492,7 +364,10 @@ export const apiKeysApi = {
 // ============================================================
 
 export const analyticsApi = {
-  getOverview: (params: { startDate: string; endDate: string }) =>
+  getOverview: (
+    workspaceId: string,
+    params: { startDate: string; endDate: string }
+  ) =>
     request<
       ApiResponse<{
         totalPosts: number;
@@ -503,14 +378,228 @@ export const analyticsApi = {
         engagementByPlatform: Array<{ platform: string; engagement: number }>;
         platformBreakdown: Array<{ platform: string; posts: number; reach: number }>;
       }>
-    >(`/api/analytics/overview?startDate=${params.startDate}&endDate=${params.endDate}`),
+    >(
+      `/api/v1/workspaces/${workspaceId}/analytics?startDate=${params.startDate}&endDate=${params.endDate}`
+    ),
+};
 
-  getTopPosts: (params: { startDate: string; endDate: string; limit?: number }) => {
-    const query = new URLSearchParams({
-      startDate: params.startDate,
-      endDate: params.endDate,
-      ...(params.limit ? { limit: String(params.limit) } : {}),
-    });
-    return request<ApiResponse<Post[]>>(`/api/analytics/top-posts?${query}`);
+// ============================================================
+// Billing API
+// ============================================================
+
+export const billingApi = {
+  getPlans: () =>
+    request<ApiResponse<Plan[]>>("/api/v1/billing/plans"),
+
+  createSubscription: (data: { planType: string; interval: "monthly" | "yearly" }) =>
+    request<ApiResponse<{ checkoutUrl: string }>>("/api/v1/billing/subscribe", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getPortalUrl: () =>
+    request<ApiResponse<{ url: string }>>("/api/v1/billing/portal", { method: "POST" }),
+
+  getUsage: () =>
+    request<ApiResponse<BillingUsage>>("/api/v1/billing/usage"),
+
+  getCreditPackages: () =>
+    request<{ currency: string; packages: CreditPackage[] }>(
+      "/api/v1/billing/credits/packages"
+    ),
+
+  initiateCreditTopUp: (workspaceId: string, packageId: string) =>
+    request<CreditTopUpSession>(
+      `/api/v1/workspaces/${workspaceId}/billing/credits/topup`,
+      {
+        method: "POST",
+        body: JSON.stringify({ package_id: packageId }),
+      }
+    ),
+
+  getCreditBalance: (workspaceId: string) =>
+    request<{ data: CreditBalance }>(
+      `/api/v1/workspaces/${workspaceId}/billing/credits/balance`
+    ),
+
+  getCreditLedger: (
+    workspaceId: string,
+    params?: { limit?: number; offset?: number }
+  ) => {
+    const q = new URLSearchParams();
+    if (params?.limit) q.set("limit", String(params.limit));
+    if (params?.offset) q.set("offset", String(params.offset));
+    return request<{ data: CreditLedgerEntry[]; total: number }>(
+      `/api/v1/workspaces/${workspaceId}/billing/credits/ledger?${q}`
+    );
   },
+
+  getWorkspaceUsage: (workspaceId: string) =>
+    request<ApiResponse<BillingUsage>>(
+      `/api/v1/workspaces/${workspaceId}/billing/usage`
+    ),
+};
+
+// ============================================================
+// Media API
+// ============================================================
+
+export const mediaApi = {
+  presign: (workspaceId: string, data: { filename: string; contentType: string }) =>
+    request<ApiResponse<{ uploadUrl: string; key: string }>>(
+      `/api/v1/workspaces/${workspaceId}/media/presign`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      }
+    ),
+
+  list: (workspaceId: string) =>
+    request<ApiResponse<Array<{ key: string; url: string; size: number; createdAt: string }>>>(
+      `/api/v1/workspaces/${workspaceId}/media`
+    ),
+
+  delete: (workspaceId: string, key: string) =>
+    request<void>(`/api/v1/workspaces/${workspaceId}/media/${key}`, {
+      method: "DELETE",
+    }),
+};
+
+// ============================================================
+// White-label API
+// ============================================================
+
+export const whitelabelApi = {
+  getConfig: (workspaceId: string) =>
+    request<ApiResponse<WhitelabelConfig>>(
+      `/api/v1/workspaces/${workspaceId}/whitelabel`
+    ),
+
+  updateConfig: (workspaceId: string, data: Partial<WhitelabelConfig>) =>
+    request<ApiResponse<WhitelabelConfig>>(
+      `/api/v1/workspaces/${workspaceId}/whitelabel`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }
+    ),
+
+  listClients: (
+    workspaceId: string,
+    params?: { page?: number; pageSize?: number }
+  ) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined) query.set(k, String(v));
+      });
+    }
+    return request<PaginatedResponse<Client>>(
+      `/api/v1/workspaces/${workspaceId}/clients?${query}`
+    );
+  },
+
+  createClient: (
+    workspaceId: string,
+    data: {
+      name: string;
+      email: string;
+      plan: string;
+    }
+  ) =>
+    request<ApiResponse<Client>>(`/api/v1/workspaces/${workspaceId}/clients`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  removeClient: (workspaceId: string, clientId: string) =>
+    request<void>(`/api/v1/workspaces/${workspaceId}/clients/${clientId}`, {
+      method: "DELETE",
+    }),
+};
+
+// ============================================================
+// Repurpose API
+// ============================================================
+
+export const repurposeApi = {
+  repurpose: (workspaceId: string, data: RepurposeRequest) =>
+    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/repurpose`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+};
+
+// ============================================================
+// Admin API (super-admin only)
+// ============================================================
+
+export const adminApi = {
+  getStats: () =>
+    request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/stats"),
+
+  listUsers: (params?: { page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined) query.set(k, String(v));
+      });
+    }
+    return request<PaginatedResponse<User>>(`/api/v1/admin/users?${query}`);
+  },
+
+  getUser: (id: string) =>
+    request<ApiResponse<User>>(`/api/v1/admin/users/${id}`),
+
+  suspendUser: (id: string) =>
+    request<ApiResponse<User>>(`/api/v1/admin/users/${id}/suspend`, {
+      method: "POST",
+    }),
+
+  listWorkspaces: (params?: { page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined) query.set(k, String(v));
+      });
+    }
+    return request<PaginatedResponse<Workspace>>(`/api/v1/admin/workspaces?${query}`);
+  },
+
+  listAiJobs: (params?: { page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined) query.set(k, String(v));
+      });
+    }
+    return request<PaginatedResponse<AIJob>>(`/api/v1/admin/ai-jobs?${query}`);
+  },
+
+  getAuditLogs: (params?: { page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined) query.set(k, String(v));
+      });
+    }
+    return request<PaginatedResponse<Record<string, unknown>>>(
+      `/api/v1/admin/audit-logs?${query}`
+    );
+  },
+
+  getRevenue: () =>
+    request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/revenue"),
+
+  grantCredits: (data: { userId: string; amount: number; reason?: string }) =>
+    request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/grant-credits", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  grantPlan: (data: { userId: string; planType: string; expiresAt?: string }) =>
+    request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/grant-plan", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };

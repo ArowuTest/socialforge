@@ -94,7 +94,16 @@ export default function SignupPage() {
         password: data.password,
         workspaceName: data.workspaceName,
       });
-      setTokensAndUser(res.data.tokens, res.data.user, res.data.workspace);
+      // Backend returns access_token / refresh_token (snake_case)
+      const d = res.data as unknown as {
+        access_token: string; refresh_token: string; expires_at: string;
+        user: import("@/types").User; workspace: import("@/types").Workspace;
+      };
+      setTokensAndUser(
+        { accessToken: d.access_token, refreshToken: d.refresh_token, expiresIn: new Date(d.expires_at).getTime() - Date.now() },
+        d.user,
+        d.workspace,
+      );
       toast.success("Account created! Welcome to SocialForge.");
       router.push("/calendar");
     } catch (error) {
