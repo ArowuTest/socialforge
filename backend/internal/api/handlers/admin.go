@@ -427,6 +427,132 @@ func (h *AdminHandler) GetRevenueStats(c *fiber.Ctx) error {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+// ── GrantCredits ──────────────────────────────────────────────────────────────
+
+type grantCreditsRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	Credits     int    `json:"credits"`
+	Note        string `json:"note"`
+}
+
+// GrantCredits allows a super-admin to manually add credits to a workspace.
+// POST /api/v1/admin/grant-credits
+func (h *AdminHandler) GrantCredits(c *fiber.Ctx) error {
+	var req grantCreditsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if req.WorkspaceID == "" || req.Credits <= 0 {
+		return badRequest(c, "workspace_id and positive credits are required", "VALIDATION_ERROR")
+	}
+
+	wsID, err := uuid.Parse(req.WorkspaceID)
+	if err != nil {
+		return badRequest(c, "workspace_id must be a valid UUID", "INVALID_ID")
+	}
+
+	var workspace models.Workspace
+	if err := h.db.WithContext(c.Context()).First(&workspace, "id = ?", wsID).Error; err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "workspace not found", "NOT_FOUND")
+		}
+		return internalError(c, "failed to find workspace")
+	}
+
+	newBalance := workspace.CreditBalance + req.Credits
+
+	err = h.db.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
+		// Update workspace credit balance.
+		if err := tx.Model(&workspace).Update("credit_balance", newBalance).Error; err != nil {
+			return err
+		}
+		// Record in credit ledger.
+		note := req.Note
+		if note == "" {
+			note = "admin grant"
+		}
+		ledger := models.CreditLedger{
+			WorkspaceID:  wsID,
+			EntryType:    models.LedgerAdjustment,
+			Credits:      req.Credits,
+			BalanceAfter: newBalance,
+			Currency:     "USD",
+			Provider:     "admin",
+			Metadata:     models.JSONMap{"note": note},
+		}
+		return tx.Create(&ledger).Error
+	})
+	if err != nil {
+		h.log.Error("GrantCredits: transaction", zap.Error(err))
+		return internalError(c, "failed to grant credits")
+	}
+
+	h.log.Info("admin granted credits",
+		zap.String("workspace_id", wsID.String()),
+		zap.Int("credits", req.Credits),
+		zap.Int("new_balance", newBalance),
+	)
+
+	return c.JSON(fiber.Map{
+		"message":     "credits granted successfully",
+		"workspace_id": req.WorkspaceID,
+		"credits_added": req.Credits,
+		"new_balance":  newBalance,
+	})
+}
+
+// ── GrantPlanAccess ───────────────────────────────────────────────────────────
+
+type grantPlanRequest struct {
+	UserID string `json:"user_id"`
+	Plan   string `json:"plan"`
+}
+
+// GrantPlanAccess lets a super-admin change a user's plan (free tier override).
+// POST /api/v1/admin/grant-plan
+func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
+	var req grantPlanRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+
+	validPlans := map[string]bool{"free": true, "starter": true, "pro": true, "agency": true}
+	if req.UserID == "" || !validPlans[req.Plan] {
+		return badRequest(c, "user_id and valid plan (free/starter/pro/agency) required", "VALIDATION_ERROR")
+	}
+
+	uid, err := uuid.Parse(req.UserID)
+	if err != nil {
+		return badRequest(c, "user_id must be a valid UUID", "INVALID_ID")
+	}
+
+	result := h.db.WithContext(c.Context()).
+		Model(&models.User{}).
+		Where("id = ?", uid).
+		Updates(map[string]interface{}{
+			"plan":                models.PlanType(req.Plan),
+			"subscription_status": "active",
+		})
+	if result.Error != nil {
+		return internalError(c, "failed to update plan")
+	}
+	if result.RowsAffected == 0 {
+		return notFound(c, "user not found", "NOT_FOUND")
+	}
+
+	// Also update all workspaces owned by this user.
+	h.db.WithContext(c.Context()).
+		Model(&models.Workspace{}).
+		Where("owner_id = ?", uid).
+		Update("plan", req.Plan)
+
+	return c.JSON(fiber.Map{
+		"message": "plan updated successfully",
+		"user_id": req.UserID,
+		"plan":    req.Plan,
+	})
+}
+
 func clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo

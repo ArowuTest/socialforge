@@ -158,6 +158,8 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	admin.Get("/ai-jobs", adminH.ListAllAIJobs)
 	admin.Get("/audit-logs", adminH.ListAuditLogs)
 	admin.Get("/revenue", adminH.GetRevenueStats)
+	admin.Post("/grant-credits", adminH.GrantCredits)
+	admin.Post("/grant-plan", adminH.GrantPlanAccess)
 
 	// Cost configuration (admin-only)
 	admin.Get("/cost-config/ai-jobs",         costConfigH.GetAIJobCosts)

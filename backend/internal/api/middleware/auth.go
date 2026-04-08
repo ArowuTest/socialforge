@@ -136,7 +136,11 @@ func (m *MiddlewareGroup) APIKeyAuth() fiber.Handler {
 // Must be used after JWTAuth or APIKeyAuth.
 func (m *MiddlewareGroup) WorkspaceAuth() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		rawID := c.Params("workspaceId")
+		// Accept both :wid (router.go) and :workspaceId (legacy) param names.
+		rawID := c.Params("wid")
+		if rawID == "" {
+			rawID = c.Params("workspaceId")
+		}
 		if rawID == "" {
 			return badRequest(c, "workspaceId parameter is required")
 		}
