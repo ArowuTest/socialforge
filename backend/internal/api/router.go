@@ -93,7 +93,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	oauth.Get("/:platform/callback", accountsH.OAuthCallback)
 
 	// ── Workspace-scoped routes ───────────────────────────────────────────────
-	ws := v1.Group("/workspaces/:wid", mw.JWTAuth(), mw.WorkspaceAuth())
+	ws := v1.Group("/workspaces/:workspaceId", mw.JWTAuth(), mw.WorkspaceAuth())
 
 	// Social Accounts
 	ws.Get("/accounts", accountsH.ListAccounts)
@@ -142,7 +142,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Patch("/whitelabel", mw.RequireRole(models.WorkspaceRoleAdmin), whitelabelH.UpdateWhitelabelConfig)
 
 	// Client management (admin only)
-	wsAdmin := v1.Group("/workspaces/:wid", mw.JWTAuth(), mw.WorkspaceAuth(), mw.RequireRole(models.WorkspaceRoleAdmin))
+	wsAdmin := v1.Group("/workspaces/:workspaceId", mw.JWTAuth(), mw.WorkspaceAuth(), mw.RequireRole(models.WorkspaceRoleAdmin))
 	wsAdmin.Get("/clients", whitelabelH.ListClients)
 	wsAdmin.Post("/clients", whitelabelH.CreateClient)
 	wsAdmin.Delete("/clients/:id", whitelabelH.RemoveClient)
