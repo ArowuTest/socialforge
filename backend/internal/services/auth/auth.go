@@ -119,10 +119,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*models.User,
 
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		user = models.User{
-			Email:        email,
-			PasswordHash: hash,
-			Name:         strings.TrimSpace(in.Name),
-			Plan:         models.PlanFree,
+			Email:               email,
+			PasswordHash:        hash,
+			Name:                strings.TrimSpace(in.Name),
+			Plan:                models.PlanFree,
+			SubscriptionStatus:  models.SubscriptionStatusActive,
 		}
 		if err := tx.Create(&user).Error; err != nil {
 			return fmt.Errorf("create user: %w", err)
