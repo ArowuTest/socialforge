@@ -47,10 +47,15 @@ func (h *ScheduleHandler) ListSlots(c *fiber.Ctx) error {
 // ── CreateSlot ────────────────────────────────────────────────────────────────
 
 type createSlotRequest struct {
-	Platform  string `json:"platform"`
-	DayOfWeek int    `json:"day_of_week"`
-	TimeOfDay string `json:"time_of_day"`
-	Timezone  string `json:"timezone"`
+	Platform string `json:"platform"`
+	// Accept both snake_case and camelCase so the Go backend and TS frontend
+	// agree regardless of which casing the client picks.
+	DayOfWeek    *int   `json:"day_of_week,omitempty"`
+	DayOfWeekCC  *int   `json:"dayOfWeek,omitempty"`
+	TimeOfDay    string `json:"time_of_day,omitempty"`
+	TimeCC       string `json:"time,omitempty"`
+	TimeOfDayCC  string `json:"timeOfDay,omitempty"`
+	Timezone     string `json:"timezone"`
 }
 
 // CreateSlot creates a new recurring schedule slot.
@@ -69,17 +74,34 @@ func (h *ScheduleHandler) CreateSlot(c *fiber.Ctx) error {
 	if req.Platform == "" {
 		return badRequest(c, "platform is required", "VALIDATION_ERROR")
 	}
-	if req.DayOfWeek < 0 || req.DayOfWeek > 6 {
+	// Resolve day + time from either casing.
+	var dayOfWeek int
+	switch {
+	case req.DayOfWeek != nil:
+		dayOfWeek = *req.DayOfWeek
+	case req.DayOfWeekCC != nil:
+		dayOfWeek = *req.DayOfWeekCC
+	default:
+		return badRequest(c, "day_of_week is required", "VALIDATION_ERROR")
+	}
+	if dayOfWeek < 0 || dayOfWeek > 6 {
 		return badRequest(c, "day_of_week must be 0–6 (0=Sunday)", "VALIDATION_ERROR")
 	}
-	if len(req.TimeOfDay) != 5 || req.TimeOfDay[2] != ':' {
+	timeOfDay := req.TimeOfDay
+	if timeOfDay == "" {
+		timeOfDay = req.TimeCC
+	}
+	if timeOfDay == "" {
+		timeOfDay = req.TimeOfDayCC
+	}
+	if len(timeOfDay) != 5 || timeOfDay[2] != ':' {
 		return badRequest(c, "time_of_day must be HH:MM format", "VALIDATION_ERROR")
 	}
 	if req.Timezone == "" {
 		req.Timezone = "UTC"
 	}
 
-	slot, err := h.schedule.CreateScheduleSlot(wid, req.Platform, req.DayOfWeek, req.TimeOfDay, req.Timezone)
+	slot, err := h.schedule.CreateScheduleSlot(wid, req.Platform, dayOfWeek, timeOfDay, req.Timezone)
 	if err != nil {
 		h.log.Error("CreateSlot: schedule.CreateScheduleSlot", zap.Error(err))
 		return internalError(c, err.Error())

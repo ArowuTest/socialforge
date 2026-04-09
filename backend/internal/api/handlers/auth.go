@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -13,15 +14,17 @@ import (
 	"github.com/socialforge/backend/internal/models"
 	"github.com/socialforge/backend/internal/repository"
 	authsvc "github.com/socialforge/backend/internal/services/auth"
+	"github.com/socialforge/backend/internal/services/notifications"
 )
 
 // AuthHandler handles authentication-related endpoints.
 type AuthHandler struct {
-	users      repository.UserRepository
-	workspaces repository.WorkspaceRepository
-	apiKeys    repository.APIKeyRepository
-	auth       *authsvc.Service
-	log        *zap.Logger
+	users         repository.UserRepository
+	workspaces    repository.WorkspaceRepository
+	apiKeys       repository.APIKeyRepository
+	auth          *authsvc.Service
+	notifications *notifications.Service
+	log           *zap.Logger
 }
 
 // NewAuthHandler creates a new AuthHandler.
@@ -30,14 +33,16 @@ func NewAuthHandler(
 	workspaces repository.WorkspaceRepository,
 	apiKeys repository.APIKeyRepository,
 	auth *authsvc.Service,
+	notif *notifications.Service,
 	log *zap.Logger,
 ) *AuthHandler {
 	return &AuthHandler{
-		users:      users,
-		workspaces: workspaces,
-		apiKeys:    apiKeys,
-		auth:       auth,
-		log:        log.Named("auth_handler"),
+		users:         users,
+		workspaces:    workspaces,
+		apiKeys:       apiKeys,
+		auth:          auth,
+		notifications: notif,
+		log:           log.Named("auth_handler"),
 	}
 }
 
@@ -94,6 +99,15 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	var workspace *models.Workspace
 	if err == nil && len(workspaces) > 0 {
 		workspace = workspaces[0]
+	}
+
+	// Fire-and-forget welcome email (no-op if Resend isn't configured).
+	if h.notifications != nil && workspace != nil {
+		go func(u *models.User, w *models.Workspace) {
+			if err := h.notifications.SendWelcome(context.Background(), u, w); err != nil {
+				h.log.Warn("SendWelcome failed", zap.Error(err), zap.String("user_id", u.ID.String()))
+			}
+		}(user, workspace)
 	}
 
 	setRefreshCookie(c, pair.RefreshToken)

@@ -140,9 +140,11 @@ export default function OnboardingPage() {
     }
   };
 
-  // Step 4 → POST each selected schedule slot, then advance.
+  // Step 4 → POST each selected schedule slot (one per connected platform),
+  // then advance. If no platforms are connected yet, just skip — the user can
+  // configure slots per-platform later from Settings.
   const handleStep4Continue = async () => {
-    if (selectedSlots.size === 0 || !workspace?.id) {
+    if (selectedSlots.size === 0 || connectedPlatforms.length === 0 || !workspace?.id) {
       setStep(5);
       return;
     }
@@ -153,16 +155,21 @@ export default function OnboardingPage() {
         typeof Intl !== "undefined"
           ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
           : "UTC";
-      await Promise.all(
-        Array.from(selectedSlots).map((key) => {
-          const [day, slot] = key.split("-");
-          return scheduleApi.createSlot(workspace.id, {
-            dayOfWeek: dayToInt[day],
-            time: slotToTime[slot],
-            timezone: tzName,
-          });
-        })
-      );
+      const calls: Promise<unknown>[] = [];
+      for (const key of selectedSlots) {
+        const [day, slot] = key.split("-");
+        for (const platform of connectedPlatforms) {
+          calls.push(
+            scheduleApi.createSlot(workspace.id, {
+              platform,
+              dayOfWeek: dayToInt[day],
+              time: slotToTime[slot],
+              timezone: tzName,
+            })
+          );
+        }
+      }
+      await Promise.all(calls);
       setStep(5);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save schedule");

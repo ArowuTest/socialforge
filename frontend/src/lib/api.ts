@@ -281,7 +281,7 @@ export const scheduleApi = {
   createSlot: (
     workspaceId: string,
     data: {
-      platform?: Platform;
+      platform: Platform | string;
       dayOfWeek: number;
       time: string;
       timezone: string;
@@ -289,7 +289,12 @@ export const scheduleApi = {
   ) =>
     request<ApiResponse<ScheduleSlot>>(`/api/v1/workspaces/${workspaceId}/schedule/slots`, {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        platform: data.platform,
+        day_of_week: data.dayOfWeek,
+        time_of_day: data.time,
+        timezone: data.timezone,
+      }),
     }),
 
   deleteSlot: (workspaceId: string, id: string) =>

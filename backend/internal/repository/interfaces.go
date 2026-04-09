@@ -29,6 +29,7 @@ type WorkspaceRepository interface {
 	AddMember(ctx context.Context, member *models.WorkspaceMember) error
 	RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error
 	GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*models.WorkspaceMember, error)
+	UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role models.WorkspaceRole) error
 	ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]*models.WorkspaceMember, error)
 	ListByOwner(ctx context.Context, ownerID uuid.UUID) ([]*models.Workspace, error)
 	ListClients(ctx context.Context, parentID uuid.UUID) ([]*models.Workspace, error)

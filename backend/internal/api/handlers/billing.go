@@ -236,19 +236,33 @@ func (h *BillingHandler) CustomerPortal(c *fiber.Ctx) error {
 
 // StripeWebhook handles Stripe event webhooks via the billing service.
 // POST /api/v1/billing/webhook
+//
+// We ALWAYS log the full event body on error so failed credit grants and
+// subscription updates can be reconciled manually. We still return 200 on
+// internal errors (so Stripe doesn't hammer us), but the alert must fire.
 func (h *BillingHandler) StripeWebhook(c *fiber.Ctx) error {
 	body := c.Body()
 	sig := c.Get("Stripe-Signature")
 
 	if err := h.billing.HandleWebhook(c.Context(), body, sig); err != nil {
 		if err == billingsvc.ErrInvalidWebhookSig {
+			h.log.Warn("StripeWebhook: invalid signature",
+				zap.Int("body_size", len(body)),
+				zap.String("remote_ip", c.IP()),
+			)
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 				"error": "invalid webhook signature",
 				"code":  "INVALID_SIGNATURE",
 			})
 		}
-		h.log.Error("StripeWebhook: billing.HandleWebhook", zap.Error(err))
-		// Return 200 to prevent Stripe from retrying on internal errors.
+		// Critical: this is a failed Stripe webhook that will NOT be retried.
+		// Must be surfaced to on-call and reconciled manually.
+		h.log.Error("StripeWebhook: billing.HandleWebhook FAILED — manual reconciliation required",
+			zap.Error(err),
+			zap.Int("body_size", len(body)),
+			zap.String("signature", sig),
+			zap.String("remote_ip", c.IP()),
+		)
 	}
 
 	return c.SendStatus(fiber.StatusOK)

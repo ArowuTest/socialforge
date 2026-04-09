@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -8,27 +9,36 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/socialforge/backend/internal/api/middleware"
+	"github.com/socialforge/backend/internal/config"
 	"github.com/socialforge/backend/internal/models"
 	"github.com/socialforge/backend/internal/repository"
+	"github.com/socialforge/backend/internal/services/notifications"
 )
 
 // MembersHandler handles workspace membership endpoints.
 type MembersHandler struct {
-	workspaces repository.WorkspaceRepository
-	users      repository.UserRepository
-	log        *zap.Logger
+	workspaces    repository.WorkspaceRepository
+	users         repository.UserRepository
+	notifications *notifications.Service
+	cfg           *config.Config
+	log           *zap.Logger
 }
 
 // NewMembersHandler constructs a MembersHandler.
 func NewMembersHandler(
 	workspaces repository.WorkspaceRepository,
 	users repository.UserRepository,
+	notif *notifications.Service,
+	cfg *config.Config,
 	log *zap.Logger,
 ) *MembersHandler {
 	return &MembersHandler{
-		workspaces: workspaces,
-		users:      users,
-		log:        log.Named("members_handler"),
+		workspaces:    workspaces,
+		users:         users,
+		notifications: notif,
+		cfg:           cfg,
+		log:           log.Named("members_handler"),
 	}
 }
 
@@ -130,6 +140,23 @@ func (h *MembersHandler) InviteMember(c *fiber.Ctx) error {
 		return internalError(c, "failed to add member")
 	}
 
+	// Fire-and-forget invite email.
+	if h.notifications != nil {
+		inviterName := "A teammate"
+		if inviter, ok := c.Locals(middleware.LocalsUser).(*models.User); ok && inviter != nil {
+			inviterName = inviter.Name
+		}
+		inviteURL := ""
+		if h.cfg != nil {
+			inviteURL = h.cfg.App.FrontendURL + "/dashboard"
+		}
+		go func(email, name, url string) {
+			if err := h.notifications.SendClientInvite(context.Background(), inviterName, email, name, url); err != nil {
+				h.log.Warn("SendClientInvite failed", zap.Error(err), zap.String("to", email))
+			}
+		}(user.Email, user.Name, inviteURL)
+	}
+
 	return c.JSON(fiber.Map{"data": h.toView(member, user)})
 }
 
@@ -170,16 +197,11 @@ func (h *MembersHandler) UpdateMemberRole(c *fiber.Ctx) error {
 	}
 
 	member.Role = role
-	// WorkspaceRepository has no generic member update; use AddMember with
-	// ON CONFLICT DO NOTHING pattern won't apply an update. Fall back to raw
-	// GORM via a direct save on the member record would require exposing the
-	// db. Instead, remove and re-add which is safe for role changes.
-	if err := h.workspaces.RemoveMember(c.Context(), wid, memberUserID); err != nil {
-		h.log.Error("UpdateMemberRole: RemoveMember", zap.Error(err))
-		return internalError(c, "failed to update role")
-	}
-	if err := h.workspaces.AddMember(c.Context(), member); err != nil {
-		h.log.Error("UpdateMemberRole: AddMember", zap.Error(err))
+	if err := h.workspaces.UpdateMemberRole(c.Context(), wid, memberUserID, role); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return notFound(c, "member not found", "NOT_FOUND")
+		}
+		h.log.Error("UpdateMemberRole", zap.Error(err))
 		return internalError(c, "failed to update role")
 	}
 

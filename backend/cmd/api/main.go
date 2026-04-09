@@ -29,6 +29,7 @@ import (
 	analyticssvc "github.com/socialforge/backend/internal/services/analytics"
 	authsvc "github.com/socialforge/backend/internal/services/auth"
 	billingsvc "github.com/socialforge/backend/internal/services/billing"
+	"github.com/socialforge/backend/internal/services/notifications"
 	"github.com/socialforge/backend/internal/services/publishing"
 	"github.com/socialforge/backend/internal/services/scheduling"
 
@@ -91,6 +92,7 @@ func main() {
 	scheduleService := scheduling.New(db, log)
 	analyticsService := analyticssvc.NewService(repos.Analytics, log)
 	billingService := billingsvc.NewService(cfg, repos, db, log, rdb)
+	notificationsService := notifications.NewService(cfg, log)
 
 	// ── Platform clients ──────────────────────────────────────────────────────
 	igClient := instagram.New(cfg.OAuth.Instagram, encryptionSecret, db, log)
@@ -176,8 +178,15 @@ func main() {
 	// ── Global middleware ─────────────────────────────────────────────────────
 	app.Use(requestid.New())
 
+	// CORS: allow the configured FrontendURL plus any comma-separated origins
+	// in CORS_EXTRA_ORIGINS (for admin subdomains, custom white-label domains,
+	// staging preview URLs, etc.).
+	corsOrigins := cfg.App.FrontendURL
+	if extra := os.Getenv("CORS_EXTRA_ORIGINS"); extra != "" {
+		corsOrigins = corsOrigins + "," + extra
+	}
 	app.Use(cors.New(cors.Config{
-		AllowOrigins:     cfg.App.FrontendURL,
+		AllowOrigins:     corsOrigins,
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-API-Key, X-Request-ID",
 		AllowMethods:     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 		AllowCredentials: true,
@@ -200,8 +209,9 @@ func main() {
 		AIService:        aiService,
 		AnalyticsService: analyticsService,
 		BillingService:   billingService,
-		ScheduleService:  scheduleService,
-		AsynqClient:      asynqClient,
+		ScheduleService:     scheduleService,
+		NotificationsService: notificationsService,
+		AsynqClient:         asynqClient,
 		PlatformClients: map[string]handlers.PlatformOAuthClient{
 			"instagram": igClient,
 			"tiktok":    ttClient,

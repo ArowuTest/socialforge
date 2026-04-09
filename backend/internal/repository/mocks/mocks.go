@@ -119,6 +119,11 @@ func (m *MockWorkspaceRepository) GetMember(ctx context.Context, workspaceID, us
 	return args.Get(0).(*models.WorkspaceMember), args.Error(1)
 }
 
+func (m *MockWorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role models.WorkspaceRole) error {
+	args := m.Called(ctx, workspaceID, userID, role)
+	return args.Error(0)
+}
+
 func (m *MockWorkspaceRepository) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]*models.WorkspaceMember, error) {
 	args := m.Called(ctx, workspaceID)
 	if args.Get(0) == nil {

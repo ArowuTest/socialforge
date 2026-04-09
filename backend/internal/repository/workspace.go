@@ -114,6 +114,22 @@ func (r *workspaceRepo) GetMember(ctx context.Context, workspaceID, userID uuid.
 	return &member, nil
 }
 
+// UpdateMemberRole updates just the role column on an existing membership row.
+// Avoids the remove-and-re-add dance which is race-prone under concurrent edits.
+func (r *workspaceRepo) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role models.WorkspaceRole) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.WorkspaceMember{}).
+		Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
+		Update("role", role)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListMembers returns all members belonging to the given workspace.
 func (r *workspaceRepo) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]*models.WorkspaceMember, error) {
 	var members []*models.WorkspaceMember

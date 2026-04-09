@@ -2,6 +2,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
@@ -17,6 +19,7 @@ import (
 	analyticssvc "github.com/socialforge/backend/internal/services/analytics"
 	authsvc "github.com/socialforge/backend/internal/services/auth"
 	billingsvc "github.com/socialforge/backend/internal/services/billing"
+	"github.com/socialforge/backend/internal/services/notifications"
 	scheduling "github.com/socialforge/backend/internal/services/scheduling"
 )
 
@@ -29,9 +32,10 @@ type Deps struct {
 	AuthService      *authsvc.Service
 	AIService        *ai.Service
 	AnalyticsService *analyticssvc.Service
-	BillingService   *billingsvc.Service
-	ScheduleService  *scheduling.Service
-	AsynqClient      *asynq.Client
+	BillingService       *billingsvc.Service
+	ScheduleService      *scheduling.Service
+	NotificationsService *notifications.Service
+	AsynqClient          *asynq.Client
 	PlatformClients  map[string]handlers.PlatformOAuthClient
 }
 
@@ -44,7 +48,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	mw := middleware.New(deps.AuthService, deps.DB, deps.RDB, deps.Config, deps.Log)
 
 	// Build handler groups, injecting repository interfaces instead of raw *gorm.DB.
-	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.Log)
+	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.NotificationsService, deps.Log)
 	postsH := handlers.NewPostsHandler(repos.Posts, deps.ScheduleService, deps.AsynqClient, deps.Log)
 	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.Config, deps.Log)
 	scheduleH := handlers.NewScheduleHandler(deps.DB, deps.ScheduleService, deps.Log)
@@ -61,7 +65,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 		deps.Log)
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
 	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Log)
-	membersH := handlers.NewMembersHandler(repos.Workspaces, repos.Users, deps.Log)
+	membersH := handlers.NewMembersHandler(repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)
 	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
 
 	// ── Health & root probe ──────────────────────────────────────────────────
@@ -79,10 +83,16 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	v1 := app.Group("/api/v1")
 
 	// ── Auth ─────────────────────────────────────────────────────────────────
+	// Brute-force protection: 10 attempts per IP per minute on unauthenticated
+	// credential endpoints. Fails open on Redis errors (see RateLimiter impl).
+	authLimiter := mw.RateLimiter(middleware.RateLimiterConfig{
+		Max:    10,
+		Window: time.Minute,
+	})
 	auth := v1.Group("/auth")
-	auth.Post("/register", authH.Register)
-	auth.Post("/login", authH.Login)
-	auth.Post("/refresh", authH.RefreshToken)
+	auth.Post("/register", authLimiter, authH.Register)
+	auth.Post("/login", authLimiter, authH.Login)
+	auth.Post("/refresh", authLimiter, authH.RefreshToken)
 	auth.Post("/logout", authH.Logout)
 	auth.Get("/me", mw.JWTAuth(), authH.GetCurrentUser)
 	auth.Post("/api-keys", mw.JWTAuth(), authH.CreateAPIKey)
@@ -132,7 +142,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/ai/generate-caption", aiH.GenerateCaption)
 	ws.Post("/ai/generate-image", aiH.GenerateImage)
 	ws.Post("/ai/generate-video", aiH.GenerateVideo)
-	ws.Post("/ai/repurpose", aiH.RepurposeContent)
+	// NOTE: /ai/repurpose was removed in favour of /repurpose (richer schema).
 	ws.Post("/ai/hashtags", aiH.GenerateHashtags)
 	ws.Get("/ai/jobs/:id", aiH.GetAIJobStatus)
 	ws.Post("/ai/analyse", aiH.AnalyseViralPotential)
