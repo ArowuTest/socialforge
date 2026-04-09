@@ -12,32 +12,29 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/lib/stores/auth";
 
-// ── Mock data ─────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-const stats = [
-  { label: "Posts Scheduled", value: "47", trend: "+12%", up: true, icon: Calendar, color: "violet" },
-  { label: "Connected Accounts", value: "12", trend: "8 platforms", up: true, icon: Share2, color: "blue" },
-  { label: "AI Credits Used", value: "840", sub: "/ 2,000", trend: "42% used", up: null, icon: Sparkles, color: "emerald" },
-  { label: "Avg Engagement", value: "6.8%", trend: "+0.3%", up: true, icon: BarChart3, color: "amber" },
-];
+type StatCardData = {
+  label: string;
+  value: string;
+  sub?: string;
+  trend: string;
+  up: boolean | null;
+  icon: React.ElementType;
+  color: string;
+};
 
-const recentPosts = [
-  { id: "1", title: "Product launch announcement 🚀", platforms: ["instagram", "twitter", "linkedin"], status: "scheduled", scheduledAt: "Apr 7, 10:00 AM" },
-  { id: "2", title: "Behind the scenes — office tour", platforms: ["youtube", "instagram"], status: "published", scheduledAt: "Apr 5, 2:00 PM" },
-  { id: "3", title: "Weekly tips for social media growth", platforms: ["twitter", "linkedin", "facebook"], status: "published", scheduledAt: "Apr 4, 9:00 AM" },
-  { id: "4", title: "New feature deep dive — AI Studio", platforms: ["youtube", "twitter"], status: "draft", scheduledAt: "—" },
-  { id: "5", title: "Client success story: 300% growth", platforms: ["linkedin", "instagram"], status: "scheduled", scheduledAt: "Apr 9, 11:00 AM" },
-];
+type RecentPost = {
+  id: string;
+  title: string;
+  platforms: string[];
+  status: string;
+  scheduledAt: string;
+};
 
-const platformData = [
-  { name: "Instagram", posts: 18, engagement: 7.2 },
-  { name: "TikTok", posts: 12, engagement: 11.4 },
-  { name: "YouTube", posts: 6, engagement: 5.8 },
-  { name: "LinkedIn", posts: 14, engagement: 4.1 },
-  { name: "Twitter", posts: 22, engagement: 3.7 },
-  { name: "Facebook", posts: 9, engagement: 2.9 },
-];
+type PlatformDatum = { name: string; posts: number; engagement: number };
 
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const scheduleDots: Record<number, { color: string }[]> = {
@@ -231,7 +228,7 @@ function GettingStartedGuide() {
 
 // ── Components ────────────────────────────────────────────────────────────────
 
-function StatCard({ stat }: { stat: typeof stats[0] }) {
+function StatCard({ stat }: { stat: StatCardData }) {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between mb-4">
@@ -262,12 +259,177 @@ function StatCard({ stat }: { stat: typeof stats[0] }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+async function fetchJSON<T = any>(url: string): Promise<T | null> {
+  try {
+    const tokensRaw = typeof window !== "undefined" ? localStorage.getItem("sf-auth") : null;
+    const accessToken = tokensRaw ? JSON.parse(tokensRaw)?.state?.tokens?.accessToken : null;
+    const res = await fetch(url, {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+function formatNumber(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return String(n);
+}
+
+function titleCase(s: string): string {
+  if (!s) return "";
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
 export default function DashboardPage() {
+  const workspace = useAuthStore((s) => s.workspace);
+  const user = useAuthStore((s) => s.user);
+
+  const [loading, setLoading] = React.useState(true);
+  const [stats, setStats] = React.useState<StatCardData[]>([]);
+  const [recentPosts, setRecentPosts] = React.useState<RecentPost[]>([]);
+  const [platformData, setPlatformData] = React.useState<PlatformDatum[]>([]);
+
+  React.useEffect(() => {
+    if (!workspace?.id) {
+      setLoading(false);
+      return;
+    }
+    const wid = workspace.id;
+    let cancelled = false;
+
+    (async () => {
+      const [analyticsRes, postsRes, accountsRes, creditsRes] = await Promise.all([
+        fetchJSON<{ data: any }>(`/api/v1/workspaces/${wid}/analytics?period=30d`),
+        fetchJSON<{ data: any[]; total?: number }>(`/api/v1/workspaces/${wid}/posts?limit=5`),
+        fetchJSON<{ data: any[] }>(`/api/v1/workspaces/${wid}/accounts`),
+        fetchJSON<{ data: any }>(`/api/v1/workspaces/${wid}/billing/credits/balance`),
+      ]);
+      if (cancelled) return;
+
+      const a = analyticsRes?.data || {};
+      const engagementByPlatform: Array<{ platform: string; engagement: number }> =
+        a.engagement_by_platform || [];
+      const postsByDay: Array<{ date: string; count: number }> = a.posts_by_day || [];
+
+      // Aggregate posts per platform for the chart
+      const platformPostCounts: Record<string, number> = {};
+      (postsRes?.data || []).forEach((p: any) => {
+        (p.platforms || []).forEach((pl: string) => {
+          platformPostCounts[pl] = (platformPostCounts[pl] || 0) + 1;
+        });
+      });
+
+      const chart: PlatformDatum[] = engagementByPlatform.map((e) => ({
+        name: titleCase(e.platform),
+        posts: platformPostCounts[e.platform] || 0,
+        engagement: Math.round((e.engagement || 0) * 10) / 10,
+      }));
+
+      const accounts = accountsRes?.data || [];
+      const connectedPlatforms = new Set(accounts.map((acc: any) => acc.platform));
+
+      const totalPosts: number = a.total_posts || 0;
+      const scheduledCount = (postsRes?.data || []).filter(
+        (p: any) => p.status === "scheduled"
+      ).length;
+      const totalScheduled = postsRes?.total ?? scheduledCount;
+
+      const credits = creditsRes?.data || {};
+      const creditsUsed: number = credits.used || credits.credits_used || 0;
+      const creditsLimit: number = credits.limit || credits.credits_limit || 2000;
+      const creditsPct = creditsLimit > 0 ? Math.round((creditsUsed / creditsLimit) * 100) : 0;
+
+      // Average engagement across platforms
+      const avgEngagement =
+        engagementByPlatform.length > 0
+          ? engagementByPlatform.reduce((acc, e) => acc + (e.engagement || 0), 0) /
+            engagementByPlatform.length
+          : 0;
+
+      if (cancelled) return;
+
+      setStats([
+        {
+          label: "Posts Scheduled",
+          value: String(totalScheduled),
+          trend: `${totalPosts} total`,
+          up: totalScheduled > 0,
+          icon: Calendar,
+          color: "violet",
+        },
+        {
+          label: "Connected Accounts",
+          value: String(accounts.length),
+          trend: `${connectedPlatforms.size} platforms`,
+          up: accounts.length > 0,
+          icon: Share2,
+          color: "blue",
+        },
+        {
+          label: "AI Credits Used",
+          value: formatNumber(creditsUsed),
+          sub: `/ ${formatNumber(creditsLimit)}`,
+          trend: `${creditsPct}% used`,
+          up: null,
+          icon: Sparkles,
+          color: "emerald",
+        },
+        {
+          label: "Avg Engagement",
+          value: `${avgEngagement.toFixed(1)}%`,
+          trend: postsByDay.length ? `${postsByDay.length}d data` : "No data",
+          up: avgEngagement > 0,
+          icon: BarChart3,
+          color: "amber",
+        },
+      ]);
+
+      setPlatformData(chart);
+
+      setRecentPosts(
+        (postsRes?.data || []).slice(0, 5).map((p: any) => ({
+          id: p.id,
+          title: p.caption?.slice(0, 80) || "Untitled post",
+          platforms: p.platforms || [],
+          status: p.status || "draft",
+          scheduledAt: p.scheduled_at
+            ? new Date(p.scheduled_at).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })
+            : "—",
+        }))
+      );
+
+      setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace?.id]);
+
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return "Good morning";
+    if (h < 18) return "Good afternoon";
+    return "Good evening";
+  })();
+  const firstName = user?.firstName || user?.email?.split("@")[0] || "there";
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8">
       {/* Welcome header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Good morning 👋</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+          {greeting}, {firstName} 👋
+        </h2>
         <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Here&apos;s what&apos;s happening with your social accounts today.</p>
       </div>
 
@@ -276,7 +438,15 @@ export default function DashboardPage() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {stats.map((s) => <StatCard key={s.label} stat={s} />)}
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5 animate-pulse">
+                <div className="h-10 w-10 rounded-xl bg-gray-100 dark:bg-gray-800 mb-4" />
+                <div className="h-7 w-20 bg-gray-100 dark:bg-gray-800 rounded mb-2" />
+                <div className="h-3 w-24 bg-gray-100 dark:bg-gray-800 rounded" />
+              </div>
+            ))
+          : stats.map((s) => <StatCard key={s.label} stat={s} />)}
       </div>
 
       {/* Quick actions */}
@@ -311,6 +481,15 @@ export default function DashboardPage() {
             <Link href="/calendar" className="text-xs text-violet-600 dark:text-violet-400 hover:underline font-medium">View all</Link>
           </div>
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {!loading && recentPosts.length === 0 && (
+              <div className="px-5 py-10 text-center">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">No posts yet.</p>
+                <Link href="/compose" className="inline-flex items-center gap-1.5 text-sm font-semibold text-violet-600 hover:text-violet-700">
+                  Create your first post
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            )}
             {recentPosts.map((post) => {
               const sc = statusConfig[post.status] ?? statusConfig.draft;
               return (
@@ -376,6 +555,11 @@ export default function DashboardPage() {
           {/* Platform performance mini chart */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5">
             <h3 className="font-semibold text-gray-900 dark:text-white text-sm mb-4">Platform Engagement</h3>
+            {platformData.length === 0 && !loading ? (
+              <div className="h-[160px] flex items-center justify-center text-xs text-gray-400">
+                No engagement data yet
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={platformData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -385,6 +569,7 @@ export default function DashboardPage() {
                 <Bar dataKey="engagement" fill="#7C3AED" radius={[4, 4, 0, 0]} name="Engagement %" />
               </BarChart>
             </ResponsiveContainer>
+            )}
           </div>
         </div>
       </div>
