@@ -603,3 +603,228 @@ export const adminApi = {
       body: JSON.stringify(data),
     }),
 };
+
+// ============================================================
+// Backwards-compat layer
+// ----------------------------------------------------------------
+// The dashboard pages were written against an earlier API client that:
+//   - did not require workspaceId as the first argument
+//   - had a separate `workspaceApi` and `apiKeysApi`
+//   - exposed extra methods that have since been removed or moved
+//
+// Rather than rewrite every page in lock-step with the new client, this
+// shim lets both shapes coexist. Legacy calls resolve the active
+// workspace ID from the zustand auth store persisted in localStorage.
+// New call sites that pass workspaceId explicitly still work unchanged.
+//
+// TODO: migrate each dashboard page to the canonical api.ts shape and
+// delete this section.
+// ============================================================
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+function getActiveWorkspaceId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = localStorage.getItem("sf-auth");
+    if (!raw) return "";
+    const parsed = JSON.parse(raw);
+    return parsed?.state?.workspace?.id ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function resolveArgs<T extends any[]>(args: any[]): [string, ...T] {
+  // If the first arg is a string that looks like a UUID/workspace id, use it.
+  // Otherwise fall back to the active workspace from the auth store.
+  if (typeof args[0] === "string" && args[0].length > 0 && !args[0].startsWith("{")) {
+    return args as [string, ...T];
+  }
+  return [getActiveWorkspaceId(), ...args] as [string, ...T];
+}
+
+// ---- accountsApi additions ----
+const originalAccountsList = accountsApi.list.bind(accountsApi);
+const originalAccountsDisconnect = accountsApi.disconnect.bind(accountsApi);
+
+Object.assign(accountsApi, {
+  list: (...args: any[]) => {
+    const [wsId] = resolveArgs(args);
+    return originalAccountsList(wsId);
+  },
+  disconnect: (...args: any[]) => {
+    const [wsId, id] = resolveArgs<[string]>(args);
+    return originalAccountsDisconnect(wsId, id);
+  },
+  refresh: (id?: string) => {
+    const wsId = getActiveWorkspaceId();
+    return request<ApiResponse<SocialAccount>>(
+      `/api/v1/workspaces/${wsId}/accounts/${id}/refresh`,
+      { method: "POST" }
+    );
+  },
+  getOAuthUrl: (platform: Platform) => {
+    const wsId = getActiveWorkspaceId();
+    return Promise.resolve({
+      data: { url: oauthApi.getConnectUrl(platform, wsId) },
+    });
+  },
+});
+
+// ---- aiApi additions ----
+const originalAiGenerateCaption = aiApi.generateCaption.bind(aiApi);
+const originalAiGenerateImage = aiApi.generateImage.bind(aiApi);
+const originalAiGenerateVideo = aiApi.generateVideo.bind(aiApi);
+const originalAiRepurpose = aiApi.repurpose.bind(aiApi);
+const originalAiAnalyse = aiApi.analyse.bind(aiApi);
+
+Object.assign(aiApi, {
+  generateCaption: (...args: any[]) => {
+    const [wsId, data] = resolveArgs<[GenerateCaptionRequest]>(args);
+    return originalAiGenerateCaption(wsId, data);
+  },
+  generateImage: (...args: any[]) => {
+    const [wsId, data] = resolveArgs<[GenerateImageRequest]>(args);
+    return originalAiGenerateImage(wsId, data);
+  },
+  generateVideo: (...args: any[]) => {
+    const [wsId, data] = resolveArgs<[{ concept: string; duration: 15 | 30 | 60; style: string }]>(args);
+    return originalAiGenerateVideo(wsId, data);
+  },
+  repurpose: (...args: any[]) => {
+    const [wsId, data] = resolveArgs<[RepurposeRequest]>(args);
+    return originalAiRepurpose(wsId, data);
+  },
+  analyse: (...args: any[]) => {
+    const [wsId, data] = resolveArgs<[{ postId?: string; content?: string; platform: Platform }]>(args);
+    return originalAiAnalyse(wsId, data);
+  },
+  addHashtags: (data: { content: string; platform: Platform; count?: number }) => {
+    const wsId = getActiveWorkspaceId();
+    return request<ApiResponse<AIJob>>(
+      `/api/v1/workspaces/${wsId}/ai/hashtags`,
+      { method: "POST", body: JSON.stringify(data) }
+    );
+  },
+  getCreditsUsage: () => {
+    const wsId = getActiveWorkspaceId();
+    return request<ApiResponse<{ used: number; limit: number; resetAt: string }>>(
+      `/api/v1/workspaces/${wsId}/ai/credits`
+    );
+  },
+});
+
+// ---- postsApi legacy shape support ----
+const originalPostsList = postsApi.list.bind(postsApi);
+const originalPostsCreate = postsApi.create.bind(postsApi);
+const originalPostsUpdate = postsApi.update.bind(postsApi);
+const originalPostsDelete = postsApi.delete.bind(postsApi);
+const originalPostsGet = postsApi.get.bind(postsApi);
+
+Object.assign(postsApi, {
+  list: (...args: any[]) => {
+    const [wsId, params] = resolveArgs<[any?]>(args);
+    return originalPostsList(wsId, params);
+  },
+  get: (...args: any[]) => {
+    const [wsId, id] = resolveArgs<[string]>(args);
+    return originalPostsGet(wsId, id);
+  },
+  create: (...args: any[]) => {
+    const [wsId, data] = resolveArgs<[any]>(args);
+    return originalPostsCreate(wsId, data);
+  },
+  update: (...args: any[]) => {
+    // Old shape: update(id, data)  → new shape: update(wsId, id, data)
+    if (args.length === 2) {
+      return originalPostsUpdate(getActiveWorkspaceId(), args[0], args[1]);
+    }
+    return originalPostsUpdate(args[0], args[1], args[2]);
+  },
+  delete: (...args: any[]) => {
+    const [wsId, id] = resolveArgs<[string]>(args);
+    return originalPostsDelete(wsId, id);
+  },
+});
+
+// ---- analyticsApi additions ----
+const originalAnalyticsOverview = analyticsApi.getOverview.bind(analyticsApi);
+
+Object.assign(analyticsApi, {
+  getOverview: (...args: any[]) => {
+    if (args.length === 1 && typeof args[0] === "object") {
+      return originalAnalyticsOverview(getActiveWorkspaceId(), args[0]);
+    }
+    return originalAnalyticsOverview(args[0], args[1]);
+  },
+  getTopPosts: (params?: { startDate: string; endDate: string; limit?: number }) => {
+    const wsId = getActiveWorkspaceId();
+    const q = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined) q.set(k, String(v));
+      });
+    }
+    return request<ApiResponse<Post[]>>(
+      `/api/v1/workspaces/${wsId}/analytics/top-posts?${q}`
+    );
+  },
+});
+
+// ---- billingApi additions ----
+Object.assign(billingApi, {
+  getSubscription: () =>
+    request<ApiResponse<Subscription>>("/api/v1/billing/subscription"),
+});
+
+// ---- workspaceApi (new export, legacy shape) ----
+export const workspaceApi: Record<string, any> = {
+  get: (id?: string) => {
+    const wsId = id ?? getActiveWorkspaceId();
+    return request<ApiResponse<Workspace>>(`/api/v1/workspaces/${wsId}`);
+  },
+  update: (idOrData: string | Partial<Workspace>, maybeData?: Partial<Workspace>) => {
+    const wsId = typeof idOrData === "string" ? idOrData : getActiveWorkspaceId();
+    const data = typeof idOrData === "string" ? maybeData : idOrData;
+    return request<ApiResponse<Workspace>>(`/api/v1/workspaces/${wsId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+  listMembers: (id?: string) => {
+    const wsId = id ?? getActiveWorkspaceId();
+    return request<ApiResponse<Array<{ id: string; email: string; name: string; role: string }>>>(
+      `/api/v1/workspaces/${wsId}/members`
+    );
+  },
+  inviteMember: (data: { email: string; role: string }) => {
+    const wsId = getActiveWorkspaceId();
+    return request<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/workspaces/${wsId}/members/invite`,
+      { method: "POST", body: JSON.stringify(data) }
+    );
+  },
+  removeMember: (memberId: string) => {
+    const wsId = getActiveWorkspaceId();
+    return request<void>(`/api/v1/workspaces/${wsId}/members/${memberId}`, {
+      method: "DELETE",
+    });
+  },
+  updateMemberRole: (memberId: string, role: string) => {
+    const wsId = getActiveWorkspaceId();
+    return request<ApiResponse<Record<string, unknown>>>(
+      `/api/v1/workspaces/${wsId}/members/${memberId}`,
+      { method: "PATCH", body: JSON.stringify({ role }) }
+    );
+  },
+};
+
+// ---- apiKeysApi (new export, alias to authApi) ----
+export const apiKeysApi: Record<string, any> = {
+  list: () => authApi.getApiKeys(),
+  create: (data: { name: string; permissions?: string[] }) => authApi.createApiKey(data),
+  delete: (id: string) => authApi.deleteApiKey(id),
+};
+
+/* eslint-enable @typescript-eslint/no-explicit-any */
