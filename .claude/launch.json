@@ -2,25 +2,32 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Frontend (Next.js)",
+      "name": "Frontend (Next.js dev)",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "./frontend",
       "port": 3000
     },
     {
-      "name": "Backend (Go/Fiber)",
+      "name": "Backend API (Go/Fiber)",
       "runtimeExecutable": "go",
       "runtimeArgs": ["run", "./cmd/api"],
       "cwd": "./backend",
       "port": 8080
     },
     {
-      "name": "Full Stack (Docker Compose)",
-      "runtimeExecutable": "docker",
-      "runtimeArgs": ["compose", "-f", "docker-compose.yml", "-f", "docker-compose.dev.yml", "up"],
-      "cwd": ".",
-      "port": 3000
+      "name": "DB Migrations (go run migrate)",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./cmd/migrate"],
+      "cwd": "./backend",
+      "port": 0
+    },
+    {
+      "name": "DB Seed (go run seed)",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./cmd/seed"],
+      "cwd": "./backend",
+      "port": 0
     },
     {
       "name": "Frontend Tests (Vitest)",

@@ -18,8 +18,19 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { workspaceApi, accountsApi, scheduleApi } from "@/lib/api";
+import { useAuthStore } from "@/lib/stores/auth";
 
 type Step = 1 | 2 | 3 | 4 | 5;
+
+// Day name → backend dayOfWeek int (0=Sun..6=Sat)
+const dayToInt: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+};
+// Slot label → HH:MM
+const slotToTime: Record<string, string> = {
+  Morning: "09:00", Noon: "12:00", Evening: "17:00", Night: "20:00",
+};
 
 const majorTimezones = [
   "UTC-12:00 Baker Island", "UTC-11:00 American Samoa", "UTC-10:00 Hawaii",
@@ -49,6 +60,7 @@ const timeSlots = ["Morning", "Noon", "Evening", "Night"];
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const workspace = useAuthStore((s) => s.workspace);
   const [step, setStep] = React.useState<Step>(1);
   const [workspaceName, setWorkspaceName] = React.useState("");
   const [timezone, setTimezone] = React.useState("UTC+00:00 London");
@@ -58,20 +70,105 @@ export default function OnboardingPage() {
   const [inviteRole, setInviteRole] = React.useState("Editor");
   const [pendingInvites, setPendingInvites] = React.useState<{ email: string; role: string }[]>([]);
   const [selectedSlots, setSelectedSlots] = React.useState<Set<string>>(new Set());
+  const [submitting, setSubmitting] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const handleConnectPlatform = (platformId: string) => {
+  // Step 1 → save workspace name, then advance.
+  const handleStep1Continue = async () => {
+    if (!workspaceName.trim() || !workspace?.id) {
+      setStep(2);
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await workspaceApi.update(workspace.id, { name: workspaceName.trim() });
+      setStep(2);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save workspace");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Step 2 → kick off real OAuth flow in a new tab.
+  const handleConnectPlatform = async (platformId: string) => {
     if (connectedPlatforms.includes(platformId)) return;
     setConnectingPlatform(platformId);
-    setTimeout(() => {
-      setConnectedPlatforms((prev) => [...prev, platformId]);
+    setError(null);
+    try {
+      const res = await accountsApi.getOAuthUrl(platformId as never);
+      const url = (res as { data?: { url?: string } })?.data?.url;
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        setConnectedPlatforms((prev) => [...prev, platformId]);
+      } else {
+        setError(`Could not start OAuth for ${platformId}`);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "OAuth failed");
+    } finally {
       setConnectingPlatform(null);
-    }, 1000);
+    }
   };
 
   const handleAddInvite = () => {
     if (!inviteEmail.trim()) return;
     setPendingInvites([...pendingInvites, { email: inviteEmail.trim(), role: inviteRole }]);
     setInviteEmail("");
+  };
+
+  // Step 3 → POST each pending invite, then advance.
+  const handleStep3Continue = async () => {
+    if (pendingInvites.length === 0) {
+      setStep(4);
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await Promise.all(
+        pendingInvites.map((inv) =>
+          workspaceApi.inviteMember({ email: inv.email, role: inv.role.toLowerCase() })
+        )
+      );
+      setStep(4);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to send some invites");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Step 4 → POST each selected schedule slot, then advance.
+  const handleStep4Continue = async () => {
+    if (selectedSlots.size === 0 || !workspace?.id) {
+      setStep(5);
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const tzName =
+        typeof Intl !== "undefined"
+          ? Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+          : "UTC";
+      await Promise.all(
+        Array.from(selectedSlots).map((key) => {
+          const [day, slot] = key.split("-");
+          return scheduleApi.createSlot(workspace.id, {
+            dayOfWeek: dayToInt[day],
+            time: slotToTime[slot],
+            timezone: tzName,
+          });
+        })
+      );
+      setStep(5);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save schedule");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleRemoveInvite = (idx: number) => {
@@ -132,6 +229,12 @@ export default function OnboardingPage() {
           })}
         </div>
 
+        {error && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+            {error}
+          </div>
+        )}
+
         {/* Step content */}
         <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
 
@@ -181,8 +284,8 @@ export default function OnboardingPage() {
               <div className="flex justify-center pt-2">
                 <Button
                   className="bg-violet-600 hover:bg-violet-700 text-white px-8 gap-2"
-                  onClick={() => setStep(2)}
-                  disabled={!workspaceName.trim()}
+                  onClick={handleStep1Continue}
+                  disabled={!workspaceName.trim() || submitting}
                 >
                   Continue
                   <ArrowRight className="h-4 w-4" />
@@ -255,6 +358,7 @@ export default function OnboardingPage() {
                 <Button
                   className="bg-violet-600 hover:bg-violet-700 text-white px-8 gap-2"
                   onClick={() => setStep(3)}
+                  disabled={submitting}
                 >
                   Continue
                   <ArrowRight className="h-4 w-4" />
@@ -334,7 +438,8 @@ export default function OnboardingPage() {
                 </button>
                 <Button
                   className="bg-violet-600 hover:bg-violet-700 text-white px-8 gap-2"
-                  onClick={() => setStep(4)}
+                  onClick={handleStep3Continue}
+                  disabled={submitting}
                 >
                   Continue
                   <ArrowRight className="h-4 w-4" />
@@ -411,7 +516,8 @@ export default function OnboardingPage() {
                 </button>
                 <Button
                   className="bg-violet-600 hover:bg-violet-700 text-white px-8 gap-2"
-                  onClick={() => setStep(5)}
+                  onClick={handleStep4Continue}
+                  disabled={submitting}
                 >
                   Continue
                   <ArrowRight className="h-4 w-4" />
