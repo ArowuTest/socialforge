@@ -20,6 +20,7 @@ const (
 	TypeCleanupAuditLogs  = "maintenance:cleanup_audit_logs"
 	TypeEnqueueDuePosts   = "scheduler:enqueue_due_posts"
 	TypeRetryFailedPosts  = "scheduler:retry_failed_posts"
+	TypeExpireAIJobs      = "maintenance:expire_ai_jobs"
 )
 
 // ─── Publish Post ─────────────────────────────────────────────────────────────

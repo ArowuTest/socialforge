@@ -2,12 +2,19 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/config"
@@ -16,8 +23,37 @@ import (
 	"github.com/socialforge/backend/internal/services/notifications"
 )
 
+const (
+	pendingInvitePrefix = "pinvite:"
+	pendingInviteTTL    = 7 * 24 * time.Hour
+)
+
+// pendingInvitePayload is the JSON blob stored in Redis for invites to
+// emails that do not yet have a user account.
+type pendingInvitePayload struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	Email       string    `json:"email"`
+	Role        string    `json:"role"`
+	InviterID   uuid.UUID `json:"inviter_id"`
+}
+
+func hashInviteToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+func newInviteToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // MembersHandler handles workspace membership endpoints.
 type MembersHandler struct {
+	db            *gorm.DB
+	rdb           *redis.Client
 	workspaces    repository.WorkspaceRepository
 	users         repository.UserRepository
 	notifications *notifications.Service
@@ -27,6 +63,8 @@ type MembersHandler struct {
 
 // NewMembersHandler constructs a MembersHandler.
 func NewMembersHandler(
+	db *gorm.DB,
+	rdb *redis.Client,
 	workspaces repository.WorkspaceRepository,
 	users repository.UserRepository,
 	notif *notifications.Service,
@@ -34,6 +72,8 @@ func NewMembersHandler(
 	log *zap.Logger,
 ) *MembersHandler {
 	return &MembersHandler{
+		db:            db,
+		rdb:           rdb,
 		workspaces:    workspaces,
 		users:         users,
 		notifications: notif,
@@ -124,7 +164,10 @@ func (h *MembersHandler) InviteMember(c *fiber.Ctx) error {
 	user, err := h.users.GetByEmail(c.Context(), email)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return notFound(c, "no user with that email — ask them to sign up first", "USER_NOT_FOUND")
+			// Create a pending invitation token and email the prospective user a
+			// signup link. The invite is redeemed after they register via
+			// POST /auth/accept-invite.
+			return h.createPendingInvite(c, wid, email, role)
 		}
 		h.log.Error("InviteMember: users.GetByEmail", zap.Error(err))
 		return internalError(c, "failed to look up user")
@@ -139,6 +182,9 @@ func (h *MembersHandler) InviteMember(c *fiber.Ctx) error {
 		h.log.Error("InviteMember: workspaces.AddMember", zap.Error(err))
 		return internalError(c, "failed to add member")
 	}
+
+	writeAudit(c, h.db, h.log, wid, "member.invite", "workspace_member", member.ID.String(),
+		map[string]any{"email": email, "role": string(role), "user_id": user.ID.String()})
 
 	// Fire-and-forget invite email.
 	if h.notifications != nil {
@@ -206,6 +252,8 @@ func (h *MembersHandler) UpdateMemberRole(c *fiber.Ctx) error {
 	}
 
 	user, _ := h.users.GetByID(c.Context(), memberUserID)
+	writeAudit(c, h.db, h.log, wid, "member.role_update", "workspace_member", memberUserID.String(),
+		map[string]any{"role": string(role)})
 	return c.JSON(fiber.Map{"data": h.toView(member, user)})
 }
 
@@ -225,5 +273,132 @@ func (h *MembersHandler) RemoveMember(c *fiber.Ctx) error {
 		h.log.Error("RemoveMember", zap.Error(err))
 		return internalError(c, "failed to remove member")
 	}
+	writeAudit(c, h.db, h.log, wid, "member.remove", "workspace_member", memberUserID.String(), nil)
 	return c.JSON(fiber.Map{"data": fiber.Map{"message": "member removed"}})
+}
+
+// createPendingInvite stores a pending invitation in Redis and emails a
+// signup link to the prospective user. The token is single-use and expires
+// after pendingInviteTTL.
+func (h *MembersHandler) createPendingInvite(c *fiber.Ctx, wid uuid.UUID, email string, role models.WorkspaceRole) error {
+	var inviterID uuid.UUID
+	inviterName := "A teammate"
+	if inviter, ok := c.Locals(middleware.LocalsUser).(*models.User); ok && inviter != nil {
+		inviterID = inviter.ID
+		inviterName = inviter.Name
+	}
+
+	rawToken, err := newInviteToken()
+	if err != nil {
+		h.log.Error("createPendingInvite: token gen", zap.Error(err))
+		return internalError(c, "failed to generate invite token")
+	}
+
+	payload := pendingInvitePayload{
+		WorkspaceID: wid,
+		Email:       email,
+		Role:        string(role),
+		InviterID:   inviterID,
+	}
+	blob, err := json.Marshal(payload)
+	if err != nil {
+		return internalError(c, "failed to encode invite")
+	}
+
+	key := pendingInvitePrefix + hashInviteToken(rawToken)
+	if err := h.rdb.Set(c.Context(), key, blob, pendingInviteTTL).Err(); err != nil {
+		h.log.Error("createPendingInvite: redis set", zap.Error(err))
+		return internalError(c, "failed to store invite")
+	}
+
+	// Fire-and-forget email.
+	if h.notifications != nil && h.cfg != nil {
+		inviteURL := h.cfg.App.FrontendURL + "/register?invite=" + rawToken
+		go func(to, url string) {
+			if err := h.notifications.SendClientInvite(context.Background(), inviterName, to, "", url); err != nil {
+				h.log.Warn("SendClientInvite (pending) failed", zap.Error(err), zap.String("to", to))
+			}
+		}(email, inviteURL)
+	}
+
+	writeAudit(c, h.db, h.log, wid, "member.invite_pending", "pending_invite", "",
+		map[string]any{"email": email, "role": string(role)})
+
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+		"data": fiber.Map{
+			"status":  "pending",
+			"email":   email,
+			"message": "invitation email sent — user will join the workspace after signing up",
+		},
+	})
+}
+
+// AcceptInvite redeems a pending invitation token for the authenticated user.
+// POST /api/v1/auth/accept-invite  { "token": "..." }
+func (h *MembersHandler) AcceptInvite(c *fiber.Ctx) error {
+	type body struct {
+		Token string `json:"token"`
+	}
+	var req body
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" {
+		return badRequest(c, "token is required", "VALIDATION_ERROR")
+	}
+
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "authentication required")
+	}
+
+	key := pendingInvitePrefix + hashInviteToken(req.Token)
+	blob, err := h.rdb.Get(c.Context(), key).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return badRequest(c, "invite token is invalid or has expired", "INVITE_INVALID")
+		}
+		h.log.Error("AcceptInvite: redis get", zap.Error(err))
+		return internalError(c, "failed to look up invite")
+	}
+
+	var payload pendingInvitePayload
+	if err := json.Unmarshal(blob, &payload); err != nil {
+		return internalError(c, "corrupted invite")
+	}
+
+	// Email must match the authenticated user — prevents stolen-token takeover.
+	if !strings.EqualFold(payload.Email, user.Email) {
+		return forbidden(c, "invite was issued to a different email")
+	}
+
+	role := models.WorkspaceRole(payload.Role)
+	switch role {
+	case models.WorkspaceRoleAdmin, models.WorkspaceRoleEditor, models.WorkspaceRoleViewer:
+	default:
+		role = models.WorkspaceRoleEditor
+	}
+
+	member := &models.WorkspaceMember{
+		WorkspaceID: payload.WorkspaceID,
+		UserID:      user.ID,
+		Role:        role,
+	}
+	if err := h.workspaces.AddMember(c.Context(), member); err != nil {
+		h.log.Error("AcceptInvite: AddMember", zap.Error(err))
+		return internalError(c, "failed to join workspace")
+	}
+
+	// Single-use: delete the token whether or not it was successfully redeemed
+	// before this point.
+	_ = h.rdb.Del(c.Context(), key).Err()
+
+	writeAudit(c, h.db, h.log, payload.WorkspaceID, "member.invite_accepted", "workspace_member", member.ID.String(),
+		map[string]any{"email": user.Email, "role": string(role)})
+
+	return c.JSON(fiber.Map{"data": fiber.Map{
+		"workspace_id": payload.WorkspaceID,
+		"role":         string(role),
+	}})
 }

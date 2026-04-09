@@ -125,6 +125,17 @@ func (s *Scheduler) registerJobs() error {
 		}
 	}
 
+	// ── Every 10 minutes: mark stuck AI jobs as failed ──────────────────────
+	{
+		task := asynq.NewTask(TypeExpireAIJobs, nil)
+		if _, err := s.inner.Register("*/10 * * * *", task,
+			asynq.Queue("low"),
+			asynq.Unique(9*time.Minute),
+		); err != nil {
+			return fmt.Errorf("register expire_ai_jobs: %w", err)
+		}
+	}
+
 	s.log.Info("scheduler: all recurring jobs registered")
 	return nil
 }
@@ -191,6 +202,32 @@ func (sw *SchedulerWorker) RegisterHandlers(mux *asynq.ServeMux) {
 	mux.HandleFunc(TypeEnqueueDuePosts, sw.handleEnqueueDuePosts)
 	mux.HandleFunc(TypeCleanupAuditLogs, sw.handleCleanupAuditLogs)
 	mux.HandleFunc(TypeRetryFailedPosts, sw.handleRetryFailedPosts)
+	mux.HandleFunc(TypeExpireAIJobs, sw.handleExpireAIJobs)
+}
+
+// handleExpireAIJobs marks AI jobs that have been stuck in pending/processing
+// for more than 30 minutes as failed. Covers crashed workers and orphaned jobs.
+func (sw *SchedulerWorker) handleExpireAIJobs(ctx context.Context, _ *asynq.Task) error {
+	cutoff := time.Now().UTC().Add(-30 * time.Minute)
+	sw.log.Info("expire_ai_jobs: scanning", zap.Time("cutoff", cutoff))
+
+	result := sw.db.WithContext(ctx).
+		Model(&models.AIJob{}).
+		Where("status IN ? AND updated_at < ?",
+			[]models.AIJobStatus{models.AIJobStatusPending, models.AIJobStatusProcessing},
+			cutoff).
+		Updates(map[string]interface{}{
+			"status":        models.AIJobStatusFailed,
+			"error_message": "job timed out after 30 minutes",
+		})
+
+	if result.Error != nil {
+		return fmt.Errorf("expire_ai_jobs: %w", result.Error)
+	}
+	if result.RowsAffected > 0 {
+		sw.log.Warn("expire_ai_jobs: marked stuck jobs as failed", zap.Int64("count", result.RowsAffected))
+	}
+	return nil
 }
 
 // handleEnqueueDuePosts queries for posts with scheduled_at <= now and status =

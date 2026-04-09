@@ -32,12 +32,16 @@ var (
 	ErrTokenNotFound      = errors.New("refresh token not found")
 	ErrInvalidAPIKey      = errors.New("api key is invalid or inactive")
 	ErrWorkspaceSlugTaken = errors.New("workspace slug is already taken")
+	ErrResetTokenInvalid  = errors.New("password reset token is invalid or has expired")
+	ErrWeakPassword       = errors.New("password must be at least 8 characters")
 )
 
 // ─── Token constants ──────────────────────────────────────────────────────────
 
 const (
 	refreshTokenPrefix = "refresh:"
+	passwordResetPrefix = "pwreset:"
+	passwordResetTTL    = 1 * time.Hour
 	bcryptCost         = 12
 	apiKeyPrefix       = "sfk_" // SocialForge Key
 	apiKeyLength       = 32     // raw bytes → 43-char base64url
@@ -502,4 +506,76 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// ─── Password reset ───────────────────────────────────────────────────────────
+
+// RequestPasswordReset generates a one-time reset token for the given email,
+// stores its hash in Redis with a 1 hour TTL, and returns the RAW token so the
+// caller can embed it in the reset email link.
+//
+// If the email does not exist, we return an empty token and nil error so the
+// endpoint can always respond 200 — this prevents email enumeration attacks.
+func (s *Service) RequestPasswordReset(ctx context.Context, email string) (rawToken string, user *models.User, err error) {
+	var u models.User
+	if dbErr := s.db.WithContext(ctx).Where("email = ?", strings.ToLower(strings.TrimSpace(email))).First(&u).Error; dbErr != nil {
+		if errors.Is(dbErr, gorm.ErrRecordNotFound) {
+			return "", nil, nil
+		}
+		return "", nil, fmt.Errorf("lookup user: %w", dbErr)
+	}
+
+	token, err := generateSecureToken(32)
+	if err != nil {
+		return "", nil, fmt.Errorf("generate reset token: %w", err)
+	}
+
+	key := passwordResetPrefix + sha256Hex(token)
+	if err := s.rdb.Set(ctx, key, u.ID.String(), passwordResetTTL).Err(); err != nil {
+		return "", nil, fmt.Errorf("store reset token: %w", err)
+	}
+
+	return token, &u, nil
+}
+
+// ConfirmPasswordReset validates a reset token and, if valid, updates the
+// user's password hash. The token is single-use — it is deleted on success
+// regardless of whether the DB write ultimately succeeds.
+func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPassword string) error {
+	if len(newPassword) < 8 {
+		return ErrWeakPassword
+	}
+
+	key := passwordResetPrefix + sha256Hex(rawToken)
+	userIDStr, err := s.rdb.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return ErrResetTokenInvalid
+		}
+		return fmt.Errorf("lookup reset token: %w", err)
+	}
+
+	// Single-use: delete immediately so a second call fails even if the DB
+	// write below fails. Better to force the user to request a new token than
+	// leave a live reset token in Redis.
+	_ = s.rdb.Del(ctx, key).Err()
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return ErrResetTokenInvalid
+	}
+
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	if err := s.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("password_hash", hash).Error; err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	return nil
 }

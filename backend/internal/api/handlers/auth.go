@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/socialforge/backend/internal/api/middleware"
+	"github.com/socialforge/backend/internal/config"
 	"github.com/socialforge/backend/internal/models"
 	"github.com/socialforge/backend/internal/repository"
 	authsvc "github.com/socialforge/backend/internal/services/auth"
@@ -24,6 +25,7 @@ type AuthHandler struct {
 	apiKeys       repository.APIKeyRepository
 	auth          *authsvc.Service
 	notifications *notifications.Service
+	cfg           *config.Config
 	log           *zap.Logger
 }
 
@@ -34,6 +36,7 @@ func NewAuthHandler(
 	apiKeys repository.APIKeyRepository,
 	auth *authsvc.Service,
 	notif *notifications.Service,
+	cfg *config.Config,
 	log *zap.Logger,
 ) *AuthHandler {
 	return &AuthHandler{
@@ -42,6 +45,7 @@ func NewAuthHandler(
 		apiKeys:       apiKeys,
 		auth:          auth,
 		notifications: notif,
+		cfg:           cfg,
 		log:           log.Named("auth_handler"),
 	}
 }
@@ -248,6 +252,85 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 	})
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"message": "logged out"}})
+}
+
+// ── Password reset ────────────────────────────────────────────────────────────
+
+type requestPasswordResetBody struct {
+	Email string `json:"email"`
+}
+
+// RequestPasswordReset generates a reset token and emails the user.
+// POST /api/v1/auth/password-reset/request
+// Always returns 200 regardless of whether the email exists, to prevent
+// account enumeration.
+func (h *AuthHandler) RequestPasswordReset(c *fiber.Ctx) error {
+	var req requestPasswordResetBody
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if req.Email == "" {
+		return badRequest(c, "email is required", "VALIDATION_ERROR")
+	}
+
+	token, user, err := h.auth.RequestPasswordReset(c.Context(), req.Email)
+	if err != nil {
+		h.log.Error("RequestPasswordReset", zap.Error(err))
+		// Still return 200 — do not leak internal error state.
+	}
+
+	// Fire-and-forget email only if we actually found a user.
+	if token != "" && user != nil && h.notifications != nil {
+		resetURL := ""
+		if h.cfg != nil {
+			resetURL = h.cfg.App.FrontendURL + "/reset-password?token=" + token
+		}
+		go func(email, name, url string) {
+			if err := h.notifications.SendPasswordReset(context.Background(), email, name, url); err != nil {
+				h.log.Warn("SendPasswordReset failed", zap.Error(err), zap.String("to", email))
+			}
+		}(user.Email, user.Name, resetURL)
+	}
+
+	return c.JSON(fiber.Map{
+		"data": fiber.Map{
+			"message": "if the email exists, a reset link has been sent",
+		},
+	})
+}
+
+type confirmPasswordResetBody struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
+// ConfirmPasswordReset validates the token and sets a new password.
+// POST /api/v1/auth/password-reset/confirm
+func (h *AuthHandler) ConfirmPasswordReset(c *fiber.Ctx) error {
+	var req confirmPasswordResetBody
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if req.Token == "" {
+		return badRequest(c, "token is required", "VALIDATION_ERROR")
+	}
+	if len(req.Password) < 8 {
+		return badRequest(c, "password must be at least 8 characters", "VALIDATION_ERROR")
+	}
+
+	if err := h.auth.ConfirmPasswordReset(c.Context(), req.Token, req.Password); err != nil {
+		if errors.Is(err, authsvc.ErrResetTokenInvalid) {
+			return badRequest(c, "reset link is invalid or has expired", "INVALID_TOKEN")
+		}
+		if errors.Is(err, authsvc.ErrWeakPassword) {
+			return badRequest(c, "password must be at least 8 characters", "WEAK_PASSWORD")
+		}
+		h.log.Error("ConfirmPasswordReset", zap.Error(err))
+		return internalError(c, "failed to reset password")
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"message": "password updated"}})
 }
 
 // ── GetCurrentUser ────────────────────────────────────────────────────────────

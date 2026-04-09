@@ -48,7 +48,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	mw := middleware.New(deps.AuthService, deps.DB, deps.RDB, deps.Config, deps.Log)
 
 	// Build handler groups, injecting repository interfaces instead of raw *gorm.DB.
-	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.NotificationsService, deps.Log)
+	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.NotificationsService, deps.Config, deps.Log)
 	postsH := handlers.NewPostsHandler(repos.Posts, deps.ScheduleService, deps.AsynqClient, deps.Log)
 	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.Config, deps.Log)
 	scheduleH := handlers.NewScheduleHandler(deps.DB, deps.ScheduleService, deps.Log)
@@ -65,7 +65,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 		deps.Log)
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
 	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Log)
-	membersH := handlers.NewMembersHandler(repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)
+	membersH := handlers.NewMembersHandler(deps.DB, deps.RDB, repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)
 	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
 
 	// ── Health & root probe ──────────────────────────────────────────────────
@@ -94,6 +94,9 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	auth.Post("/login", authLimiter, authH.Login)
 	auth.Post("/refresh", authLimiter, authH.RefreshToken)
 	auth.Post("/logout", authH.Logout)
+	auth.Post("/password-reset/request", authLimiter, authH.RequestPasswordReset)
+	auth.Post("/password-reset/confirm", authLimiter, authH.ConfirmPasswordReset)
+	auth.Post("/accept-invite", mw.JWTAuth(), membersH.AcceptInvite)
 	auth.Get("/me", mw.JWTAuth(), authH.GetCurrentUser)
 	auth.Post("/api-keys", mw.JWTAuth(), authH.CreateAPIKey)
 	auth.Get("/api-keys", mw.JWTAuth(), authH.ListAPIKeys)
