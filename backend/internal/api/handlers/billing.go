@@ -164,7 +164,7 @@ func (h *BillingHandler) CreateSubscription(c *fiber.Ctx) error {
 	// back to the user's ID as a placeholder — the billing service will look
 	// it up via owner_id on the webhook side.
 	workspaceID := user.ID
-	if wid := c.Params("wid"); wid != "" {
+	if wid := c.Params("workspaceId"); wid != "" {
 		if parsed, err := uuid.Parse(wid); err == nil {
 			workspaceID = parsed
 		}
@@ -235,7 +235,7 @@ func (h *BillingHandler) GetUsage(c *fiber.Ctx) error {
 
 	// Resolve workspace ID from route param or fall back to user ID.
 	workspaceID := user.ID
-	if wid := c.Params("wid"); wid != "" {
+	if wid := c.Params("workspaceId"); wid != "" {
 		if parsed, err := uuid.Parse(wid); err == nil {
 			workspaceID = parsed
 		}

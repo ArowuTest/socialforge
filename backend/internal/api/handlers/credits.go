@@ -22,7 +22,7 @@ func (h *BillingHandler) GetCreditPackages(c *fiber.Ctx) error {
 
 // InitiateCreditTopUp creates a Stripe or Paystack checkout session.
 func (h *BillingHandler) InitiateCreditTopUp(c *fiber.Ctx) error {
-	wid, err := uuid.Parse(c.Params("wid"))
+	wid, err := uuid.Parse(c.Params("workspaceId"))
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
@@ -63,7 +63,7 @@ func (h *BillingHandler) PaystackWebhook(c *fiber.Ctx) error {
 
 // GetCreditBalance returns the workspace's credit balance and monthly cost.
 func (h *BillingHandler) GetCreditBalance(c *fiber.Ctx) error {
-	wid, err := uuid.Parse(c.Params("wid"))
+	wid, err := uuid.Parse(c.Params("workspaceId"))
 	if err != nil {
 		return fiber.ErrBadRequest
 	}
@@ -76,7 +76,7 @@ func (h *BillingHandler) GetCreditBalance(c *fiber.Ctx) error {
 
 // GetCreditLedger returns paginated credit ledger entries.
 func (h *BillingHandler) GetCreditLedger(c *fiber.Ctx) error {
-	wid, err := uuid.Parse(c.Params("wid"))
+	wid, err := uuid.Parse(c.Params("workspaceId"))
 	if err != nil {
 		return fiber.ErrBadRequest
 	}

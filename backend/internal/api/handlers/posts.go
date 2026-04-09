@@ -30,9 +30,9 @@ func NewPostsHandler(repo repository.PostRepository, schedule *scheduling.Servic
 	return &PostsHandler{repo: repo, schedule: schedule, asynq: asynqClient, log: log.Named("posts_handler")}
 }
 
-// resolveWorkspaceID extracts and validates the :wid parameter.
+// resolveWorkspaceID extracts and validates the :workspaceId parameter.
 func resolveWorkspaceID(c *fiber.Ctx) (uuid.UUID, error) {
-	return uuid.Parse(c.Params("wid"))
+	return uuid.Parse(c.Params("workspaceId"))
 }
 
 // currentUser returns the authenticated user from context locals.

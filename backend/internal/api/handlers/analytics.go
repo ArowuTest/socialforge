@@ -25,7 +25,7 @@ func NewAnalyticsHandler(analytics *analyticssvc.Service, log *zap.Logger) *Anal
 // GetDashboard returns aggregated analytics stats for a workspace.
 // GET /api/v1/workspaces/:wid/analytics?period=7d|30d|90d
 func (h *AnalyticsHandler) GetDashboard(c *fiber.Ctx) error {
-	widStr := c.Params("wid")
+	widStr := c.Params("workspaceId")
 	wid, err := uuid.Parse(widStr)
 	if err != nil {
 		return badRequest(c, "invalid workspace id", "INVALID_WORKSPACE_ID")
