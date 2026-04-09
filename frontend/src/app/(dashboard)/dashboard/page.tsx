@@ -421,7 +421,7 @@ export default function DashboardPage() {
     if (h < 18) return "Good afternoon";
     return "Good evening";
   })();
-  const firstName = user?.firstName || user?.email?.split("@")[0] || "there";
+  const firstName = user?.name?.split(" ")[0] || user?.email?.split("@")[0] || "there";
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8">

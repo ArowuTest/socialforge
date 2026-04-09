@@ -61,6 +61,8 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 		deps.Log)
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
 	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Log)
+	membersH := handlers.NewMembersHandler(repos.Workspaces, repos.Users, deps.Log)
+	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
 
 	// ── Health & root probe ──────────────────────────────────────────────────
 	// GET /health — structured health check used by Render, k8s, etc.
@@ -95,9 +97,20 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	// ── Workspace-scoped routes ───────────────────────────────────────────────
 	ws := v1.Group("/workspaces/:workspaceId", mw.JWTAuth(), mw.WorkspaceAuth())
 
+	// Workspace CRUD
+	ws.Get("", workspaceH.GetWorkspace)
+	ws.Patch("", workspaceH.UpdateWorkspace)
+
+	// Members
+	ws.Get("/members", membersH.ListMembers)
+	ws.Post("/members/invite", membersH.InviteMember)
+	ws.Patch("/members/:memberId", membersH.UpdateMemberRole)
+	ws.Delete("/members/:memberId", membersH.RemoveMember)
+
 	// Social Accounts
 	ws.Get("/accounts", accountsH.ListAccounts)
 	ws.Delete("/accounts/:id", accountsH.DisconnectAccount)
+	ws.Post("/accounts/:id/refresh", accountsH.RefreshAccount)
 
 	// Posts
 	ws.Get("/posts", postsH.ListPosts)
@@ -120,14 +133,17 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/ai/generate-image", aiH.GenerateImage)
 	ws.Post("/ai/generate-video", aiH.GenerateVideo)
 	ws.Post("/ai/repurpose", aiH.RepurposeContent)
+	ws.Post("/ai/hashtags", aiH.GenerateHashtags)
 	ws.Get("/ai/jobs/:id", aiH.GetAIJobStatus)
 	ws.Post("/ai/analyse", aiH.AnalyseViralPotential)
 
 	// Analytics
 	ws.Get("/analytics", analyticsH.GetDashboard)
+	ws.Get("/analytics/top-posts", analyticsH.GetTopPosts)
 
 	// Billing (workspace-scoped usage)
 	ws.Get("/billing/usage", billingH.GetUsage)
+	ws.Get("/billing/subscription", billingH.GetSubscription)
 
 	// Media
 	ws.Post("/media/presign", mediaH.GetPresignedUploadURL)
@@ -177,6 +193,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	billing.Post("/portal", mw.JWTAuth(), billingH.CustomerPortal)
 	billing.Post("/webhook", billingH.StripeWebhook)
 	billing.Get("/usage", mw.JWTAuth(), billingH.GetUsage)
+	billing.Get("/subscription", mw.JWTAuth(), billingH.GetSubscription)
 
 	// Credit packages (public — no auth needed)
 	billing.Get("/credits/packages", billingH.GetCreditPackages)

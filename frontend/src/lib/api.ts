@@ -702,16 +702,29 @@ Object.assign(aiApi, {
   },
   addHashtags: (data: { content: string; platform: Platform; count?: number }) => {
     const wsId = getActiveWorkspaceId();
-    return request<ApiResponse<AIJob>>(
+    return request<ApiResponse<{ hashtags: string[] }>>(
       `/api/v1/workspaces/${wsId}/ai/hashtags`,
       { method: "POST", body: JSON.stringify(data) }
     );
   },
-  getCreditsUsage: () => {
+  getCreditsUsage: async () => {
+    // Redirect to the real credit balance endpoint and adapt the shape.
     const wsId = getActiveWorkspaceId();
-    return request<ApiResponse<{ used: number; limit: number; resetAt: string }>>(
-      `/api/v1/workspaces/${wsId}/ai/credits`
-    );
+    try {
+      const res = await request<{ data: CreditBalance }>(
+        `/api/v1/workspaces/${wsId}/billing/credits/balance`
+      );
+      const balance = res.data;
+      return {
+        data: {
+          used: balance.used ?? 0,
+          limit: balance.limit ?? 0,
+          resetAt: balance.resetAt ?? "",
+        },
+      };
+    } catch {
+      return { data: { used: 0, limit: 0, resetAt: "" } };
+    }
   },
 });
 

@@ -96,6 +96,63 @@ func (h *AIHandler) GenerateCaption(c *fiber.Ctx) error {
 	})
 }
 
+// ── GenerateHashtags ──────────────────────────────────────────────────────────
+
+type generateHashtagsRequest struct {
+	Content  string `json:"content"`
+	Platform string `json:"platform"`
+	Niche    string `json:"niche"`
+	Count    int    `json:"count"`
+}
+
+// GenerateHashtags returns a list of relevant hashtags for the given content.
+// POST /api/v1/workspaces/:workspaceId/ai/hashtags
+func (h *AIHandler) GenerateHashtags(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
+	}
+
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req generateHashtagsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if req.Content == "" {
+		return badRequest(c, "content is required", "VALIDATION_ERROR")
+	}
+	if req.Platform == "" {
+		return badRequest(c, "platform is required", "VALIDATION_ERROR")
+	}
+
+	hashtags, _, err := h.ai.GenerateHashtags(c.Context(), wid, user.ID, req.Content, req.Platform, req.Niche)
+	if err != nil {
+		if errors.Is(err, ai.ErrInsufficientCredits) {
+			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+				"error": "insufficient AI credits",
+				"code":  "INSUFFICIENT_CREDITS",
+			})
+		}
+		h.log.Error("GenerateHashtags: ai.GenerateHashtags", zap.Error(err))
+		return internalError(c, "failed to generate hashtags")
+	}
+
+	if req.Count > 0 && len(hashtags) > req.Count {
+		hashtags = hashtags[:req.Count]
+	}
+
+	return c.JSON(fiber.Map{
+		"data": fiber.Map{
+			"hashtags": hashtags,
+			"count":    len(hashtags),
+		},
+	})
+}
+
 // ── GenerateImage ─────────────────────────────────────────────────────────────
 
 type generateImageRequest struct {

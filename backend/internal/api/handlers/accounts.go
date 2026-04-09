@@ -144,6 +144,53 @@ func (h *AccountsHandler) tryRevokeToken(_ context.Context, account *models.Soci
 	}
 }
 
+// ── RefreshAccount ────────────────────────────────────────────────────────────
+
+// RefreshAccount returns an OAuth URL the user can visit to re-authorise
+// the given social account. It builds the same connect URL used by
+// InitiateOAuth so expired tokens can be refreshed by re-connecting.
+// POST /api/v1/workspaces/:workspaceId/accounts/:id/refresh
+func (h *AccountsHandler) RefreshAccount(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
+	}
+	accountID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
+	}
+
+	var account models.SocialAccount
+	if err := h.db.WithContext(c.Context()).
+		Where("id = ? AND workspace_id = ?", accountID, wid).
+		First(&account).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return notFound(c, "account not found", "NOT_FOUND")
+		}
+		return internalError(c, "failed to fetch account")
+	}
+
+	platform := strings.ToLower(string(account.Platform))
+	client, ok := h.platformClients[platform]
+	if !ok {
+		return badRequest(c, fmt.Sprintf("unsupported platform: %s", platform), "UNSUPPORTED_PLATFORM")
+	}
+
+	state, err := buildOAuthState(wid)
+	if err != nil {
+		h.log.Error("RefreshAccount: buildOAuthState", zap.Error(err))
+		return internalError(c, "failed to build oauth state")
+	}
+
+	authURL := client.GetAuthURL(wid, state)
+	return c.JSON(fiber.Map{
+		"data": fiber.Map{
+			"url":     authURL,
+			"message": "Re-connect the account to refresh the access token",
+		},
+	})
+}
+
 // ── InitiateOAuth ─────────────────────────────────────────────────────────────
 
 // InitiateOAuth starts the OAuth flow for the given platform.

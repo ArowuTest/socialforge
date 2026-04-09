@@ -179,6 +179,37 @@ func (h *BillingHandler) CreateSubscription(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": fiber.Map{"checkout_url": checkoutURL}})
 }
 
+// ── GetSubscription ───────────────────────────────────────────────────────────
+
+// GetSubscription returns the subscription state for the authenticated user's
+// workspace. Supports both /billing/subscription and
+// /workspaces/:workspaceId/billing/subscription.
+// GET /api/v1/billing/subscription
+func (h *BillingHandler) GetSubscription(c *fiber.Ctx) error {
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	workspaceID := user.ID
+	if wid := c.Params("workspaceId"); wid != "" {
+		if parsed, err := uuid.Parse(wid); err == nil {
+			workspaceID = parsed
+		}
+	}
+
+	sub, err := h.billing.GetSubscription(c.Context(), workspaceID)
+	if err != nil {
+		if err == billingsvc.ErrWorkspaceNotFound {
+			return notFound(c, "workspace not found", "NOT_FOUND")
+		}
+		h.log.Error("GetSubscription: billing.GetSubscription", zap.Error(err))
+		return internalError(c, "failed to load subscription")
+	}
+
+	return c.JSON(fiber.Map{"data": sub})
+}
+
 // ── CustomerPortal ────────────────────────────────────────────────────────────
 
 // CustomerPortal creates a Stripe billing portal session via the billing service.

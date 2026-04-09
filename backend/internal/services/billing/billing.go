@@ -46,6 +46,19 @@ type UsageResponse struct {
 	PostsThisMonth    int `json:"posts_this_month"`
 }
 
+// ─── SubscriptionResponse ─────────────────────────────────────────────────────
+
+// SubscriptionResponse describes a workspace's active subscription.
+type SubscriptionResponse struct {
+	ID                 string     `json:"id"`
+	Status             string     `json:"status"`
+	Plan               string     `json:"plan"`
+	CurrentPeriodStart *time.Time `json:"current_period_start,omitempty"`
+	CurrentPeriodEnd   *time.Time `json:"current_period_end,omitempty"`
+	StripeCustomerID   string     `json:"stripe_customer_id,omitempty"`
+	CancelAtPeriodEnd  bool       `json:"cancel_at_period_end"`
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 // Service handles all Stripe billing operations.
@@ -248,6 +261,35 @@ func (s *Service) GetUsage(ctx context.Context, workspaceID uuid.UUID) (*UsageRe
 		AccountsConnected: accountsConnected,
 		AccountsMax:       limits.MaxSocialAccounts,
 		PostsThisMonth:    int(postsThisMonth),
+	}, nil
+}
+
+// ─── GetSubscription ──────────────────────────────────────────────────────────
+
+// GetSubscription returns the current subscription state for a workspace,
+// derived from the workspace row's stripe/plan fields.
+func (s *Service) GetSubscription(ctx context.Context, workspaceID uuid.UUID) (*SubscriptionResponse, error) {
+	workspace, err := s.repos.Workspaces.GetByID(ctx, workspaceID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrWorkspaceNotFound
+		}
+		return nil, fmt.Errorf("load workspace: %w", err)
+	}
+
+	status := string(workspace.SubscriptionStatus)
+	if status == "" {
+		status = "active"
+	}
+
+	return &SubscriptionResponse{
+		ID:                 workspace.StripeSubscriptionID,
+		Status:             status,
+		Plan:               string(workspace.Plan),
+		CurrentPeriodStart: workspace.CurrentPeriodStart,
+		CurrentPeriodEnd:   workspace.CurrentPeriodEnd,
+		StripeCustomerID:   workspace.StripeCustomerID,
+		CancelAtPeriodEnd:  false,
 	}, nil
 }
 

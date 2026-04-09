@@ -128,6 +128,21 @@ func (s *Service) GetDashboardStats(
 	}, nil
 }
 
+// ─── GetTopPosts ──────────────────────────────────────────────────────────────
+
+// GetTopPosts returns the top-performing posts in the given period.
+func (s *Service) GetTopPosts(
+	ctx context.Context,
+	workspaceID uuid.UUID,
+	from, to time.Time,
+	limit int,
+) ([]*models.Post, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	return s.repo.GetTopPosts(ctx, workspaceID, from, to, limit)
+}
+
 // ─── GetDateRange ─────────────────────────────────────────────────────────────
 
 // GetDateRange converts a named period string ("7d", "30d", "90d") into
