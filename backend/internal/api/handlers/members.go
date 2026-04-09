@@ -313,7 +313,7 @@ func (h *MembersHandler) createPendingInvite(c *fiber.Ctx, wid uuid.UUID, email 
 
 	// Fire-and-forget email.
 	if h.notifications != nil && h.cfg != nil {
-		inviteURL := h.cfg.App.FrontendURL + "/register?invite=" + rawToken
+		inviteURL := h.cfg.App.FrontendURL + "/signup?invite=" + rawToken
 		go func(to, url string) {
 			if err := h.notifications.SendClientInvite(context.Background(), inviterName, to, "", url); err != nil {
 				h.log.Warn("SendClientInvite (pending) failed", zap.Error(err), zap.String("to", to))

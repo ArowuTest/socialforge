@@ -179,6 +179,24 @@ export const authApi = {
 
   deleteApiKey: (id: string) =>
     request<void>(`/api/v1/auth/api-keys/${id}`, { method: "DELETE" }),
+
+  requestPasswordReset: (email: string) =>
+    request<ApiResponse<{ message: string }>>("/api/v1/auth/password-reset/request", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  confirmPasswordReset: (token: string, newPassword: string) =>
+    request<ApiResponse<{ message: string }>>("/api/v1/auth/password-reset/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token, password: newPassword }),
+    }),
+
+  acceptInvite: (token: string) =>
+    request<ApiResponse<{ workspace_id: string; role: string }>>("/api/v1/auth/accept-invite", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
 };
 
 // ============================================================

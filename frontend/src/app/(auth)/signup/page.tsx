@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -57,8 +57,10 @@ function getPasswordStrength(password: string): {
   return { score, label: "Strong", color: "bg-green-500" };
 }
 
-export default function SignupPage() {
+function SignupContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get("invite") ?? "";
   const { setTokensAndUser } = useAuthStore();
   const [showPassword, setShowPassword] = React.useState(false);
   const [passwordValue, setPasswordValue] = React.useState("");
@@ -104,7 +106,21 @@ export default function SignupPage() {
         d.user,
         d.workspace,
       );
-      toast.success("Account created! Welcome to SocialForge.");
+
+      // If the user arrived from an invite link, redeem the token now that
+      // they're authenticated. Failures are non-fatal — they can still use
+      // their newly-created workspace.
+      if (inviteToken) {
+        try {
+          await authApi.acceptInvite(inviteToken);
+          toast.success("Account created and workspace joined!");
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "invite could not be accepted";
+          toast.warning(`Account created, but ${msg}`);
+        }
+      } else {
+        toast.success("Account created! Welcome to SocialForge.");
+      }
       router.push("/calendar");
     } catch (error) {
       const message =
@@ -302,5 +318,13 @@ export default function SignupPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <React.Suspense fallback={<Loader2 className="mx-auto h-5 w-5 animate-spin" />}>
+      <SignupContent />
+    </React.Suspense>
   );
 }
