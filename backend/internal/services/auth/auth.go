@@ -136,10 +136,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*models.User,
 		}
 
 		workspace = models.Workspace{
-			Name:    strings.TrimSpace(in.WorkspaceName),
-			Slug:    slug,
-			OwnerID: user.ID,
-			Plan:    models.PlanFree,
+			Name:               strings.TrimSpace(in.WorkspaceName),
+			Slug:               slug,
+			OwnerID:            user.ID,
+			Plan:               models.PlanFree,
+			SubscriptionStatus: models.SubscriptionStatusActive,
 		}
 		if err := tx.Create(&workspace).Error; err != nil {
 			return fmt.Errorf("create workspace: %w", err)
