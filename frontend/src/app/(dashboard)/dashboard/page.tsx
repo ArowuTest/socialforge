@@ -5,8 +5,8 @@ import Link from "next/link";
 import {
   TrendingUp, TrendingDown, Share2, Sparkles, BarChart3,
   PenSquare, Calendar, ArrowRight, Instagram, Youtube,
-  Linkedin, Twitter, Facebook, Clock, CheckCircle2, Eye, Edit3,
-  ChevronDown, ChevronUp, Image, Link2, Zap, X,
+  Linkedin, Twitter, Facebook, Clock, Eye, Edit3,
+  ChevronDown, ChevronUp, ImageIcon, Link2, Zap, X,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -103,7 +103,7 @@ const setupSteps = [
     description: "Describe what you want and SocialForge AI will create professional images and captions instantly.",
     href: "/ai",
     cta: "Open AI Studio",
-    icon: Image,
+    icon: ImageIcon,
     color: "amber" as const,
     tips: [
       "Go to AI Studio → choose Image or Caption",
