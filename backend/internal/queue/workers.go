@@ -40,16 +40,24 @@ type OAuthRefresher interface {
 	RefreshToken(ctx context.Context, account *models.SocialAccount) error
 }
 
+// ─── NotificationSender interface ────────────────────────────────────────────
+
+// NotificationSender delivers transactional notifications.
+type NotificationSender interface {
+	SendRaw(ctx context.Context, to, subject, htmlBody string) error
+}
+
 // ─── WorkerDeps ───────────────────────────────────────────────────────────────
 
 // WorkerDeps bundles all dependencies needed by the queue handlers.
 type WorkerDeps struct {
-	DB               *gorm.DB
-	Logger           *zap.Logger
-	Publisher        Publisher
-	AIService        AIService
-	RepurposeService RepurposeService
-	OAuthRefresher   OAuthRefresher
+	DB                 *gorm.DB
+	Logger             *zap.Logger
+	Publisher          Publisher
+	AIService          AIService
+	RepurposeService   RepurposeService
+	OAuthRefresher     OAuthRefresher
+	NotificationSender NotificationSender
 }
 
 // ─── PublishPostHandler ───────────────────────────────────────────────────────
@@ -120,11 +128,16 @@ func (h *PublishPostHandler) ProcessTask(ctx context.Context, t *asynq.Task) err
 // can decide whether to retry.
 func (h *PublishPostHandler) failPost(ctx context.Context, post *models.Post, reason string) error {
 	retryCount := post.RetryCount + 1
-	h.deps.DB.WithContext(ctx).Model(post).Updates(map[string]interface{}{
+	if err := h.deps.DB.WithContext(ctx).Model(post).Updates(map[string]interface{}{
 		"status":         "failed",
 		"failure_reason": reason,
 		"retry_count":    retryCount,
-	})
+	}).Error; err != nil {
+		h.deps.Logger.Error("publishPostHandler: failed to mark post as failed",
+			zap.String("post_id", post.ID.String()),
+			zap.Error(err),
+		)
+	}
 	return fmt.Errorf("publishPostHandler: %s", reason)
 }
 
@@ -200,8 +213,10 @@ func (h *RepurposeHandler) ProcessTask(ctx context.Context, t *asynq.Task) error
 	log.Info("processing repurpose job")
 
 	// Mark job as processing.
-	h.deps.DB.WithContext(ctx).Model(&models.AIJob{}).Where("id = ?", p.JobID).
-		Updates(map[string]interface{}{"status": "processing"})
+	if err := h.deps.DB.WithContext(ctx).Model(&models.AIJob{}).Where("id = ?", p.JobID).
+		Updates(map[string]interface{}{"status": "processing"}).Error; err != nil {
+		log.Warn("failed to mark repurpose job as processing", zap.Error(err))
+	}
 
 	output, err := h.deps.RepurposeService.ProcessRepurpose(ctx, p)
 	now := time.Now().UTC()
@@ -226,6 +241,55 @@ func (h *RepurposeHandler) ProcessTask(ctx context.Context, t *asynq.Task) error
 	}
 
 	log.Info("repurpose job completed")
+	return nil
+}
+
+// ─── SendNotificationHandler ──────────────────────────────────────────────────
+
+type SendNotificationHandler struct {
+	deps WorkerDeps
+}
+
+func (h *SendNotificationHandler) ProcessTask(ctx context.Context, t *asynq.Task) error {
+	var p SendNotificationPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return fmt.Errorf("sendNotificationHandler: unmarshal payload: %w", err)
+	}
+
+	log := h.deps.Logger.With(
+		zap.String("user_id", p.UserID.String()),
+		zap.String("channel", string(p.Channel)),
+	)
+	log.Info("processing notification task")
+
+	switch p.Channel {
+	case ChannelEmail:
+		if h.deps.NotificationSender == nil {
+			log.Warn("notification sender not configured, skipping email")
+			return nil
+		}
+		// Resolve the user's email address from the DB.
+		var row struct {
+			Email string `gorm:"column:email"`
+		}
+		if err := h.deps.DB.WithContext(ctx).Table("users").
+			Select("email").Where("id = ?", p.UserID).First(&row).Error; err != nil {
+			return fmt.Errorf("sendNotificationHandler: lookup user email: %w", err)
+		}
+		if err := h.deps.NotificationSender.SendRaw(ctx, row.Email, p.Subject, p.Body); err != nil {
+			return fmt.Errorf("sendNotificationHandler: send email: %w", err)
+		}
+		log.Info("notification email sent", zap.String("to", row.Email))
+	case ChannelInApp:
+		// In-app notifications are stored in a separate table or pushed via WebSocket.
+		// Current implementation is a no-op placeholder.
+		log.Info("in-app notification processed (no persistent store yet)")
+	case ChannelWebhook:
+		// Webhook delivery not yet implemented.
+		log.Info("webhook notification processed (no-op)")
+	default:
+		log.Warn("unknown notification channel, skipping", zap.String("channel", string(p.Channel)))
+	}
 	return nil
 }
 
@@ -333,11 +397,13 @@ func NewServer(redisClient *redis.Client, deps WorkerDeps, cfg ServerConfig) (*a
 	aiGenHandler := &AIGenerateHandler{deps: deps}
 	repurposeHandler := &RepurposeHandler{deps: deps}
 	refreshHandler := &RefreshTokensHandler{deps: deps}
+	notifHandler := &SendNotificationHandler{deps: deps}
 
 	mux.HandleFunc(TypePublishPost, publishHandler.ProcessTask)
 	mux.HandleFunc(TypeAIGenerate, aiGenHandler.ProcessTask)
 	mux.HandleFunc(TypeRepurposeContent, repurposeHandler.ProcessTask)
 	mux.HandleFunc(TypeRefreshTokens, refreshHandler.ProcessTask)
+	mux.HandleFunc(TypeSendNotification, notifHandler.ProcessTask)
 
 	return srv, mux
 }

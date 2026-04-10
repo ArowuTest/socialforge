@@ -252,6 +252,14 @@ func (s *Service) SendPasswordReset(ctx context.Context, userEmail, userName, re
 	return s.send(ctx, userEmail, subject, html)
 }
 
+// ─── SendRaw ──────────────────────────────────────────────────────────────────
+
+// SendRaw sends a pre-composed HTML email to the given address. Use this for
+// queue-driven notifications where the body has already been built by the caller.
+func (s *Service) SendRaw(ctx context.Context, to, subject, htmlBody string) error {
+	return s.send(ctx, to, subject, htmlBody)
+}
+
 // ─── SendTrialEnding ──────────────────────────────────────────────────────────
 
 // SendTrialEnding warns the user that their trial is ending soon.

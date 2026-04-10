@@ -73,7 +73,11 @@ type Service struct {
 
 // NewService constructs a billing Service and configures the Stripe SDK.
 func NewService(cfg *config.Config, repos *repository.Container, db *gorm.DB, log *zap.Logger, rdb *redis.Client) *Service {
-	stripe.Key = cfg.Stripe.SecretKey
+	if cfg.Stripe.SecretKey != "" {
+		stripe.Key = cfg.Stripe.SecretKey
+	} else {
+		log.Warn("STRIPE_SECRET_KEY not set — billing endpoints will return errors until configured")
+	}
 	return &Service{
 		stripeKey: cfg.Stripe.SecretKey,
 		cfg:       cfg,

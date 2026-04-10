@@ -159,12 +159,13 @@ func main() {
 
 	// ── Asynq server + worker deps ────────────────────────────────────────────
 	workerDeps := queue.WorkerDeps{
-		DB:               db,
-		Logger:           log,
-		Publisher:        publishService,
-		AIService:        aiService,
-		RepurposeService: &repurposeAdapter{svc: aiService},
-		OAuthRefresher:   publishService,
+		DB:                 db,
+		Logger:             log,
+		Publisher:          publishService,
+		AIService:          aiService,
+		RepurposeService:   &repurposeAdapter{svc: aiService},
+		OAuthRefresher:     publishService,
+		NotificationSender: notificationsService,
 	}
 	queueSrv, mux := queue.NewServer(rdb, workerDeps, queue.DefaultServerConfig())
 

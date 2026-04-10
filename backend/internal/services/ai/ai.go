@@ -256,6 +256,17 @@ func (s *Service) getOpenAIClient() *openai.Client {
 	return s.openaiClient
 }
 
+// requireOpenAIClient returns the current OpenAI client or a descriptive error
+// if no API key has been configured. Callers should use this instead of
+// getOpenAIClient() to avoid nil-pointer panics.
+func (s *Service) requireOpenAIClient() (*openai.Client, error) {
+	client := s.getOpenAIClient()
+	if client == nil {
+		return nil, fmt.Errorf("OpenAI API key not configured — set OPENAI_API_KEY or configure it via Admin › Settings › Integrations")
+	}
+	return client, nil
+}
+
 // getFalAPIKey returns the current fal.ai key, refreshing config if stale.
 func (s *Service) getFalAPIKey() string {
 	s.maybeRefresh()
@@ -378,7 +389,14 @@ Make the caption feel like it was written by a human who genuinely cares about h
 		guidance, tone, targetAudience,
 	)
 
-	resp, err := s.getOpenAIClient().CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	openaiClient, err := s.requireOpenAIClient()
+	if err != nil {
+		job, _ := s.saveJob(ctx, workspaceID, userID, "caption",
+			models.JSONMap{"prompt": prompt, "platform": platform, "tone": tone},
+			nil, s.getCreditCost("caption", CreditCostCaption), err.Error())
+		return nil, job, fmt.Errorf("GenerateCaption: %w", err)
+	}
+	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -445,7 +463,14 @@ Do NOT include the # prefix.`,
 		platform, niche,
 	)
 
-	resp, err := s.getOpenAIClient().CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	openaiClient, err := s.requireOpenAIClient()
+	if err != nil {
+		job, _ := s.saveJob(ctx, workspaceID, userID, "hashtags",
+			models.JSONMap{"platform": platform, "niche": niche},
+			nil, s.getCreditCost("hashtags", CreditCostHashtags), err.Error())
+		return nil, job, fmt.Errorf("GenerateHashtags: %w", err)
+	}
+	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -687,7 +712,14 @@ Return JSON:
 		platform, slides, slides-1, slides,
 	)
 
-	resp, err := s.getOpenAIClient().CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	openaiClient, err := s.requireOpenAIClient()
+	if err != nil {
+		job, _ := s.saveJob(ctx, workspaceID, userID, "carousel",
+			models.JSONMap{"topic": topic, "slides": slides, "platform": platform},
+			nil, s.getCreditCost("carousel", CreditCostCarousel), err.Error())
+		return nil, job, fmt.Errorf("GenerateCarousel: %w", err)
+	}
+	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -768,7 +800,14 @@ Be specific — not "improve the hook" but "Replace the opening with a surprisin
 		platform, platform,
 	)
 
-	resp, err := s.getOpenAIClient().CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	openaiClient, err := s.requireOpenAIClient()
+	if err != nil {
+		job, _ := s.saveJob(ctx, workspaceID, userID, "analyse",
+			models.JSONMap{"platform": platform, "content_preview": truncate(content, 200)},
+			nil, s.getCreditCost("analyse", CreditCostAnalyse), err.Error())
+		return nil, job, fmt.Errorf("AnalyseViralPotential: %w", err)
+	}
+	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -996,13 +1035,17 @@ type RepurposeInput struct {
 // Repurpose dispatches to the appropriate package-level repurpose function and
 // returns a map of platform → PlatformDraft.
 func (s *Service) Repurpose(ctx context.Context, input RepurposeInput) (map[string]PlatformDraft, error) {
+	oaiClient, err := s.requireOpenAIClient()
+	if err != nil {
+		return nil, fmt.Errorf("Repurpose: %w", err)
+	}
 	switch input.SourceType {
 	case "url", "tiktok":
-		return RepurposeFromURL(ctx, input.SourceURL, input.Platforms, s.getOpenAIClient())
+		return RepurposeFromURL(ctx, input.SourceURL, input.Platforms, oaiClient)
 	case "youtube":
-		return RepurposeFromYouTube(ctx, input.SourceURL, input.Platforms, input.YoutubeAPIKey, s.getOpenAIClient())
+		return RepurposeFromYouTube(ctx, input.SourceURL, input.Platforms, input.YoutubeAPIKey, oaiClient)
 	default: // "text" or anything else
-		return RepurposeFromText(ctx, input.SourceText, input.SourceType, input.Platforms, s.getOpenAIClient())
+		return RepurposeFromText(ctx, input.SourceText, input.SourceType, input.Platforms, oaiClient)
 	}
 }
 
