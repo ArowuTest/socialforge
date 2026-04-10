@@ -70,10 +70,10 @@ func (h *PublishPostHandler) ProcessTask(ctx context.Context, t *asynq.Task) err
 	)
 	log.Info("publishing post")
 
-	// Fetch post.
+	// Fetch post. No Preload needed — the publisher resolves social accounts
+	// via PostPlatforms internally.
 	var post models.Post
 	if err := h.deps.DB.WithContext(ctx).
-		Preload("SocialAccount").
 		First(&post, "id = ? AND workspace_id = ?", p.PostID, p.WorkspaceID).Error; err != nil {
 		return fmt.Errorf("publishPostHandler: fetch post %s: %w", p.PostID, err)
 	}

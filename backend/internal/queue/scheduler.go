@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -261,6 +262,15 @@ func (sw *SchedulerWorker) handleEnqueueDuePosts(ctx context.Context, _ *asynq.T
 			asynq.Unique(5*time.Minute),
 		)
 		if err != nil {
+			// ErrDuplicateTask means the unique lock is active — the task is
+			// already queued or being processed. This is expected behaviour when
+			// multiple scheduler ticks overlap; treat it as a no-op, not an error.
+			if errors.Is(err, asynq.ErrDuplicateTask) || errors.Is(err, asynq.ErrTaskIDConflict) {
+				sw.log.Debug("enqueue_due_posts: task already queued, skipping",
+					zap.String("post_id", post.ID.String()),
+				)
+				continue
+			}
 			sw.log.Error("enqueue_due_posts: enqueue task",
 				zap.String("post_id", post.ID.String()),
 				zap.Error(err),
