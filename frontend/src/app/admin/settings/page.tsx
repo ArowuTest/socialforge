@@ -158,6 +158,49 @@ export default function SettingsPage() {
   const [editingPkgId, setEditingPkgId] = React.useState<string | null>(null);
   const [costSaving, setCostSaving] = React.useState(false);
 
+  const handleSaveGeneral = async () => {
+    try {
+      await Promise.all([
+        adminApi.updatePlatformSetting("app_name", appName),
+        adminApi.updatePlatformSetting("support_email", supportEmail),
+        adminApi.updatePlatformSetting("default_plan", defaultPlan),
+        adminApi.updatePlatformSetting("max_accounts_free", maxAccountsFree),
+        adminApi.updatePlatformSetting("max_accounts_starter", maxAccountsStarter),
+        adminApi.updatePlatformSetting("max_accounts_pro", maxAccountsPro),
+        adminApi.updatePlatformSetting("max_accounts_agency", maxAccountsAgency),
+      ]);
+      toast.success("General settings saved");
+    } catch {
+      toast.error("Failed to save general settings");
+    }
+  };
+
+  const handleSaveSecurity = async () => {
+    try {
+      await Promise.all([
+        adminApi.updatePlatformSetting("session_timeout", sessionTimeout),
+        adminApi.updatePlatformSetting("max_login_attempts", maxLoginAttempts),
+        adminApi.updatePlatformSetting("enforce_2fa", String(enforce2FA)),
+        adminApi.updatePlatformSetting("ip_allowlist", ipAllowlist),
+      ]);
+      toast.success("Security settings saved");
+    } catch {
+      toast.error("Failed to save security settings");
+    }
+  };
+
+  const handleToggleMaintenance = async () => {
+    const newVal = !maintenanceMode;
+    setMaintenanceMode(newVal);
+    try {
+      await adminApi.updatePlatformSetting("maintenance_mode", String(newVal));
+      toast.success(newVal ? "Maintenance mode enabled" : "Maintenance mode disabled");
+    } catch {
+      setMaintenanceMode(!newVal);
+      toast.error("Failed to toggle maintenance mode");
+    }
+  };
+
   const handleSaveCosts = async () => {
     setCostSaving(true);
     try {
@@ -264,8 +307,28 @@ export default function SettingsPage() {
     setTimeout(() => { setMigrationsRunning(false); setConfirmMigrations(false); }, 3000);
   };
 
-  // Load AI costs from API on mount
+  // Load all settings from API on mount
   React.useEffect(() => {
+    // Load general + security settings from platform_settings
+    adminApi.getPlatformSettings().then((res) => {
+      if (res?.data) {
+        const s = res.data as Record<string, string>;
+        if (s.app_name) setAppName(s.app_name);
+        if (s.support_email) setSupportEmail(s.support_email);
+        if (s.default_plan) setDefaultPlan(s.default_plan);
+        if (s.max_accounts_free) setMaxAccountsFree(s.max_accounts_free);
+        if (s.max_accounts_starter) setMaxAccountsStarter(s.max_accounts_starter);
+        if (s.max_accounts_pro) setMaxAccountsPro(s.max_accounts_pro);
+        if (s.max_accounts_agency) setMaxAccountsAgency(s.max_accounts_agency);
+        if (s.session_timeout) setSessionTimeout(s.session_timeout);
+        if (s.max_login_attempts) setMaxLoginAttempts(s.max_login_attempts);
+        if (s.enforce_2fa) setEnforce2FA(s.enforce_2fa === "true");
+        if (s.ip_allowlist) setIpAllowlist(s.ip_allowlist);
+        if (s.maintenance_mode) setMaintenanceMode(s.maintenance_mode === "true");
+      }
+    }).catch(() => {});
+
+    // Load AI costs
     adminApi.getAiJobCosts().then((res) => {
       if (res?.data) {
         setAiCosts(res.data.map((c) => ({
@@ -277,7 +340,7 @@ export default function SettingsPage() {
           description: c.description || "",
         })));
       }
-    }).catch(() => {}); // fallback to defaults
+    }).catch(() => {});
     adminApi.getCreditPackages().then((res) => {
       if (res?.data) {
         setPackages(res.data.map((p) => ({
@@ -376,7 +439,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <SaveButton onClick={() => {}} />
+          <SaveButton onClick={handleSaveGeneral} />
         </div>
 
         {/* ── Grant Free Access ────────────────────────────────── */}
@@ -673,7 +736,7 @@ export default function SettingsPage() {
             <p className="text-xs text-slate-600 mt-1">Leave empty to allow all IPs. Admin access only.</p>
           </div>
 
-          <SaveButton onClick={() => {}} />
+          <SaveButton onClick={handleSaveSecurity} />
         </div>
       )}
 
@@ -960,7 +1023,7 @@ export default function SettingsPage() {
                   </p>
                 )}
               </div>
-              <ToggleSwitch checked={maintenanceMode} onChange={setMaintenanceMode} />
+              <ToggleSwitch checked={maintenanceMode} onChange={handleToggleMaintenance} />
             </div>
           </div>
 

@@ -11,27 +11,23 @@ import (
 
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/models"
+	"github.com/socialforge/backend/internal/services/storage"
 )
 
 // MediaHandler handles media library endpoints.
 type MediaHandler struct {
-	db              *gorm.DB
-	log             *zap.Logger
-	storageEndpoint string
-	storageBucket   string
-	storageKey      string
-	storageSecret   string
+	db      *gorm.DB
+	log     *zap.Logger
+	storage *storage.Service
 }
 
 // NewMediaHandler creates a new MediaHandler.
-func NewMediaHandler(db *gorm.DB, storageEndpoint, storageBucket, storageKey, storageSecret string, log *zap.Logger) *MediaHandler {
+// storage may be nil if object storage is not configured.
+func NewMediaHandler(db *gorm.DB, storageSvc *storage.Service, log *zap.Logger) *MediaHandler {
 	return &MediaHandler{
-		db:              db,
-		log:             log.Named("media"),
-		storageEndpoint: storageEndpoint,
-		storageBucket:   storageBucket,
-		storageKey:      storageKey,
-		storageSecret:   storageSecret,
+		db:      db,
+		log:     log.Named("media"),
+		storage: storageSvc,
 	}
 }
 
@@ -46,6 +42,14 @@ type presignRequest struct {
 // GetPresignedUploadURL returns a pre-signed upload URL for client-side media uploads.
 // POST /api/v1/workspaces/:wid/media/presign
 func (h *MediaHandler) GetPresignedUploadURL(c *fiber.Ctx) error {
+	if h.storage == nil || !h.storage.IsConfigured() {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+			"error":   "Storage not configured",
+			"code":    "STORAGE_NOT_CONFIGURED",
+			"message": "Object storage is not configured. Please set STORAGE_* environment variables.",
+		})
+	}
+
 	wid, err := resolveWorkspaceID(c)
 	if err != nil {
 		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
@@ -77,15 +81,14 @@ func (h *MediaHandler) GetPresignedUploadURL(c *fiber.Ctx) error {
 	fileUUID := uuid.New().String()
 	key := fmt.Sprintf("workspaces/%s/media/%s/%s", wid.String(), fileUUID, req.Filename)
 
-	// Build public URL (placeholder until AWS SDK presign is wired up)
-	publicBase := h.storageEndpoint
-	if publicBase == "" {
-		publicBase = "https://storage.socialforge.io"
+	result, err := h.storage.PresignPut(c.Context(), key, req.ContentType, 0)
+	if err != nil {
+		h.log.Error("failed to generate presigned URL", zap.Error(err))
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to generate upload URL",
+			"code":  "PRESIGN_FAILED",
+		})
 	}
-	publicURL := fmt.Sprintf("%s/%s/%s", publicBase, h.storageBucket, key)
-
-	// Placeholder upload URL — real implementation requires aws/aws-sdk-go-v2 presigning
-	uploadURL := fmt.Sprintf("%s/%s/%s?upload=1", publicBase, h.storageBucket, key)
 
 	h.log.Info("GetPresignedUploadURL",
 		zap.String("workspace_id", wid.String()),
@@ -94,9 +97,9 @@ func (h *MediaHandler) GetPresignedUploadURL(c *fiber.Ctx) error {
 	)
 
 	return c.JSON(fiber.Map{
-		"upload_url": uploadURL,
-		"key":        key,
-		"public_url": publicURL,
+		"upload_url": result.UploadURL,
+		"key":        result.Key,
+		"public_url": result.PublicURL,
 	})
 }
 
@@ -113,7 +116,8 @@ func (h *MediaHandler) ListMedia(c *fiber.Ctx) error {
 	page := max(1, c.QueryInt("page", 1))
 	limit := clamp(c.QueryInt("limit", 24), 1, 100)
 
-	// Placeholder: real implementation will query a media table
+	// Media items are not yet tracked in a table — return empty for now.
+	// A media_items migration can be added later to track uploads.
 	return c.JSON(fiber.Map{
 		"items": []interface{}{},
 		"total": 0,
@@ -137,11 +141,20 @@ func (h *MediaHandler) DeleteMedia(c *fiber.Ctx) error {
 		return badRequest(c, "key is required", "VALIDATION_ERROR")
 	}
 
+	if h.storage != nil && h.storage.IsConfigured() {
+		if err := h.storage.Delete(c.Context(), key); err != nil {
+			h.log.Error("failed to delete from storage", zap.Error(err), zap.String("key", key))
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to delete media from storage",
+				"code":  "STORAGE_DELETE_FAILED",
+			})
+		}
+	}
+
 	h.log.Info("DeleteMedia",
 		zap.String("workspace_id", wid.String()),
 		zap.String("key", key),
 	)
 
-	// Placeholder: real implementation will call the storage provider to delete the object
 	return c.JSON(fiber.Map{"message": "media deleted successfully"})
 }

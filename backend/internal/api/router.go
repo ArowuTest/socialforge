@@ -21,6 +21,7 @@ import (
 	billingsvc "github.com/socialforge/backend/internal/services/billing"
 	"github.com/socialforge/backend/internal/services/notifications"
 	scheduling "github.com/socialforge/backend/internal/services/scheduling"
+	storagesvc "github.com/socialforge/backend/internal/services/storage"
 )
 
 // Deps bundles all application-level dependencies passed to route handlers.
@@ -57,12 +58,15 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	analyticsH := handlers.NewAnalyticsHandler(deps.AnalyticsService, deps.Log)
 	whitelabelH := handlers.NewWhitelabelHandler(deps.DB, deps.Config, deps.Log)
 	adminH := handlers.NewAdminHandler(deps.DB, repos, deps.Log)
-	mediaH := handlers.NewMediaHandler(deps.DB,
-		deps.Config.Storage.Endpoint,
-		deps.Config.Storage.Bucket,
-		deps.Config.Storage.AccessKeyID,
-		deps.Config.Storage.SecretAccessKey,
-		deps.Log)
+	storageSvc := storagesvc.New(storagesvc.Config{
+		Endpoint:        deps.Config.Storage.Endpoint,
+		Bucket:          deps.Config.Storage.Bucket,
+		Region:          deps.Config.Storage.Region,
+		AccessKeyID:     deps.Config.Storage.AccessKeyID,
+		SecretAccessKey: deps.Config.Storage.SecretAccessKey,
+		PublicURL:       deps.Config.Storage.PublicURL,
+	}, deps.Log)
+	mediaH := handlers.NewMediaHandler(deps.DB, storageSvc, deps.Log)
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
 	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Config.JWT.Secret, deps.Log)
 	membersH := handlers.NewMembersHandler(deps.DB, deps.RDB, repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)

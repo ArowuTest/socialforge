@@ -175,6 +175,81 @@ func (c *Client) ExchangeCode(
 	return account, nil
 }
 
+// RefreshToken uses the stored refresh_token to obtain a new access token from LinkedIn.
+func (c *Client) RefreshToken(ctx context.Context, account *models.SocialAccount) error {
+	refreshToken, err := crypto.Decrypt(account.RefreshToken, c.secret)
+	if err != nil {
+		return fmt.Errorf("linkedin: decrypt refresh token: %w", err)
+	}
+
+	params := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {c.cfg.ClientID},
+		"client_secret": {c.cfg.ClientSecret},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://www.linkedin.com/oauth/v2/accessToken",
+		strings.NewReader(params.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("linkedin: refresh token request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		AccessToken  string `json:"access_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+		RefreshToken string `json:"refresh_token"`
+		Error        string `json:"error"`
+		ErrorDesc    string `json:"error_description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("linkedin: decode refresh response: %w", err)
+	}
+	if result.Error != "" {
+		return fmt.Errorf("linkedin: refresh token error: %s – %s", result.Error, result.ErrorDesc)
+	}
+
+	encAccess, err := crypto.Encrypt(result.AccessToken, c.secret)
+	if err != nil {
+		return err
+	}
+
+	updates := map[string]interface{}{
+		"access_token": encAccess,
+	}
+
+	if result.RefreshToken != "" {
+		encRefresh, err := crypto.Encrypt(result.RefreshToken, c.secret)
+		if err != nil {
+			return err
+		}
+		updates["refresh_token"] = encRefresh
+		account.RefreshToken = encRefresh
+	}
+
+	if result.ExpiresIn > 0 {
+		expiry := time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+		updates["token_expires_at"] = expiry
+		account.TokenExpiresAt = &expiry
+	}
+
+	if err := c.db.WithContext(ctx).Model(account).Updates(updates).Error; err != nil {
+		return fmt.Errorf("linkedin: update tokens in db: %w", err)
+	}
+
+	account.AccessToken = encAccess
+	c.log.Info("linkedin token refreshed", zap.String("account_id", account.ID.String()))
+	return nil
+}
+
 // Post publishes content to LinkedIn on behalf of the connected member.
 func (c *Client) Post(
 	ctx context.Context,
