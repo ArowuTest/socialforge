@@ -46,6 +46,9 @@ export function setTokens(tokens: AuthTokens) {
   if (typeof window !== "undefined") {
     localStorage.setItem("sf_access_token", tokens.accessToken);
     localStorage.setItem("sf_refresh_token", tokens.refreshToken);
+    // Set a cookie so Next.js middleware can detect the authenticated session
+    // without needing to read localStorage (which is not available server-side).
+    document.cookie = `sf_logged_in=1; path=/; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
   }
 }
 
@@ -55,6 +58,8 @@ export function clearTokens() {
   if (typeof window !== "undefined") {
     localStorage.removeItem("sf_access_token");
     localStorage.removeItem("sf_refresh_token");
+    // Clear the middleware auth cookie.
+    document.cookie = "sf_logged_in=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   }
 }
 
@@ -95,6 +100,10 @@ async function doRefreshToken(): Promise<string> {
 
   if (!res.ok) {
     clearTokens();
+    // Redirect to login so the user can re-authenticate.
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
     throw new Error("Session expired. Please login again.");
   }
 

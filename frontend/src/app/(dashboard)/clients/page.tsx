@@ -579,7 +579,7 @@ export default function ClientsPage() {
   });
 
   // Use real data or mock
-  const clients: Client[] = data?.data?.length ? data.data : MOCK_CLIENTS;
+  const clients: Client[] = data?.data ?? [];
 
   const totalPostsThisMonth = clients.reduce((s, c) => s + c.postsThisMonth, 0);
   const totalAccounts = clients.reduce((s, c) => s + c.socialAccountsCount, 0);

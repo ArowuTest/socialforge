@@ -43,7 +43,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { cn, getPlatformDisplayName, getCharacterLimit } from "@/lib/utils";
 import { useComposeStore } from "@/lib/stores/compose";
-import { postsApi, aiApi } from "@/lib/api";
+import { postsApi, aiApi, mediaApi } from "@/lib/api";
 import { Platform, PostType } from "@/types";
 
 // Platform config
@@ -466,6 +466,30 @@ export default function ComposePage() {
     });
   };
 
+  /**
+   * Upload any locally-selected media files via the presigned-URL flow and
+   * return their storage keys. Files that have already been uploaded (or have
+   * no backing File object) are silently skipped.
+   */
+  const uploadPendingMedia = async (): Promise<string[]> => {
+    const keys: string[] = [];
+    for (const m of media) {
+      if (!m.file) continue; // already-uploaded or URL-only entry — skip
+      const presignRes = await mediaApi.presign({
+        filename: m.file.name,
+        contentType: m.file.type,
+      });
+      const { uploadUrl, key } = presignRes.data;
+      await fetch(uploadUrl, {
+        method: "PUT",
+        body: m.file,
+        headers: { "Content-Type": m.file.type },
+      });
+      keys.push(key);
+    }
+    return keys;
+  };
+
   const handlePublishNow = async () => {
     if (selectedPlatforms.length === 0) {
       toast.error("Please select at least one platform");
@@ -477,10 +501,12 @@ export default function ComposePage() {
     }
     setIsPublishing(true);
     try {
+      const mediaIds = await uploadPendingMedia();
       await postsApi.create({
         caption,
         platforms: selectedPlatforms as Platform[],
         postType,
+        ...(mediaIds.length > 0 && { mediaIds }),
       });
       toast.success("Post published successfully!");
       reset();
@@ -506,11 +532,13 @@ export default function ComposePage() {
     }
     setIsPublishing(true);
     try {
+      const mediaIds = await uploadPendingMedia();
       await postsApi.create({
         caption,
         platforms: selectedPlatforms as Platform[],
         postType,
         scheduledAt: scheduledAt ?? undefined,
+        ...(mediaIds.length > 0 && { mediaIds }),
       });
       toast.success("Post scheduled successfully!");
       reset();
@@ -527,10 +555,12 @@ export default function ComposePage() {
       return;
     }
     try {
+      const mediaIds = await uploadPendingMedia();
       await postsApi.create({
         caption,
         platforms: selectedPlatforms as Platform[],
         postType,
+        ...(mediaIds.length > 0 && { mediaIds }),
       });
       toast.success("Draft saved!");
     } catch {
