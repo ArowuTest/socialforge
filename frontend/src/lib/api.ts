@@ -647,8 +647,31 @@ export const whitelabelApi = {
 // ============================================================
 
 export const repurposeApi = {
+  /** Legacy — typed to old RepurposeRequest shape. Prefer repurposeContent(). */
   repurpose: (data: RepurposeRequest) =>
     request<ApiResponse<AIJob>>(`${ws()}/repurpose`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /** Calls POST /repurpose with the full backend schema and returns platform drafts. */
+  repurposeContent: (data: {
+    source_type: "url" | "youtube" | "tiktok" | "text";
+    source_url?: string;
+    source_text?: string;
+    platforms: string[];
+    tone?: string;
+    include_hashtags?: boolean;
+    include_cta?: boolean;
+    include_emoji?: boolean;
+  }) =>
+    request<{
+      source_summary: string;
+      platforms: Record<
+        string,
+        { content: string; hashtags: string[]; char_count: number; media_prompt?: string }
+      >;
+    }>(`${ws()}/repurpose`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
@@ -660,7 +683,15 @@ export const repurposeApi = {
 
 export const adminApi = {
   getStats: () =>
-    request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/stats"),
+    request<{
+      total_users: number;
+      total_workspaces: number;
+      active_subscriptions: number;
+      total_social_accounts: number;
+      total_posts: number;
+      ai_jobs_today: number;
+      ai_credits_today: number;
+    }>("/api/v1/admin/stats"),
 
   listUsers: (params?: { page?: number; pageSize?: number }) =>
     request<PaginatedResponse<User>>(`/api/v1/admin/users${qs(params)}`),

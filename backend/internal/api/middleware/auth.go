@@ -79,6 +79,10 @@ func (m *MiddlewareGroup) JWTAuth() fiber.Handler {
 			return serverError(c, "internal error")
 		}
 
+		if user.IsSuspended {
+			return unauthorised(c, "account suspended")
+		}
+
 		c.Locals(LocalsClaims, claims)
 		c.Locals(LocalsUser, &user)
 		return c.Next()

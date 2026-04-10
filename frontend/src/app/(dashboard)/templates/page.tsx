@@ -298,6 +298,14 @@ export default function TemplatesPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Local-storage notice */}
+      {activeTab === "mine" && (
+        <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2">
+          <span className="flex-shrink-0 mt-0.5">⚠️</span>
+          <span>Your templates are saved locally on this device and browser. They will not sync across devices.</span>
+        </div>
+      )}
+
       {/* Sub-tab header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-1">

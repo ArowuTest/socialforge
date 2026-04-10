@@ -3,6 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { repurposeApi } from "@/lib/api";
 import {
   Link,
   Youtube,
@@ -52,23 +53,9 @@ const platformTabs: { id: PlatformTab; label: string; color: string; charLimit: 
   { id: "threads", label: "Threads", color: "bg-gray-900", charLimit: 500 },
 ];
 
-const mockOutputs: Record<PlatformTab, string> = {
-  instagram:
-    "✨ The future of content creation is here and it's absolutely mind-blowing!\n\nI just discovered how AI is transforming the way we create, repurpose and distribute content across every platform — and the results are insane.\n\nHere's what caught my attention:\n→ 10x faster content creation\n→ Platform-native formatting automatically\n→ Consistent brand voice across all channels\n\nIf you're still manually adapting your content for each platform, you're leaving serious engagement on the table.\n\nDrop a 🔥 if you're ready to transform your content strategy!\n\n#ContentCreation #SocialMedia #AIMarketing #ContentStrategy #DigitalMarketing #CreatorEconomy #SocialMediaMarketing #GrowthHacking",
-  tiktok:
-    "POV: You just found out AI can repurpose ONE piece of content into posts for EVERY platform 🤯\n\nThis is the content strategy hack nobody's talking about...\n\nSave this so you don't forget! ✅\n\n#ContentCreator #AITools #SocialMediaTips #ContentStrategy #LifeHack #MarketingTips #GrowthHack #Viral",
-  youtube:
-    "🚀 How AI is Revolutionizing Content Repurposing in 2024\n\nIn this video, we dive deep into the world of AI-powered content repurposing and how it's changing the game for creators and marketers alike.\n\n📌 What you'll learn:\n• The fundamentals of content repurposing\n• How AI extracts key insights from any source\n• Platform-specific optimization strategies\n• Real-world case studies and results\n\n⏱️ Timestamps:\n0:00 - Introduction\n2:30 - What is content repurposing?\n5:45 - AI tools breakdown\n12:00 - Live demonstration\n18:30 - Results & case studies\n\n🔔 Subscribe for more content marketing insights!\n\n#ContentMarketing #AITools #YouTubeGrowth",
-  linkedin:
-    "I've been experimenting with AI content repurposing for the past 3 months, and here's what I've learned:\n\nThe biggest mistake content creators make is treating each platform as a completely separate silo.\n\nThe reality? Your best content can work across every platform — it just needs to be reformatted for each audience.\n\nHere's my framework:\n\n1. Create one pillar piece of content (article, video, podcast)\n2. Extract the core insights and key messages\n3. Let AI adapt the format for each platform\n4. Review and add your personal voice\n5. Schedule and distribute systematically\n\nThe result? I went from posting 2x/week to 14x/week across 7 platforms — with the same amount of effort.\n\nWhat's your current content repurposing strategy? I'd love to hear in the comments.\n\n#ContentMarketing #LinkedInStrategy #DigitalMarketing #AITools #ContentCreation",
-  twitter:
-    "AI content repurposing just changed my entire workflow.\n\nOne piece of content → 8 platform-native posts in under 60 seconds.\n\nThis is the future of content marketing 🧵",
-  facebook:
-    "Hey everyone! 👋\n\nI wanted to share something that's completely transformed how I approach content creation...\n\nFor the longest time, I was spending HOURS manually adapting my content for different platforms. Instagram needed different captions than LinkedIn. Twitter required completely different formatting than YouTube...\n\nIt was exhausting and honestly unsustainable.\n\nThen I discovered AI content repurposing, and everything changed.\n\nNow I can take a single blog post, article, or video and automatically generate platform-optimized content for every channel I'm active on.\n\nThe time savings alone have been incredible — but what's really surprised me is how much BETTER the engagement has been, because the content is actually optimized for each platform's unique audience and format.\n\nIf you're a content creator, marketer, or business owner struggling to maintain a consistent presence across multiple platforms, this is a game-changer.\n\nHave you tried AI content repurposing? What's been your experience? Let me know in the comments! 👇",
-  pinterest:
-    "Transform your content strategy with AI-powered repurposing! ✨\n\nDiscover how to turn one piece of content into platform-perfect posts for Instagram, LinkedIn, Twitter, YouTube and more.\n\nSave this pin for your content marketing toolkit!\n\n#ContentMarketing #AITools #SocialMediaStrategy #ContentCreator #DigitalMarketing",
-  threads:
-    "Hot take: most content creators are working 10x harder than they need to.\n\nThe secret? Stop creating content FROM SCRATCH for every platform.\n\nOne good idea, reformatted intelligently = content for the entire week.\n\nAI makes this effortless now. 🤖✨",
+const emptyPlatformContent: Record<PlatformTab, string> = {
+  instagram: "", tiktok: "", youtube: "", linkedin: "",
+  twitter: "", facebook: "", pinterest: "", threads: "",
 };
 
 function PlatformIcon({ platform }: { platform: PlatformTab }) {
@@ -106,15 +93,72 @@ export default function RepurposePage() {
   const [addHashtags, setAddHashtags] = React.useState(true);
   const [includeEmoji, setIncludeEmoji] = React.useState(true);
   const [copiedPlatform, setCopiedPlatform] = React.useState<PlatformTab | null>(null);
-  const [platformContent, setPlatformContent] = React.useState<Record<PlatformTab, string>>(mockOutputs);
+  const [platformContent, setPlatformContent] = React.useState<Record<PlatformTab, string>>(emptyPlatformContent);
+  const [repurposeError, setRepurposeError] = React.useState<string | null>(null);
 
-  const handleRepurpose = () => {
+  const handleRepurpose = async () => {
+    // Determine source type and content from the active tab
+    let sourceType: "url" | "youtube" | "tiktok" | "text";
+    let sourceUrl = "";
+    let sourceText = "";
+
+    switch (activeInputTab) {
+      case "url":
+        if (!urlInput.trim()) return;
+        sourceType = "url";
+        sourceUrl = urlInput.trim();
+        break;
+      case "youtube":
+        if (!youtubeInput.trim()) return;
+        sourceType = "youtube";
+        sourceUrl = youtubeInput.trim();
+        break;
+      case "tiktok":
+        if (!tiktokInput.trim()) return;
+        sourceType = "tiktok";
+        sourceUrl = tiktokInput.trim();
+        break;
+      case "text":
+      case "pdf":
+      default:
+        if (!textInput.trim()) return;
+        sourceType = "text";
+        sourceText = textInput.trim();
+        break;
+    }
+
     setIsProcessing(true);
     setIsComplete(false);
-    setTimeout(() => {
-      setIsProcessing(false);
+    setRepurposeError(null);
+
+    try {
+      const res = await repurposeApi.repurposeContent({
+        source_type: sourceType,
+        ...(sourceUrl && { source_url: sourceUrl }),
+        ...(sourceText && { source_text: sourceText }),
+        platforms: platformTabs.map((p) => p.id),
+        tone: tone.toLowerCase(),
+        include_hashtags: addHashtags,
+        include_cta: addCTAs,
+        include_emoji: includeEmoji,
+      });
+
+      const updated: Record<PlatformTab, string> = { ...emptyPlatformContent };
+      for (const [platform, draft] of Object.entries(res.platforms)) {
+        const p = platform as PlatformTab;
+        let content = draft.content ?? "";
+        if (addHashtags && draft.hashtags?.length > 0) {
+          content += "\n\n" + draft.hashtags.join(" ");
+        }
+        updated[p] = content;
+      }
+      setPlatformContent(updated);
       setIsComplete(true);
-    }, 1500);
+    } catch (err) {
+      setRepurposeError(err instanceof Error ? err.message : "Repurpose failed. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleCopy = (platform: PlatformTab) => {
@@ -339,6 +383,13 @@ export default function RepurposePage() {
                 </div>
               )}
             </div>
+
+            {/* Error message */}
+            {repurposeError && (
+              <div className="text-sm text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2">
+                {repurposeError}
+              </div>
+            )}
 
             {/* Repurpose Button */}
             <Button

@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/socialforge/backend/internal/crypto"
+	"github.com/socialforge/backend/internal/models"
 )
 
 // ── DB row types (not GORM models — simple structs for raw queries) ──────────
@@ -105,7 +106,10 @@ func (h *CostConfigHandler) UpdateAIJobCost(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid body")
 	}
 
-	updaterID, _ := c.Locals("userID").(uuid.UUID)
+	var updaterID uuid.UUID
+	if u, ok := c.Locals("user").(*models.User); ok && u != nil {
+		updaterID = u.ID
+	}
 
 	updates := map[string]interface{}{
 		"updated_at": time.Now(),
@@ -163,11 +167,14 @@ func (h *CostConfigHandler) BulkUpdateAIJobCosts(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "empty list")
 	}
 
-	updaterID, _ := c.Locals("userID").(uuid.UUID)
+	var updaterID uuid.UUID
+	if u, ok := c.Locals("user").(*models.User); ok && u != nil {
+		updaterID = u.ID
+	}
+	_ = updaterID // audit trail; upsert columns don't include updated_by yet
 	now := time.Now()
 	for i := range rows {
 		rows[i].UpdatedAt = now
-		_ = updaterID // stored via raw update; GORM upsert handles it
 	}
 
 	err := h.db.WithContext(c.Context()).
@@ -221,7 +228,10 @@ func (h *CostConfigHandler) UpdateCreditPackage(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid body")
 	}
 
-	updaterID, _ := c.Locals("userID").(uuid.UUID)
+	var updaterID uuid.UUID
+	if u, ok := c.Locals("user").(*models.User); ok && u != nil {
+		updaterID = u.ID
+	}
 	updates := map[string]interface{}{
 		"updated_at": time.Now(),
 		"updated_by": updaterID,
@@ -315,7 +325,10 @@ func (h *CostConfigHandler) UpdatePlatformSetting(c *fiber.Ctx) error {
 		storeValue = encrypted
 	}
 
-	updaterID, _ := c.Locals("userID").(uuid.UUID)
+	var updaterID uuid.UUID
+	if u, ok := c.Locals("user").(*models.User); ok && u != nil {
+		updaterID = u.ID
+	}
 	res := h.db.WithContext(c.Context()).
 		Model(&PlatformSettingRow{}).
 		Where("key = ?", key).
