@@ -25,6 +25,7 @@ import {
   CreditPackage,
   CreditBalance,
   CreditLedgerEntry,
+  BillingUsage,
   Currency,
   PlanType,
 } from "@/types";
@@ -722,38 +723,46 @@ export default function BillingPage() {
   const [packages, setPackages] = React.useState<CreditPackage[]>(USD_PACKAGES);
   const [packagesLoading, setPackagesLoading] = React.useState(true);
 
-  // Balance (mock until API connected)
-  const balance: CreditBalance = MOCK_BALANCE;
+  // Balance state (fetched from API, fallback to zeros)
+  const [balance, setBalance] = React.useState<CreditBalance>(MOCK_BALANCE);
+  const [balanceLoading, setBalanceLoading] = React.useState(true);
 
-  // Ledger pagination
+  // Ledger state (fetched from API)
+  const [allLedger, setAllLedger] = React.useState<CreditLedgerEntry[]>([]);
+  const [ledgerLoading, setLedgerLoading] = React.useState(true);
   const [ledgerPage, setLedgerPage] = React.useState(1);
-  const allLedger = MOCK_LEDGER;
   const ledgerSlice = allLedger.slice(
     (ledgerPage - 1) * LEDGER_PAGE_SIZE,
-    ledgerPage * LEDGER_PAGE_SIZE
+    ledgerPage * LEDGER_PAGE_SIZE,
   );
+
+  // Usage state (fetched from API)
+  const [usage, setUsage] = React.useState<BillingUsage | null>(null);
 
   // Portal loading
   const [portalLoading, setPortalLoading] = React.useState(false);
 
-  // Mock subscription
   const subscription = {
-    planName:
-      workspace?.plan
-        ? workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1)
-        : "Pro",
+    planName: workspace?.plan
+      ? workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1)
+      : "Free",
     status: "active",
-    renewalDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 18).toLocaleDateString("en-US", {
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    }),
-    used: { accounts: 4, posts: 38, aiCredits: 127 },
-    limits: { accounts: 10, posts: 200, aiCredits: 500 },
+    renewalDate: "—",
+    used: {
+      accounts:  usage?.socialAccountsUsed   ?? 0,
+      posts:     usage?.scheduledPostsUsed   ?? 0,
+      aiCredits: usage?.aiCreditsUsed        ?? balance.plan_credits_used,
+    },
+    limits: {
+      accounts:  usage?.socialAccountsLimit  ?? 0,
+      posts:     usage?.scheduledPostsLimit  ?? 0,
+      aiCredits: usage?.aiCreditsLimit       ?? balance.plan_credits_limit,
+    },
   };
 
-  // Load packages on mount
+  // Load all data on mount
   React.useEffect(() => {
+    // Credit packages
     billingApi
       .getCreditPackages()
       .then((res) => {
@@ -762,22 +771,42 @@ export default function BillingPage() {
           if (res.currency === "NGN") setCurrency("NGN");
         }
       })
-      .catch(() => {
-        // Silently fall back to mock packages
-      })
+      .catch(() => { /* fall back to local constants */ })
       .finally(() => setPackagesLoading(false));
-  }, []);
+
+    // Credit balance
+    billingApi
+      .getCreditBalance()
+      .then((res) => { if (res.data) setBalance(res.data); })
+      .catch(() => { /* keep fallback zeros */ })
+      .finally(() => setBalanceLoading(false));
+
+    // Transaction ledger (fetch up to 200 entries for client-side pagination)
+    billingApi
+      .getCreditLedger({ limit: 200, offset: 0 })
+      .then((res) => { if (res.data) setAllLedger(res.data); })
+      .catch(() => { /* show empty state */ })
+      .finally(() => setLedgerLoading(false));
+
+    // Usage / subscription
+    billingApi
+      .getWorkspaceUsage()
+      .then((res) => { if (res.data) setUsage(res.data); })
+      .catch(() => { /* keep null */ });
+  }, [workspaceId]);
 
   const handleCurrencyToggle = () => {
     setCurrency((prev) => (prev === "USD" ? "NGN" : "USD"));
   };
 
-  const displayPackages =
-    packages === USD_PACKAGES || packages === NGN_PACKAGES
-      ? currency === "NGN"
-        ? NGN_PACKAGES
-        : USD_PACKAGES
-      : packages;
+  // Use API-loaded packages when available; otherwise fall back to local constants
+  // so the currency toggle still works before the API responds.
+  const apiPackagesLoaded = packages !== USD_PACKAGES && packages !== NGN_PACKAGES;
+  const displayPackages = apiPackagesLoaded
+    ? packages
+    : currency === "NGN"
+    ? NGN_PACKAGES
+    : USD_PACKAGES;
 
   const handlePortalClick = async () => {
     setPortalLoading(true);
@@ -838,7 +867,15 @@ export default function BillingPage() {
         {/* AI Credits */}
         <TabsContent value="credits" className="mt-0 space-y-6">
           {/* Balance summary */}
-          <CreditBalanceCard balance={balance} />
+          {balanceLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-32 rounded-xl bg-slate-800" />
+              ))}
+            </div>
+          ) : (
+            <CreditBalanceCard balance={balance} />
+          )}
 
           {/* Credit packages */}
           {packagesLoading ? (
@@ -889,20 +926,34 @@ export default function BillingPage() {
               variant="outline"
               size="sm"
               className="border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white text-xs"
+              disabled={ledgerLoading}
               onClick={() => {
-                toast.info("Refreshed transaction history.");
+                setLedgerLoading(true);
+                billingApi
+                  .getCreditLedger({ limit: 200, offset: 0 })
+                  .then((res) => { if (res.data) setAllLedger(res.data); })
+                  .catch(() => toast.error("Failed to refresh transactions"))
+                  .finally(() => setLedgerLoading(false));
               }}
             >
-              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${ledgerLoading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
           </div>
-          <TransactionHistoryTab
-            entries={ledgerSlice}
-            total={allLedger.length}
-            page={ledgerPage}
-            onPageChange={setLedgerPage}
-          />
+          {ledgerLoading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 rounded-lg bg-slate-800" />
+              ))}
+            </div>
+          ) : (
+            <TransactionHistoryTab
+              entries={ledgerSlice}
+              total={allLedger.length}
+              page={ledgerPage}
+              onPageChange={setLedgerPage}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </div>

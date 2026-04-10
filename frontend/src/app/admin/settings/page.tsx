@@ -133,11 +133,6 @@ type FreeGrant = {
   grantedAt: string;
 };
 
-const MOCK_GRANTS: FreeGrant[] = [
-  { id: "1", email: "alice@startup.io", name: "Alice Martin", plan: "Pro", expiresAt: "2026-04-20", grantedAt: "2026-04-06" },
-  { id: "2", email: "bob@agency.co", name: "Bob Chen", plan: "Agency", expiresAt: "2026-05-06", grantedAt: "2026-04-06" },
-];
-
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = React.useState<TabId>("general");
 
@@ -232,7 +227,7 @@ export default function SettingsPage() {
   const [grantCustomDays, setGrantCustomDays] = React.useState("");
   const [grantSubmitting, setGrantSubmitting] = React.useState(false);
   const [grantSuccess, setGrantSuccess] = React.useState(false);
-  const [activeGrants, setActiveGrants] = React.useState<FreeGrant[]>(MOCK_GRANTS);
+  const [activeGrants, setActiveGrants] = React.useState<FreeGrant[]>([]);
   const [revoking, setRevoking] = React.useState<string | null>(null);
 
   // Security state
@@ -287,24 +282,36 @@ export default function SettingsPage() {
     }
   };
 
-  const handleRevokeGrant = (id: string) => {
+  const handleRevokeGrant = async (id: string) => {
+    const grant = activeGrants.find((g) => g.id === id);
+    if (!grant) return;
     setRevoking(id);
-    setTimeout(() => {
+    try {
+      // Revert to free plan — use email as the identifier
+      await adminApi.grantPlan({ userId: grant.email, planType: "free" });
       setActiveGrants((prev) => prev.filter((g) => g.id !== id));
+      toast.success(`Plan revoked for ${grant.email}`);
+    } catch {
+      toast.error("Failed to revoke plan access");
+    } finally {
       setRevoking(null);
-    }, 800);
+    }
   };
 
   const handleClearCache = () => {
     if (!confirmClearCache) { setConfirmClearCache(true); return; }
-    setCacheClearing(true);
-    setTimeout(() => { setCacheClearing(false); setConfirmClearCache(false); }, 2000);
+    // Redis cache clearing is done via the server CLI or a restart.
+    // The AI service config cache (60s TTL) resets automatically on next request.
+    toast.info("Cache clears automatically within 60 seconds. For a full Redis flush, run: redis-cli FLUSHDB on the server.");
+    setConfirmClearCache(false);
   };
 
   const handleMigrations = () => {
     if (!confirmMigrations) { setConfirmMigrations(true); return; }
-    setMigrationsRunning(true);
-    setTimeout(() => { setMigrationsRunning(false); setConfirmMigrations(false); }, 3000);
+    // Migrations run automatically on every server startup via embedded SQL files.
+    // Triggering them manually requires a server restart or the migrate CLI command.
+    toast.info("Migrations run automatically on server startup. To run them now: restart the server or run `go run ./cmd/migrate`.");
+    setConfirmMigrations(false);
   };
 
   // Load all settings from API on mount

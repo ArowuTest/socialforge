@@ -706,7 +706,7 @@ export const adminApi = {
   ) =>
     request<ApiResponse<unknown>>("/api/v1/admin/cost-config/ai-jobs", {
       method: "PUT",
-      body: JSON.stringify({ costs }),
+      body: JSON.stringify(costs),
     }),
 
   getCreditPackages: () =>
@@ -723,8 +723,16 @@ export const adminApi = {
       { method: "PATCH", body: JSON.stringify(data) },
     ),
 
-  getPlatformSettings: () =>
-    request<ApiResponse<Record<string, string>>>("/api/v1/admin/cost-config/settings"),
+  getPlatformSettings: async (): Promise<ApiResponse<Record<string, string>>> => {
+    const res = await request<ApiResponse<Array<{ key: string; value: string }>>>(
+      "/api/v1/admin/cost-config/settings",
+    );
+    const record: Record<string, string> = {};
+    for (const row of res.data ?? []) {
+      record[row.key] = row.value;
+    }
+    return { success: true, data: record };
+  },
 
   updatePlatformSetting: (key: string, value: string) =>
     request<ApiResponse<unknown>>(`/api/v1/admin/cost-config/settings/${key}`, {

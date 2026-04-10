@@ -509,6 +509,7 @@ type grantPlanRequest struct {
 }
 
 // GrantPlanAccess lets a super-admin change a user's plan (free tier override).
+// Accepts user_id as either a UUID or an email address.
 // POST /api/v1/admin/grant-plan
 func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
 	var req grantPlanRequest
@@ -518,12 +519,27 @@ func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
 
 	validPlans := map[string]bool{"free": true, "starter": true, "pro": true, "agency": true}
 	if req.UserID == "" || !validPlans[req.Plan] {
-		return badRequest(c, "user_id and valid plan (free/starter/pro/agency) required", "VALIDATION_ERROR")
+		return badRequest(c, "user_id (UUID or email) and valid plan (free/starter/pro/agency) required", "VALIDATION_ERROR")
 	}
 
-	uid, err := uuid.Parse(req.UserID)
-	if err != nil {
-		return badRequest(c, "user_id must be a valid UUID", "INVALID_ID")
+	// Accept either UUID or email address.
+	var uid uuid.UUID
+	var lookupErr error
+
+	uid, lookupErr = uuid.Parse(req.UserID)
+	if lookupErr != nil {
+		// Not a UUID — try to look up by email.
+		var user models.User
+		if err := h.db.WithContext(c.Context()).
+			Select("id").
+			Where("email = ?", req.UserID).
+			First(&user).Error; err != nil {
+			if repository.IsNotFound(err) {
+				return notFound(c, "user not found", "NOT_FOUND")
+			}
+			return internalError(c, "failed to look up user")
+		}
+		uid = user.ID
 	}
 
 	result := h.db.WithContext(c.Context()).
@@ -548,7 +564,7 @@ func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"message": "plan updated successfully",
-		"user_id": req.UserID,
+		"user_id": uid.String(),
 		"plan":    req.Plan,
 	})
 }
