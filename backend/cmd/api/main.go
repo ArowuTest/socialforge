@@ -96,7 +96,7 @@ func main() {
 
 	// ── Platform clients ──────────────────────────────────────────────────────
 	igClient := instagram.New(cfg.OAuth.Instagram, encryptionSecret, db, log)
-	ttClient := tiktok.New(cfg.OAuth.TikTok, encryptionSecret, db, log)
+	ttClient := tiktok.New(cfg.OAuth.TikTok, encryptionSecret, db, rdb, log)
 	ytClient := youtube.New(cfg.OAuth.YouTube, encryptionSecret, db, log)
 	liClient := linkedin.New(cfg.OAuth.LinkedIn, encryptionSecret, db, log)
 	twClient := twitter.New(cfg.OAuth.Twitter, encryptionSecret, db, rdb, log)
@@ -116,7 +116,7 @@ func main() {
 		"threads":   thClient,
 	}
 	mediaService := publishing.NewMediaService(cfg, log)
-	publishService := publishing.NewPublisher(db, platformMap, mediaService, log)
+	publishService := publishing.NewPublisher(db, platformMap, mediaService, rdb, log)
 
 	// ── Asynq client ──────────────────────────────────────────────────────────
 	redisOpt := asynq.RedisClientOpt{

@@ -31,8 +31,6 @@ import {
   Twitter,
   Video,
   Image,
-  Film,
-  AlignLeft,
 } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { analyticsApi } from "@/lib/api";
@@ -85,46 +83,6 @@ const PLATFORM_COLORS: Record<string, string> = {
 };
 
 const CONTENT_TYPE_COLORS = ["#7C3AED", "#0EA5E9", "#F59E0B", "#10B981"];
-
-const MOCK_POSTS_PER_DAY = (days: number) =>
-  Array.from({ length: days }, (_, i) => ({
-    date: format(subDays(new Date(), days - 1 - i), "MMM d"),
-    count: Math.floor(Math.random() * 8) + 1,
-  }));
-
-const MOCK_ENGAGEMENT_BY_PLATFORM = [
-  { platform: "Instagram", engagement: 4200 },
-  { platform: "TikTok", engagement: 8900 },
-  { platform: "LinkedIn", engagement: 1800 },
-  { platform: "Twitter", engagement: 3100 },
-  { platform: "YouTube", engagement: 2400 },
-  { platform: "Facebook", engagement: 960 },
-];
-
-const MOCK_CONTENT_TYPES = [
-  { name: "Image", value: 42 },
-  { name: "Video", value: 27 },
-  { name: "Carousel", value: 19 },
-  { name: "Text Only", value: 12 },
-];
-
-const MOCK_TOP_POSTS: TopPost[] = Array.from({ length: 8 }, (_, i) => ({
-  id: `post-${i}`,
-  excerpt: [
-    "Behind the scenes of our product launch 🚀 Check out what went into making this happen…",
-    "5 tips to grow your audience on Instagram in 2024 — Thread",
-    "Big announcement coming soon! Stay tuned for something exciting…",
-    "Our team at the annual conference — amazing energy this year!",
-    "New feature drop: AI-powered scheduling is now live for all users",
-    "Throwback to when we first launched. Look how far we've come!",
-    "Customer spotlight: How @brand grew 40% in 3 months using SocialForge",
-    "Weekly roundup: top performing content and what we learned",
-  ][i],
-  platform: [Platform.INSTAGRAM, Platform.TIKTOK, Platform.LINKEDIN, Platform.TWITTER, Platform.YOUTUBE, Platform.FACEBOOK, Platform.INSTAGRAM, Platform.LINKEDIN][i],
-  publishedAt: subDays(new Date(), i * 3 + 1).toISOString(),
-  impressions: Math.floor(Math.random() * 90_000) + 10_000,
-  engagement: Math.round((Math.random() * 6 + 1) * 10) / 10,
-}));
 
 // ── Small helpers ──────────────────────────────────────────────────────────
 
@@ -264,28 +222,30 @@ export default function AnalyticsPage() {
     queryFn: () => analyticsApi.getTopPosts({ startDate, endDate, limit: 10 }),
   });
 
-  // Use real data if available, otherwise fall back to mock data
-  const postsPerDay =
-    overviewData?.data?.postsPerDay?.length
-      ? overviewData.data.postsPerDay.map((d) => ({ date: format(new Date(d.date), "MMM d"), count: d.count }))
-      : MOCK_POSTS_PER_DAY(rangeConfig.days);
+  const postsPerDay = (overviewData?.data?.postsPerDay ?? []).map((d) => ({
+    date: format(new Date(d.date), "MMM d"),
+    count: d.count,
+  }));
 
-  const engagementByPlatform =
-    overviewData?.data?.engagementByPlatform?.length
-      ? overviewData.data.engagementByPlatform
-      : MOCK_ENGAGEMENT_BY_PLATFORM;
+  const engagementByPlatform = overviewData?.data?.engagementByPlatform ?? [];
 
-  const topPosts: TopPost[] =
-    topPostsData?.data?.length
-      ? topPostsData.data.map((p) => ({
-          id: p.id,
-          excerpt: p.caption,
-          platform: p.platforms?.[0]?.platform ?? Platform.INSTAGRAM,
-          publishedAt: p.publishedAt ?? p.scheduledAt ?? p.createdAt,
-          impressions: p.platforms?.[0]?.metrics?.impressions ?? 0,
-          engagement: 0,
-        }))
-      : MOCK_TOP_POSTS;
+  const contentTypeBreakdown = (overviewData?.data?.platformBreakdown ?? []).map(
+    (p, i) => ({ name: p.platform, value: p.posts }),
+  );
+
+  const topPosts: TopPost[] = (topPostsData?.data ?? []).map((p) => ({
+    id: p.id,
+    excerpt: p.caption,
+    platform: p.platforms?.[0]?.platform ?? Platform.INSTAGRAM,
+    publishedAt: p.publishedAt ?? p.scheduledAt ?? p.createdAt,
+    impressions: p.platforms?.[0]?.metrics?.impressions ?? 0,
+    engagement: (() => {
+      const m = p.platforms?.[0]?.metrics;
+      if (!m) return 0;
+      const totalEng = (m.likes ?? 0) + (m.comments ?? 0) + (m.shares ?? 0);
+      return totalEng > 0 ? Number(((totalEng / (m.impressions || 1)) * 100).toFixed(1)) : 0;
+    })(),
+  }));
 
   const sortedPosts = [...topPosts].sort((a, b) => {
     const diff = sortKey === "impressions" ? a.impressions - b.impressions : a.engagement - b.engagement;
@@ -301,7 +261,7 @@ export default function AnalyticsPage() {
     }
   };
 
-  const hasData = !overviewLoading && (overviewData?.data?.totalPosts ?? 0) > 0 || true; // always show with mock
+  const hasData = !overviewLoading && (overviewData?.data?.totalPosts ?? 0) > 0;
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
@@ -335,31 +295,28 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard
           label="Total Posts Published"
-          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.totalPosts ?? 124)}
-          trend={12}
+          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.totalPosts ?? 0)}
           icon={FileText}
           iconColor="text-violet-600"
           loading={overviewLoading}
         />
         <KpiCard
           label="Total Impressions"
-          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.totalReach ?? 245_800)}
-          trend={8}
+          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.totalReach ?? 0)}
           icon={Eye}
           iconColor="text-sky-600"
           loading={overviewLoading}
         />
         <KpiCard
           label="Avg Engagement Rate"
-          value={overviewLoading ? "—" : `${overviewData?.data?.totalEngagement ? ((overviewData.data.totalEngagement / (overviewData.data.totalReach || 1)) * 100).toFixed(1) : "4.2"}%`}
-          trend={-2}
+          value={overviewLoading ? "—" : `${overviewData?.data?.totalEngagement ? ((overviewData.data.totalEngagement / (overviewData.data.totalReach || 1)) * 100).toFixed(1) : "0"}%`}
           icon={Heart}
           iconColor="text-pink-600"
           loading={overviewLoading}
         />
         <KpiCard
           label="Best Performing Platform"
-          value={overviewLoading ? "—" : getPlatformDisplayName((overviewData?.data?.bestPlatform as Platform) ?? Platform.INSTAGRAM)}
+          value={overviewLoading ? "—" : overviewData?.data?.bestPlatform ? getPlatformDisplayName(overviewData.data.bestPlatform as Platform) : "—"}
           icon={Trophy}
           iconColor="text-amber-600"
           loading={overviewLoading}
@@ -476,34 +433,40 @@ export default function AnalyticsPage() {
                 <Skeleton className="h-56 w-full" />
               ) : (
                 <div className="flex items-center gap-4">
-                  <ResponsiveContainer width="100%" height={224}>
-                    <PieChart>
-                      <Pie
-                        data={MOCK_CONTENT_TYPES}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={55}
-                        outerRadius={85}
-                        paddingAngle={3}
-                        dataKey="value"
-                      >
-                        {MOCK_CONTENT_TYPES.map((_, index) => (
-                          <Cell key={`cell-${index}`} fill={CONTENT_TYPE_COLORS[index]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value: number) => [`${value}%`, ""]}
-                        content={<ChartTooltip />}
-                      />
-                      <Legend
-                        iconType="circle"
-                        iconSize={8}
-                        formatter={(value) => (
-                          <span className="text-xs text-gray-600 dark:text-gray-400">{value}</span>
-                        )}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {contentTypeBreakdown.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={224}>
+                      <PieChart>
+                        <Pie
+                          data={contentTypeBreakdown}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={55}
+                          outerRadius={85}
+                          paddingAngle={3}
+                          dataKey="value"
+                        >
+                          {contentTypeBreakdown.map((_, index) => (
+                            <Cell key={`cell-${index}`} fill={CONTENT_TYPE_COLORS[index % CONTENT_TYPE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value: number) => [value, "Posts"]}
+                          content={<ChartTooltip />}
+                        />
+                        <Legend
+                          iconType="circle"
+                          iconSize={8}
+                          formatter={(value) => (
+                            <span className="text-xs text-gray-600 dark:text-gray-400">{value}</span>
+                          )}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center w-full h-56 text-sm text-muted-foreground">
+                      No platform data available
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

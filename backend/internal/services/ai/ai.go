@@ -43,14 +43,93 @@ const (
 // ─── Platform prompt hints ────────────────────────────────────────────────────
 
 var platformGuidance = map[string]string{
-	"instagram":  "Instagram (up to 2200 chars, casual/visual, 3–30 hashtags at end)",
-	"tiktok":     "TikTok (punchy hook in first line, 150 chars max, 3–5 trendy hashtags)",
-	"linkedin":   "LinkedIn (professional, up to 3000 chars, thought-leadership tone, 3–5 relevant hashtags)",
-	"twitter":    "Twitter/X (280 chars max, conversational, 1–2 hashtags inline)",
-	"facebook":   "Facebook (engaging, up to 500 chars, optional 2–3 hashtags)",
-	"youtube":    "YouTube (description up to 5000 chars, include 3 keyword-rich paragraphs, tags list at end)",
-	"pinterest":  "Pinterest (100-char punchy description, keyword-rich, link-friendly)",
-	"threads":    "Threads (casual, max 500 chars, 0–3 hashtags)",
+	"instagram": `Instagram Feed Post:
+- Hook in the first line (this appears above "...more")
+- Use line breaks for readability (no walls of text)
+- 2,200 char limit but 150-300 is optimal for engagement
+- Include a clear CTA (save this, share with a friend, comment below)
+- Place 20-30 relevant hashtags at the very end after 5 line breaks
+- Use emojis strategically to break up text (not excessively)
+- Write as if speaking to one person, not a crowd
+- Carousel posts: make the first slide a bold statement/question
+- Reels captions: keep under 150 chars, hook + CTA only`,
+
+	"tiktok": `TikTok:
+- First 2 seconds = the hook (pattern interrupt, bold claim, or question)
+- Keep caption under 150 characters (longer gets truncated)
+- 3-5 trending + niche hashtags
+- Casual, authentic voice — NO corporate speak
+- Include a CTA: "Follow for more", "Save this", "Stitch this"
+- Use line breaks — TikTok truncates after ~80 chars
+- For video scripts: open with "Wait—", "POV:", "This is your sign to..."`,
+
+	"linkedin": `LinkedIn:
+- First line is EVERYTHING — it appears before "...see more"
+- Open with a bold statement, counter-intuitive take, or personal story
+- Short paragraphs (1-2 sentences max per paragraph)
+- Line breaks between every paragraph for mobile readability
+- 3,000 char limit but optimal is 1,300-1,500
+- End with a question to drive comments (algorithm loves comments)
+- 3-5 industry-relevant hashtags at the bottom
+- Avoid links in the post body (kills reach) — put links in comments
+- Write in first person, share lessons learned, show vulnerability
+- NO hashtag-stuffing, NO emoji-overload — maintain professionalism`,
+
+	"twitter": `Twitter/X:
+- 280 character limit — every word must earn its place
+- Lead with the most compelling part of your message
+- Use threads for longer content (number each tweet: 1/, 2/, etc.)
+- 1-2 hashtags max, inline (not at the end)
+- Controversial takes and strong opinions drive engagement
+- Ask questions to drive replies
+- Use line breaks for emphasis
+- For threads: first tweet must stand alone and hook readers`,
+
+	"facebook": `Facebook:
+- Optimal length: 40-80 characters for highest engagement
+- But storytelling posts (300-500 chars) perform well in groups
+- Ask questions that invite comments
+- 0-3 hashtags (Facebook de-prioritizes hashtag-heavy posts)
+- Personal stories and behind-the-scenes content performs best
+- Include a CTA: "What do you think?", "Tag someone who needs this"
+- Avoid engagement bait ("Like if you agree") — Facebook penalises it
+- Native video descriptions should be detailed (helps discovery)`,
+
+	"youtube": `YouTube Description:
+- First 150 characters appear in search results — front-load keywords
+- Structure: 2-3 keyword-rich paragraphs describing the video
+- Include timestamps for key sections (chapters)
+- Add relevant links (subscribe, social media, resources mentioned)
+- Use natural language with target keywords woven in
+- End with a list of 10-15 tags (comma-separated)
+- Include a subscribe CTA and links to related videos
+- Total length: 500-2000 chars optimal for SEO`,
+
+	"pinterest": `Pinterest Pin:
+- Title: 40-100 characters, keyword-rich, compelling
+- Description: up to 500 characters
+- Front-load the most important keywords (SEO-first platform)
+- Write as a search query answer — what would someone search to find this?
+- Include a clear value proposition
+- Use natural language, avoid hashtag-stuffing
+- Think "how-to", "tips for", "best [topic]" — Pinterest is a search engine`,
+
+	"threads": `Threads:
+- Casual, conversational tone — this is the anti-LinkedIn
+- 500 character limit
+- 0-3 hashtags (less is more)
+- Hot takes, personal opinions, and humor perform best
+- Reply-bait: ask a question or make a debatable statement
+- Short-form works better than long-form
+- Use plain language — no corporate jargon`,
+
+	"bluesky": `Bluesky:
+- 300 character limit (similar to early Twitter)
+- Authentic, community-first tone
+- Tech-savvy audience — be genuine, skip the marketing speak
+- 0-2 hashtags (community is still forming conventions)
+- Link posts are welcome (no algorithm penalty)
+- Conversational, thoughtful — quality over virality`,
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -151,16 +230,34 @@ func (s *Service) GenerateCaption(
 	}
 
 	systemPrompt := fmt.Sprintf(
-		"You are a world-class social media copywriter. "+
-			"Write a high-converting caption for %s. "+
-			"Tone: %s. Target audience: %s. "+
-			"Return JSON with keys: caption (string), hashtags ([]string). "+
-			"Do NOT include any markdown fences.",
+		`You are an elite social media strategist who has grown 100+ accounts to 1M+ followers.
+
+PLATFORM:
+%s
+
+YOUR TASK: Write a high-converting, scroll-stopping caption that drives maximum engagement.
+
+RULES:
+1. Hook first — the opening line must stop the scroll. Use a bold claim, surprising stat, counter-intuitive take, or relatable pain point.
+2. Structure for readability — use short paragraphs, line breaks, and strategic formatting.
+3. Match the platform's native voice — don't sound like an ad. Sound like a top creator on this platform.
+4. Include a strong CTA — tell readers exactly what to do (save, share, comment, follow).
+5. Be specific and concrete — avoid generic advice. Use numbers, examples, and vivid language.
+6. Write for EMOTION — content that triggers curiosity, surprise, or "I need to save this" performs best.
+7. NEVER use clichés like "In today's fast-paced world", "Game-changer", "Unlock your potential".
+8. Tone: %s
+9. Target audience: %s
+
+Return a JSON object with exactly two keys:
+- "caption": the complete post caption (string)
+- "hashtags": array of relevant hashtags without # prefix (string[])
+
+Make the caption feel like it was written by a human who genuinely cares about helping their audience, not by AI.`,
 		guidance, tone, targetAudience,
 	)
 
 	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4TurboPreview,
+		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: prompt},
@@ -203,15 +300,31 @@ func (s *Service) GenerateHashtags(
 	}
 
 	systemPrompt := fmt.Sprintf(
-		"You are a social-media hashtag expert. "+
-			"Return a JSON object with a single key 'hashtags' whose value is an array of strings. "+
-			"Generate the most discoverable and relevant hashtags for %s in the %s niche. "+
-			"Include a mix of high-volume, mid-tier, and niche tags. Do NOT add '#' prefix.",
+		`You are a social media growth specialist who understands hashtag strategy deeply.
+
+PLATFORM: %s
+NICHE: %s
+
+Generate a strategic hashtag set following the 3-tier strategy:
+- 5 HIGH-VOLUME tags (500K+ posts) — for discovery
+- 5 MID-TIER tags (50K-500K posts) — for competition balance
+- 5 NICHE-SPECIFIC tags (under 50K posts) — for ranking potential
+
+RULES:
+1. Every hashtag must be directly relevant to the content
+2. Mix broad appeal with laser-targeted niche tags
+3. Include 2-3 trending/seasonal tags if applicable
+4. Avoid banned or shadow-banned hashtags
+5. Order from most to least popular
+6. Each hashtag should be a single word or short phrase (no spaces)
+
+Return JSON: {"hashtags": ["tag1", "tag2", ...]}
+Do NOT include the # prefix.`,
 		platform, niche,
 	)
 
 	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4TurboPreview,
+		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: content},
@@ -261,7 +374,16 @@ func (s *Service) GenerateImage(
 
 	enhancedPrompt := prompt
 	if style != "" {
-		enhancedPrompt = fmt.Sprintf("%s, style: %s", prompt, style)
+		enhancedPrompt = fmt.Sprintf(
+			"%s. Art style: %s. High quality, professional composition, "+
+				"sharp details, vibrant colors, suitable for social media post. "+
+				"No text overlays unless specified. No watermarks.",
+			prompt, style)
+	} else {
+		enhancedPrompt = fmt.Sprintf(
+			"%s. High quality, professional composition, sharp details, "+
+				"vibrant colors, suitable for social media. No watermarks.",
+			prompt)
 	}
 
 	reqBody := map[string]interface{}{
@@ -331,14 +453,22 @@ func (s *Service) GenerateVideo(
 		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
-		enhancedPrompt := prompt
+		enhancedPrompt := fmt.Sprintf(
+			"%s. Cinematic quality, smooth motion, professional lighting, "+
+				"engaging visual narrative. Optimized for social media vertical video (9:16). "+
+				"Clean transitions, no text overlays unless specified.",
+			prompt)
 		if style != "" {
-			enhancedPrompt = fmt.Sprintf("%s, style: %s", prompt, style)
+			enhancedPrompt = fmt.Sprintf(
+				"%s. Visual style: %s. Cinematic quality, smooth motion, "+
+					"professional lighting, engaging visual narrative. "+
+					"Optimized for social media vertical video (9:16).",
+				prompt, style)
 		}
 		reqBody := map[string]interface{}{
-			"prompt":      enhancedPrompt,
-			"duration":    duration,
-			"aspect_ratio": "16:9",
+			"prompt":       enhancedPrompt,
+			"duration":     duration,
+			"aspect_ratio": "9:16",
 		}
 
 		result, err := s.falRequest(bgCtx, "fal-ai/kling-video/v1.6/standard/text-to-video", reqBody)
@@ -397,17 +527,46 @@ func (s *Service) GenerateCarousel(
 	}
 
 	systemPrompt := fmt.Sprintf(
-		"You are a carousel post expert for %s. "+
-			"Create a %d-slide educational/engaging carousel about the given topic. "+
-			"Return JSON with key 'slides' containing an array of objects, each with: "+
-			"slide_number (int), headline (string, max 60 chars), body_text (string, max 150 chars), "+
-			"call_to_action (string, only on last slide), image_prompt (string describing ideal visual). "+
-			"Make slide 1 a hook and slide %d a strong CTA. Do NOT include markdown fences.",
-		platform, slides, slides,
+		`You are a carousel content expert who creates swipeable, save-worthy carousel posts.
+
+PLATFORM: %s
+SLIDES: %d
+
+Create a carousel using the proven viral carousel framework:
+
+SLIDE 1 (THE HOOK): Bold statement, surprising question, or pattern interrupt.
+- Must make someone stop scrolling and swipe
+- Short, punchy headline (max 8 words)
+- Examples: "Stop doing [common mistake]", "[Number] things I wish I knew about [topic]"
+
+SLIDES 2-%d (THE VALUE): Each slide delivers ONE clear takeaway.
+- One idea per slide — don't overcrowd
+- Headline: max 8 words, bold energy
+- Body: max 2 sentences, actionable and specific
+- Progress logically
+
+SLIDE %d (THE CTA): Strong closing with clear next step.
+- Summarize the key message
+- Specific CTA: "Save for later", "Share with someone who needs this", "Follow for more"
+- Create urgency or FOMO
+
+Return JSON:
+{
+  "slides": [
+    {
+      "slide_number": 1,
+      "headline": "<max 60 chars>",
+      "body_text": "<max 150 chars>",
+      "call_to_action": "<only on last slide>",
+      "image_prompt": "<describe ideal visual for this slide>"
+    }
+  ]
+}`,
+		platform, slides, slides-1, slides,
 	)
 
 	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4TurboPreview,
+		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: topic},
@@ -460,18 +619,35 @@ func (s *Service) AnalyseViralPotential(
 	}
 
 	systemPrompt := fmt.Sprintf(
-		"You are a social media virality expert for %s. "+
-			"Analyse the provided content and return JSON with keys: "+
-			"score (int 0-100), grade (string A/B/C/D/F), "+
-			"strengths ([]string, max 3), improvements ([]string, max 3 actionable tips), "+
-			"optimal_post_time (string, e.g. 'Tuesday 6-8 PM'), "+
-			"estimated_reach (string, e.g. '1,000-5,000 impressions'). "+
-			"Be specific and data-driven. Do NOT include markdown fences.",
-		platform,
+		`You are a data-driven social media analyst who has studied millions of viral posts.
+
+PLATFORM: %s
+
+Analyse this content and provide a brutally honest viral potential assessment.
+
+Score criteria (each out of 20, total 100):
+1. HOOK STRENGTH (0-20): Does the first line stop the scroll?
+2. EMOTIONAL TRIGGER (0-20): Does it evoke curiosity, surprise, anger, joy, or FOMO?
+3. SHAREABILITY (0-20): Would someone tag a friend or share to their story?
+4. PLATFORM FIT (0-20): Does it follow %s best practices and native format?
+5. CTA EFFECTIVENESS (0-20): Is there a clear, compelling call-to-action?
+
+Return JSON:
+{
+  "score": <int 0-100>,
+  "grade": "<A/B/C/D/F>",
+  "strengths": ["<specific strength>", "<specific strength>", "<specific strength>"],
+  "improvements": ["<actionable fix with example>", "<actionable fix with example>", "<actionable fix with example>"],
+  "optimal_post_time": "<e.g. Tuesday 6-8 PM EST>",
+  "estimated_reach": "<e.g. 2,000-8,000 impressions based on content quality>"
+}
+
+Be specific — not "improve the hook" but "Replace the opening with a surprising statistic or bold claim like: [example]".`,
+		platform, platform,
 	)
 
 	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT4TurboPreview,
+		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: content},

@@ -21,10 +21,10 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -51,20 +51,21 @@ type PKCEParams struct {
 
 // Client is the TikTok platform adapter.
 type Client struct {
-	cfg          config.OAuthPlatformConfig
-	secret       string
-	db           *gorm.DB
-	log          *zap.Logger
-	http         *http.Client
-	pkceVerifiers sync.Map // state → codeVerifier
+	cfg    config.OAuthPlatformConfig
+	secret string
+	db     *gorm.DB
+	log    *zap.Logger
+	http   *http.Client
+	rdb    *redis.Client
 }
 
 // New creates a new TikTok Client.
-func New(cfg config.OAuthPlatformConfig, encryptionSecret string, db *gorm.DB, log *zap.Logger) *Client {
+func New(cfg config.OAuthPlatformConfig, encryptionSecret string, db *gorm.DB, rdb *redis.Client, log *zap.Logger) *Client {
 	return &Client{
 		cfg:    cfg,
 		secret: encryptionSecret,
 		db:     db,
+		rdb:    rdb,
 		log:    log.Named("tiktok"),
 		http:   &http.Client{Timeout: 60 * time.Second},
 	}
@@ -97,7 +98,11 @@ func (c *Client) GetAuthURL(workspaceID uuid.UUID, state string) string {
 		c.log.Error("tiktok: failed to generate PKCE", zap.Error(err))
 		return ""
 	}
-	c.pkceVerifiers.Store(state, pkce.CodeVerifier)
+	ctx := context.Background()
+	if err := c.rdb.Set(ctx, "pkce:"+state, pkce.CodeVerifier, 10*time.Minute).Err(); err != nil {
+		c.log.Error("tiktok: failed to store PKCE verifier in Redis", zap.Error(err))
+		return ""
+	}
 	params := url.Values{
 		"client_key":            {c.cfg.ClientID},
 		"response_type":         {"code"},
@@ -116,11 +121,11 @@ func (c *Client) GetAuthURL(workspaceID uuid.UUID, state string) string {
 // persists a SocialAccount for the workspace.
 // state is used to retrieve the stored PKCE verifier.
 func (c *Client) ExchangeCode(ctx context.Context, code, state string, workspaceID uuid.UUID) (*models.SocialAccount, error) {
-	val, ok := c.pkceVerifiers.LoadAndDelete(state)
-	if !ok {
-		return nil, fmt.Errorf("tiktok: PKCE verifier not found for state %s", state)
+	redisKey := "pkce:" + state
+	codeVerifier, err := c.rdb.GetDel(ctx, redisKey).Result()
+	if err != nil {
+		return nil, fmt.Errorf("tiktok: PKCE verifier not found for state %s: %w", state, err)
 	}
-	codeVerifier, _ := val.(string)
 	tokenResp, err := c.exchangeCodeForTokens(ctx, code, codeVerifier)
 	if err != nil {
 		return nil, fmt.Errorf("tiktok: exchange code: %w", err)

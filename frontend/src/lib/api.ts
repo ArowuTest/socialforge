@@ -666,4 +666,47 @@ export const adminApi = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  // ── Cost Configuration ───────────────────────────────────────
+  getAiJobCosts: () =>
+    request<ApiResponse<Array<{ job_type: string; credits: number; usd_cost: number; description: string }>>>(
+      "/api/v1/admin/cost-config/ai-jobs",
+    ),
+
+  updateAiJobCost: (jobType: string, data: { credits: number; usd_cost: number }) =>
+    request<ApiResponse<unknown>>(
+      `/api/v1/admin/cost-config/ai-jobs/${jobType}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    ),
+
+  bulkUpdateAiJobCosts: (
+    costs: Array<{ job_type: string; credits: number; usd_cost: number }>,
+  ) =>
+    request<ApiResponse<unknown>>("/api/v1/admin/cost-config/ai-jobs", {
+      method: "PUT",
+      body: JSON.stringify({ costs }),
+    }),
+
+  getCreditPackages: () =>
+    request<ApiResponse<Array<{ id: string; label: string; credits: number; usd_price: number; ngn_price: number; best_value: boolean }>>>(
+      "/api/v1/admin/cost-config/packages",
+    ),
+
+  updateCreditPackage: (
+    id: string,
+    data: { credits?: number; usd_price?: number; ngn_price?: number; best_value?: boolean },
+  ) =>
+    request<ApiResponse<unknown>>(
+      `/api/v1/admin/cost-config/packages/${id}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    ),
+
+  getPlatformSettings: () =>
+    request<ApiResponse<Record<string, string>>>("/api/v1/admin/cost-config/settings"),
+
+  updatePlatformSetting: (key: string, value: string) =>
+    request<ApiResponse<unknown>>(`/api/v1/admin/cost-config/settings/${key}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    }),
 };

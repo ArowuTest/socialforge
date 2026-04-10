@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -36,10 +37,11 @@ type platformResult struct {
 
 // Publisher is the multi-platform publishing service.
 type Publisher struct {
-	db       *gorm.DB
-	clients  map[string]PlatformClient
-	media    *MediaService
-	log      *zap.Logger
+	db          *gorm.DB
+	clients     map[string]PlatformClient
+	media       *MediaService
+	rateLimiter *PlatformRateLimiter
+	log         *zap.Logger
 }
 
 // NewPublisher creates a Publisher.
@@ -47,13 +49,15 @@ func NewPublisher(
 	db *gorm.DB,
 	clients map[string]PlatformClient,
 	media *MediaService,
+	rdb *redis.Client,
 	log *zap.Logger,
 ) *Publisher {
 	return &Publisher{
-		db:      db,
-		clients: clients,
-		media:   media,
-		log:     log.Named("publisher"),
+		db:          db,
+		clients:     clients,
+		media:       media,
+		rateLimiter: NewPlatformRateLimiter(rdb),
+		log:         log.Named("publisher"),
 	}
 }
 
@@ -242,6 +246,18 @@ func (p *Publisher) publishToPlatform(
 			socialAccountID: account.ID,
 			err:             fmt.Errorf("no client configured for platform %s", platform),
 		}
+	}
+
+	// Validate media formats before attempting to publish.
+	for _, mediaURL := range req.MediaURLs {
+		if err := ValidateMediaURLForPlatform(mediaURL, string(platform)); err != nil {
+			return platformResult{platform: platform, socialAccountID: account.ID, err: fmt.Errorf("media validation: %w", err)}
+		}
+	}
+
+	// Wait for a rate-limit slot before publishing.
+	if err := p.rateLimiter.WaitForSlot(ctx, string(platform), account.ID.String()); err != nil {
+		return platformResult{platform: platform, socialAccountID: account.ID, err: fmt.Errorf("rate limiter: %w", err)}
 	}
 
 	const maxAttempts = 3

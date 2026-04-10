@@ -67,6 +67,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Log)
 	membersH := handlers.NewMembersHandler(deps.DB, deps.RDB, repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)
 	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
+	gdprH := handlers.NewGDPRHandler(deps.DB, deps.Log)
 
 	// ── Health & root probe ──────────────────────────────────────────────────
 	// GET /health — structured health check used by Render, k8s, etc.
@@ -98,6 +99,8 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	auth.Post("/password-reset/confirm", authLimiter, authH.ConfirmPasswordReset)
 	auth.Post("/accept-invite", mw.JWTAuth(), membersH.AcceptInvite)
 	auth.Get("/me", mw.JWTAuth(), authH.GetCurrentUser)
+	auth.Delete("/account", mw.JWTAuth(), gdprH.DeleteAccount)
+	auth.Get("/account/export", mw.JWTAuth(), gdprH.ExportData)
 	auth.Post("/api-keys", mw.JWTAuth(), authH.CreateAPIKey)
 	auth.Get("/api-keys", mw.JWTAuth(), authH.ListAPIKeys)
 	auth.Delete("/api-keys/:id", mw.JWTAuth(), authH.DeleteAPIKey)

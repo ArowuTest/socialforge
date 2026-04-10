@@ -8,6 +8,8 @@ import {
   Zap, DollarSign, Package, Edit2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { adminApi } from "@/lib/api";
+import { toast } from "sonner";
 
 type TabId = "general" | "integrations" | "security" | "ai-costs" | "maintenance";
 
@@ -156,9 +158,22 @@ export default function SettingsPage() {
   const [editingPkgId, setEditingPkgId] = React.useState<string | null>(null);
   const [costSaving, setCostSaving] = React.useState(false);
 
-  const handleSaveCosts = () => {
+  const handleSaveCosts = async () => {
     setCostSaving(true);
-    setTimeout(() => setCostSaving(false), 1500);
+    try {
+      await adminApi.bulkUpdateAiJobCosts(
+        aiCosts.map((r) => ({
+          job_type: r.jobType,
+          credits: parseInt(r.credits) || 0,
+          usd_cost: parseFloat(r.usdCost) || 0,
+        })),
+      );
+      toast.success("AI costs updated");
+    } catch {
+      toast.error("Failed to save AI costs");
+    } finally {
+      setCostSaving(false);
+    }
   };
 
   const updateCost = (id: string, field: keyof AIJobCostRow, value: string) =>
@@ -190,26 +205,35 @@ export default function SettingsPage() {
   const [cacheClearing, setCacheClearing] = React.useState(false);
   const [migrationsRunning, setMigrationsRunning] = React.useState(false);
 
-  const handleGrantAccess = () => {
+  const handleGrantAccess = async () => {
     if (!grantEmail) return;
     setGrantSubmitting(true);
-    setTimeout(() => {
+    try {
       const days = grantDuration === "custom" ? parseInt(grantCustomDays) || 30 : parseInt(grantDuration);
-      const expires = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+      const expiresAt = new Date(Date.now() + days * 86400000).toISOString();
+      await adminApi.grantPlan({
+        userId: grantEmail, // backend resolves by email
+        planType: grantPlan,
+        expiresAt,
+      });
       const newGrant: FreeGrant = {
         id: String(Date.now()),
         email: grantEmail,
         name: grantEmail.split("@")[0],
         plan: grantPlan.charAt(0).toUpperCase() + grantPlan.slice(1),
-        expiresAt: expires,
+        expiresAt: expiresAt.slice(0, 10),
         grantedAt: new Date().toISOString().slice(0, 10),
       };
       setActiveGrants((prev) => [newGrant, ...prev]);
-      setGrantSubmitting(false);
       setGrantSuccess(true);
       setGrantEmail("");
+      toast.success(`Plan granted to ${grantEmail}`);
       setTimeout(() => setGrantSuccess(false), 3000);
-    }, 1200);
+    } catch {
+      toast.error("Failed to grant plan access");
+    } finally {
+      setGrantSubmitting(false);
+    }
   };
 
   const handleRevokeGrant = (id: string) => {
@@ -231,6 +255,34 @@ export default function SettingsPage() {
     setMigrationsRunning(true);
     setTimeout(() => { setMigrationsRunning(false); setConfirmMigrations(false); }, 3000);
   };
+
+  // Load AI costs from API on mount
+  React.useEffect(() => {
+    adminApi.getAiJobCosts().then((res) => {
+      if (res?.data) {
+        setAiCosts(res.data.map((c) => ({
+          id: c.job_type,
+          label: c.job_type.charAt(0).toUpperCase() + c.job_type.slice(1),
+          jobType: c.job_type,
+          usdCost: String(c.usd_cost),
+          credits: String(c.credits),
+          description: c.description || "",
+        })));
+      }
+    }).catch(() => {}); // fallback to defaults
+    adminApi.getCreditPackages().then((res) => {
+      if (res?.data) {
+        setPackages(res.data.map((p) => ({
+          id: p.id,
+          label: p.label,
+          credits: String(p.credits),
+          usdPrice: String(p.usd_price),
+          ngnPrice: String(p.ngn_price),
+          bestValue: p.best_value,
+        })));
+      }
+    }).catch(() => {});
+  }, []);
 
   const inputClass = "w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-600";
   const labelClass = "text-xs font-medium text-slate-400 block mb-1.5";

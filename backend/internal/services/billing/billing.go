@@ -185,6 +185,41 @@ func (s *Service) HandleWebhook(ctx context.Context, payload []byte, sig string)
 
 	s.log.Info("stripe webhook received", zap.String("type", string(event.Type)))
 
+	// ── Idempotency check ────────────────────────────────────────────────────
+	// Guard against duplicate delivery of the same Stripe event. If the event
+	// has already been recorded and processed, skip it silently.
+	var existing models.StripeWebhookEvent
+	if err := s.db.WithContext(ctx).
+		Where("stripe_event_id = ?", event.ID).
+		First(&existing).Error; err == nil {
+		if existing.Processed {
+			s.log.Info("stripe webhook: duplicate event — skipping",
+				zap.String("event_id", event.ID),
+				zap.String("type", string(event.Type)),
+			)
+			return nil
+		}
+	}
+
+	// Record the event before processing so a crash mid-processing leaves it
+	// in an unprocessed state (will be retried by Stripe).
+	webhookRecord := models.StripeWebhookEvent{
+		StripeEventID: event.ID,
+		EventType:     string(event.Type),
+		Payload:       string(payload),
+		Processed:     false,
+	}
+	if err := s.db.WithContext(ctx).
+		Where("stripe_event_id = ?", event.ID).
+		FirstOrCreate(&webhookRecord).Error; err != nil {
+		s.log.Error("stripe webhook: failed to record event", zap.Error(err))
+		// Continue processing — idempotency is best-effort; we don't want to
+		// drop a valid event just because the tracking table is unavailable.
+	}
+
+	// ── Dispatch ─────────────────────────────────────────────────────────────
+	var processErr error
+
 	switch event.Type {
 
 	case "checkout.session.completed":
@@ -192,34 +227,46 @@ func (s *Service) HandleWebhook(ctx context.Context, payload []byte, sig string)
 		if err := json.Unmarshal(event.Data.Raw, &cs); err != nil {
 			return fmt.Errorf("parse checkout.session.completed: %w", err)
 		}
-		return s.handleCheckoutCompleted(ctx, &cs)
+		processErr = s.handleCheckoutCompleted(ctx, &cs)
 
 	case "customer.subscription.updated":
 		var sub stripe.Subscription
 		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
 			return fmt.Errorf("parse customer.subscription.updated: %w", err)
 		}
-		return s.handleSubscriptionUpdated(ctx, &sub)
+		processErr = s.handleSubscriptionUpdated(ctx, &sub)
 
 	case "customer.subscription.deleted":
 		var sub stripe.Subscription
 		if err := json.Unmarshal(event.Data.Raw, &sub); err != nil {
 			return fmt.Errorf("parse customer.subscription.deleted: %w", err)
 		}
-		return s.handleSubscriptionDeleted(ctx, &sub)
+		processErr = s.handleSubscriptionDeleted(ctx, &sub)
 
 	case "invoice.payment_failed":
 		var inv stripe.Invoice
 		if err := json.Unmarshal(event.Data.Raw, &inv); err != nil {
 			return fmt.Errorf("parse invoice.payment_failed: %w", err)
 		}
-		return s.handleInvoicePaymentFailed(ctx, &inv)
+		processErr = s.handleInvoicePaymentFailed(ctx, &inv)
 
 	default:
 		s.log.Debug("stripe webhook: unhandled event type", zap.String("type", string(event.Type)))
 	}
 
-	return nil
+	// Mark the event as processed only on success.
+	if processErr == nil && webhookRecord.ID != uuid.Nil {
+		if err := s.db.WithContext(ctx).
+			Model(&webhookRecord).
+			Update("processed", true).Error; err != nil {
+			s.log.Error("stripe webhook: failed to mark event processed",
+				zap.String("event_id", event.ID),
+				zap.Error(err),
+			)
+		}
+	}
+
+	return processErr
 }
 
 // ─── GetUsage ─────────────────────────────────────────────────────────────────

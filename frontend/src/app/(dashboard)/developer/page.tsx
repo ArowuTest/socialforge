@@ -3,6 +3,9 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { apiKeysApi } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Key,
   Plus,
@@ -20,18 +23,10 @@ import {
   Terminal,
   Code2,
   Globe,
+  Loader2,
 } from "lucide-react";
 
 type CodeTab = "curl" | "nodejs" | "python";
-
-interface ApiKey {
-  id: number;
-  name: string;
-  prefix: string;
-  created: string;
-  lastUsed: string;
-  permissions: string[];
-}
 
 interface WebhookDelivery {
   id: number;
@@ -40,33 +35,6 @@ interface WebhookDelivery {
   timestamp: string;
   duration: string;
 }
-
-const mockApiKeys: ApiKey[] = [
-  {
-    id: 1,
-    name: "Production",
-    prefix: "sf_live_a8f3...",
-    created: "Jan 15, 2025",
-    lastUsed: "2 hours ago",
-    permissions: ["Read posts", "Write posts", "Manage accounts"],
-  },
-  {
-    id: 2,
-    name: "n8n Integration",
-    prefix: "sf_live_b2c1...",
-    created: "Feb 3, 2025",
-    lastUsed: "Yesterday",
-    permissions: ["Read posts", "Write posts"],
-  },
-  {
-    id: 3,
-    name: "Analytics Script",
-    prefix: "sf_live_d9e7...",
-    created: "Mar 20, 2025",
-    lastUsed: "1 week ago",
-    permissions: ["Read posts"],
-  },
-];
 
 const webhookDeliveries: WebhookDelivery[] = [
   { id: 1, status: 200, event: "post.published", timestamp: "2 min ago", duration: "142ms" },
@@ -194,8 +162,61 @@ function StatusIcon({ status }: { status: number }) {
   return <AlertCircle className="h-4 w-4 text-amber-500" />;
 }
 
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatLastUsed(dateStr: string | null | undefined): string {
+  if (!dateStr) return "Never";
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "Just now";
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+  return formatDate(dateStr);
+}
+
 export default function DeveloperPage() {
-  const [apiKeys, setApiKeys] = React.useState<ApiKey[]>(mockApiKeys);
+  const queryClient = useQueryClient();
+
+  const { data: keysData, isLoading, error } = useQuery({
+    queryKey: ["api-keys"],
+    queryFn: () => apiKeysApi.list(),
+  });
+  const apiKeys = keysData?.data ?? [];
+
+  const createMutation = useMutation({
+    mutationFn: (data: { name: string; permissions?: string[] }) => apiKeysApi.create(data),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+      setCreatedKey(res.data.key);
+      toast.success("API key created! Copy it now — it won't be shown again.");
+      setNewKeyName("");
+      setNewKeyPerms(["Read posts", "Write posts"]);
+      setShowCreateKeyForm(false);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Failed to create API key");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiKeysApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["api-keys"] });
+      toast.success("API key revoked");
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Failed to revoke API key");
+    },
+  });
+
   const [showCreateKeyForm, setShowCreateKeyForm] = React.useState(false);
   const [newKeyName, setNewKeyName] = React.useState("");
   const [newKeyPerms, setNewKeyPerms] = React.useState<string[]>(["Read posts", "Write posts"]);
@@ -224,26 +245,11 @@ export default function DeveloperPage() {
 
   const handleCreateKey = () => {
     if (!newKeyName.trim()) return;
-    const mockKey = `sf_live_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`;
-    setCreatedKey(mockKey);
-    setApiKeys([
-      {
-        id: Date.now(),
-        name: newKeyName,
-        prefix: `sf_live_${mockKey.slice(8, 14)}...`,
-        created: "Just now",
-        lastUsed: "Never",
-        permissions: [...newKeyPerms],
-      },
-      ...apiKeys,
-    ]);
-    setNewKeyName("");
-    setNewKeyPerms(["Read posts", "Write posts"]);
-    setShowCreateKeyForm(false);
+    createMutation.mutate({ name: newKeyName, permissions: newKeyPerms });
   };
 
-  const handleRevokeKey = (id: number) => {
-    setApiKeys(apiKeys.filter((k) => k.id !== id));
+  const handleRevokeKey = (id: string) => {
+    deleteMutation.mutate(id);
   };
 
   const handleTestWebhook = () => {
@@ -340,8 +346,20 @@ export default function DeveloperPage() {
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setShowCreateKeyForm(false)}>Cancel</Button>
-              <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white" onClick={handleCreateKey}>
-                Create Key
+              <Button
+                size="sm"
+                className="bg-violet-600 hover:bg-violet-700 text-white"
+                onClick={handleCreateKey}
+                disabled={createMutation.isPending}
+              >
+                {createMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create Key"
+                )}
               </Button>
             </div>
           </div>
@@ -349,41 +367,69 @@ export default function DeveloperPage() {
 
         {/* Keys list */}
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
-          {apiKeys.map((key, idx) => (
-            <div
-              key={key.id}
-              className={cn(
-                "flex items-center gap-4 p-4",
-                idx !== apiKeys.length - 1 && "border-b border-gray-100 dark:border-gray-800"
-              )}
-            >
-              <div className="h-9 w-9 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center flex-shrink-0">
-                <Key className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">{key.name}</span>
-                  <code className="text-xs font-mono text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
-                    {key.prefix}
-                  </code>
-                </div>
-                <div className="flex flex-wrap gap-1.5 mb-1">
-                  {key.permissions.map((p) => (
-                    <span key={p} className="text-xs px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-full">
-                      {p}
-                    </span>
-                  ))}
-                </div>
-                <p className="text-xs text-gray-400">Created {key.created} · Last used {key.lastUsed}</p>
-              </div>
-              <button
-                onClick={() => handleRevokeKey(key.id)}
-                className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-red-500 hover:text-red-600 border border-red-200 dark:border-red-800 hover:border-red-300 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors"
-              >
-                Revoke
-              </button>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12 text-gray-400">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              <span className="text-sm">Loading API keys...</span>
             </div>
-          ))}
+          ) : error ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <AlertCircle className="h-5 w-5 text-red-400 mx-auto mb-2" />
+                <p className="text-sm text-red-500">Failed to load API keys</p>
+                <p className="text-xs text-gray-400 mt-1">{(error as Error).message}</p>
+              </div>
+            </div>
+          ) : apiKeys.length === 0 ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <Key className="h-8 w-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">No API keys yet</p>
+                <p className="text-xs text-gray-400 mt-1">Create one to get started with the API</p>
+              </div>
+            </div>
+          ) : (
+            apiKeys.map((key, idx) => (
+              <div
+                key={key.id}
+                className={cn(
+                  "flex items-center gap-4 p-4",
+                  idx !== apiKeys.length - 1 && "border-b border-gray-100 dark:border-gray-800"
+                )}
+              >
+                <div className="h-9 w-9 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center flex-shrink-0">
+                  <Key className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white">{key.name}</span>
+                    <code className="text-xs font-mono text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">
+                      {key.keyPreview}
+                    </code>
+                  </div>
+                  {key.permissions && key.permissions.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-1">
+                      {key.permissions.map((p) => (
+                        <span key={p} className="text-xs px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-full">
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-400">
+                    Created {formatDate(key.createdAt)} · Last used {formatLastUsed(key.lastUsedAt)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleRevokeKey(key.id)}
+                  disabled={deleteMutation.isPending}
+                  className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-red-500 hover:text-red-600 border border-red-200 dark:border-red-800 hover:border-red-300 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors disabled:opacity-50"
+                >
+                  {deleteMutation.isPending ? "Revoking..." : "Revoke"}
+                </button>
+              </div>
+            ))
+          )}
         </div>
       </section>
 
@@ -462,7 +508,10 @@ export default function DeveloperPage() {
 
         {/* Delivery log */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Delivery Log</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Delivery Log</h3>
+            <span className="text-xs text-gray-400 italic">Webhook delivery logs coming soon</span>
+          </div>
           <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
             <table className="w-full text-sm">
               <thead>

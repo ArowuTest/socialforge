@@ -75,9 +75,9 @@ func (s *Scheduler) registerJobs() error {
 		if err != nil {
 			return err
 		}
-		if _, err := s.inner.Register("*/5 * * * *", task,
+		if _, err := s.inner.Register("* * * * *", task,
 			asynq.Queue("critical"),
-			asynq.Unique(4*time.Minute), // de-duplicate concurrent runs
+			asynq.Unique(50*time.Second), // de-duplicate concurrent runs
 		); err != nil {
 			return fmt.Errorf("register enqueue_due_posts: %w", err)
 		}

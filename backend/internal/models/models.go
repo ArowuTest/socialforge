@@ -38,6 +38,7 @@ const (
 	PlatformFacebook   PlatformType = "facebook"
 	PlatformPinterest  PlatformType = "pinterest"
 	PlatformThreads    PlatformType = "threads"
+	PlatformBluesky    PlatformType = "bluesky"
 )
 
 func (p PlatformType) String() string { return string(p) }
@@ -666,3 +667,27 @@ type CreditTopUp struct {
 }
 
 func (CreditTopUp) TableName() string { return "credit_topups" }
+
+// ─── StripeWebhookEvent ──────────────────────────────────────────────────────
+
+// StripeWebhookEvent tracks processed Stripe webhook events for idempotency.
+// Before processing a webhook, the service checks whether the event ID has
+// already been recorded and marked as processed; if so, the event is skipped.
+type StripeWebhookEvent struct {
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	StripeEventID string    `gorm:"uniqueIndex;size:255;not null"                  json:"stripe_event_id"`
+	EventType     string    `gorm:"size:100;not null"                              json:"event_type"`
+	Payload       string    `gorm:"type:text"                                      json:"payload,omitempty"`
+	Processed     bool      `gorm:"not null;default:false"                         json:"processed"`
+	CreatedAt     time.Time `gorm:"autoCreateTime"                                 json:"created_at"`
+}
+
+func (StripeWebhookEvent) TableName() string { return "stripe_webhook_events" }
+
+// BeforeCreate sets the UUID when the database default is unavailable.
+func (s *StripeWebhookEvent) BeforeCreate(_ *gorm.DB) error {
+	if s.ID == uuid.Nil {
+		s.ID = uuid.New()
+	}
+	return nil
+}

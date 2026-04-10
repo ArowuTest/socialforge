@@ -245,7 +245,7 @@ func Load() (*Config, error) {
 		ClientID:     getEnvOrDefault("LINKEDIN_CLIENT_ID", ""),
 		ClientSecret: getEnvOrDefault("LINKEDIN_CLIENT_SECRET", ""),
 		RedirectURL:  getEnvOrDefault("LINKEDIN_REDIRECT_URL", cfg.App.BaseURL+"/api/v1/oauth/linkedin/callback"),
-		Scopes:       splitEnvCSV("LINKEDIN_SCOPES", "r_liteprofile,r_emailaddress,w_member_social"),
+		Scopes:       splitEnvCSV("LINKEDIN_SCOPES", "openid,profile,email,w_member_social"),
 	}
 
 	// ── OAuth – Twitter / X ──────────────────────────────────────────────────────

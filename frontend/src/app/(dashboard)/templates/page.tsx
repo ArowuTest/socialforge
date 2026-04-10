@@ -17,12 +17,13 @@ import {
   Music,
   Facebook,
   Globe,
+  FileText,
 } from "lucide-react";
 
 type SubTab = "mine" | "public";
 
 interface Template {
-  id: number;
+  id: string;
   name: string;
   platform: string;
   type: string;
@@ -30,6 +31,7 @@ interface Template {
   lastUsed: string;
   prompt: string;
   exampleOutput: string;
+  createdAt: string;
 }
 
 interface PublicTemplate {
@@ -39,72 +41,115 @@ interface PublicTemplate {
   type: string;
   description: string;
   copiedCount: number;
+  prompt: string;
+  exampleOutput: string;
 }
 
-const myTemplates: Template[] = [
-  {
-    id: 1, name: "Product launch caption", platform: "Instagram", type: "Caption",
-    usedCount: 12, lastUsed: "2 days ago",
-    prompt: "Write an engaging Instagram caption for a product launch. Include excitement, key features, and a CTA.",
-    exampleOutput: "🚀 It's finally here! Introducing [Product Name]...",
-  },
-  {
-    id: 2, name: "LinkedIn thought leadership", platform: "LinkedIn", type: "Thread",
-    usedCount: 8, lastUsed: "5 days ago",
-    prompt: "Write a LinkedIn post sharing industry insights and positioning the author as a thought leader.",
-    exampleOutput: "After 10 years in the industry, here's what I've learned...",
-  },
-  {
-    id: 3, name: "YouTube video description", platform: "YouTube", type: "Description",
-    usedCount: 5, lastUsed: "1 week ago",
-    prompt: "Create an SEO-optimized YouTube video description with timestamps and hashtags.",
-    exampleOutput: "In this video, we cover everything you need to know about...",
-  },
-  {
-    id: 4, name: "Thread storm", platform: "Twitter", type: "Thread",
-    usedCount: 15, lastUsed: "1 day ago",
-    prompt: "Write a 10-tweet thread breaking down a complex topic into digestible insights.",
-    exampleOutput: "1/ Let me break down why [topic] is changing everything...",
-  },
-  {
-    id: 5, name: "TikTok viral hook", platform: "TikTok", type: "Caption",
-    usedCount: 22, lastUsed: "3 hours ago",
-    prompt: "Create a viral TikTok hook and caption that stops the scroll in the first 3 seconds.",
-    exampleOutput: "POV: You just discovered the hack nobody talks about...",
-  },
-  {
-    id: 6, name: "Agency case study", platform: "LinkedIn", type: "Story",
-    usedCount: 3, lastUsed: "2 weeks ago",
-    prompt: "Write a compelling agency case study post showing transformation and results.",
-    exampleOutput: "We helped [Client] go from $0 to $100K in 90 days. Here's exactly how...",
-  },
-  {
-    id: 7, name: "Promotional reel caption", platform: "Instagram", type: "Caption",
-    usedCount: 9, lastUsed: "4 days ago",
-    prompt: "Write a short, punchy Instagram Reels caption that drives engagement and saves.",
-    exampleOutput: "Save this before you need it 🔖 Here's the secret to...",
-  },
-  {
-    id: 8, name: "Pinterest pin description", platform: "Pinterest", type: "Description",
-    usedCount: 4, lastUsed: "1 week ago",
-    prompt: "Create a keyword-rich Pinterest pin description that drives clicks and saves.",
-    exampleOutput: "Discover the ultimate guide to [topic]. Save this pin for later!",
-  },
-];
+// --- localStorage persistence ---
+
+const STORAGE_KEY = "sf-templates";
+
+function loadTemplates(): Template[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTemplates(templates: Template[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
+}
+
+// --- Read-only starter templates that users can copy ---
 
 const publicTemplates: PublicTemplate[] = [
-  { id: 101, name: "SaaS launch announcement", platform: "Twitter", type: "Thread", description: "Perfect for announcing a new software product or feature launch.", copiedCount: 1240 },
-  { id: 102, name: "Morning motivation post", platform: "Instagram", type: "Caption", description: "Uplifting Monday morning content that resonates with your audience.", copiedCount: 3450 },
-  { id: 103, name: "How-to tutorial thread", platform: "LinkedIn", type: "Thread", description: "Step-by-step educational threads that showcase expertise.", copiedCount: 890 },
-  { id: 104, name: "Behind the scenes", platform: "TikTok", type: "Caption", description: "Authentic BTS content that builds brand trust and authenticity.", copiedCount: 2100 },
-  { id: 105, name: "Weekly newsletter intro", platform: "LinkedIn", type: "Description", description: "Compelling newsletter opening that drives clicks to read more.", copiedCount: 670 },
-  { id: 106, name: "Client testimonial carousel", platform: "Instagram", type: "Caption", description: "Social proof content formatted for carousel posts.", copiedCount: 1560 },
-  { id: 107, name: "YouTube shorts hook", platform: "YouTube", type: "Caption", description: "High-retention YouTube Shorts opening hooks that perform.", copiedCount: 980 },
-  { id: 108, name: "Product comparison post", platform: "Twitter", type: "Thread", description: "Contrarian comparison threads that drive discussion.", copiedCount: 430 },
-  { id: 109, name: "Community building CTA", platform: "Facebook", type: "Caption", description: "Community-focused posts that encourage engagement and sharing.", copiedCount: 320 },
-  { id: 110, name: "Thought leadership opener", platform: "LinkedIn", type: "Story", description: "Bold opening statements that capture attention immediately.", copiedCount: 2890 },
-  { id: 111, name: "Event promotion post", platform: "Instagram", type: "Caption", description: "Urgency-driven event promotion with compelling CTAs.", copiedCount: 755 },
-  { id: 112, name: "Pinterest seasonal content", platform: "Pinterest", type: "Description", description: "Seasonal content optimized for Pinterest search and discovery.", copiedCount: 1200 },
+  {
+    id: 101, name: "SaaS launch announcement", platform: "Twitter", type: "Thread",
+    description: "Perfect for announcing a new software product or feature launch.",
+    copiedCount: 1240,
+    prompt: "Write a Twitter thread announcing a new SaaS product launch. Include excitement, key features, and a CTA.",
+    exampleOutput: "1/ We've been heads down building for months, and today it's finally here...",
+  },
+  {
+    id: 102, name: "Morning motivation post", platform: "Instagram", type: "Caption",
+    description: "Uplifting Monday morning content that resonates with your audience.",
+    copiedCount: 3450,
+    prompt: "Write an uplifting Instagram caption for a Monday morning motivation post.",
+    exampleOutput: "New week, new energy. Let's make this one count...",
+  },
+  {
+    id: 103, name: "How-to tutorial thread", platform: "LinkedIn", type: "Thread",
+    description: "Step-by-step educational threads that showcase expertise.",
+    copiedCount: 890,
+    prompt: "Write a LinkedIn post with step-by-step tutorial format sharing expertise on a topic.",
+    exampleOutput: "Here's a step-by-step guide to mastering [topic]...",
+  },
+  {
+    id: 104, name: "Behind the scenes", platform: "TikTok", type: "Caption",
+    description: "Authentic BTS content that builds brand trust and authenticity.",
+    copiedCount: 2100,
+    prompt: "Create a TikTok caption for behind-the-scenes content that builds authenticity.",
+    exampleOutput: "POV: What building a startup really looks like...",
+  },
+  {
+    id: 105, name: "Weekly newsletter intro", platform: "LinkedIn", type: "Description",
+    description: "Compelling newsletter opening that drives clicks to read more.",
+    copiedCount: 670,
+    prompt: "Write a compelling newsletter introduction that hooks readers and drives clicks.",
+    exampleOutput: "This week's insights might change how you think about...",
+  },
+  {
+    id: 106, name: "Client testimonial carousel", platform: "Instagram", type: "Caption",
+    description: "Social proof content formatted for carousel posts.",
+    copiedCount: 1560,
+    prompt: "Write an Instagram carousel caption showcasing client testimonials and results.",
+    exampleOutput: "Our clients are seeing incredible results...",
+  },
+  {
+    id: 107, name: "YouTube shorts hook", platform: "YouTube", type: "Caption",
+    description: "High-retention YouTube Shorts opening hooks that perform.",
+    copiedCount: 980,
+    prompt: "Create a YouTube Shorts hook and caption that maximizes retention in the first 3 seconds.",
+    exampleOutput: "Wait for it... this changed everything about [topic]...",
+  },
+  {
+    id: 108, name: "Product comparison post", platform: "Twitter", type: "Thread",
+    description: "Contrarian comparison threads that drive discussion.",
+    copiedCount: 430,
+    prompt: "Write a Twitter thread comparing products or approaches to spark discussion.",
+    exampleOutput: "I tested [X] vs [Y] for 30 days. Here's what happened...",
+  },
+  {
+    id: 109, name: "Community building CTA", platform: "Facebook", type: "Caption",
+    description: "Community-focused posts that encourage engagement and sharing.",
+    copiedCount: 320,
+    prompt: "Write a Facebook post that encourages community engagement and sharing.",
+    exampleOutput: "Let's hear from you! What's your biggest challenge with...",
+  },
+  {
+    id: 110, name: "Thought leadership opener", platform: "LinkedIn", type: "Story",
+    description: "Bold opening statements that capture attention immediately.",
+    copiedCount: 2890,
+    prompt: "Write a LinkedIn post with a bold opening statement that establishes thought leadership.",
+    exampleOutput: "Most people in our industry are wrong about this...",
+  },
+  {
+    id: 111, name: "Event promotion post", platform: "Instagram", type: "Caption",
+    description: "Urgency-driven event promotion with compelling CTAs.",
+    copiedCount: 755,
+    prompt: "Write an Instagram caption promoting an event with urgency and a strong CTA.",
+    exampleOutput: "Spots are filling fast! Join us for...",
+  },
+  {
+    id: 112, name: "Pinterest seasonal content", platform: "Pinterest", type: "Description",
+    description: "Seasonal content optimized for Pinterest search and discovery.",
+    copiedCount: 1200,
+    prompt: "Create a keyword-rich Pinterest pin description optimized for seasonal search.",
+    exampleOutput: "Discover the ultimate guide to [seasonal topic]. Save this pin!",
+  },
 ];
 
 function PlatformIcon({ platform, size = "sm" }: { platform: string; size?: "sm" | "md" }) {
@@ -162,14 +207,29 @@ export default function TemplatesPage() {
   const [activeTab, setActiveTab] = React.useState<SubTab>("mine");
   const [showCreateForm, setShowCreateForm] = React.useState(false);
   const [form, setForm] = React.useState<CreateFormState>(defaultForm);
-  const [templates, setTemplates] = React.useState<Template[]>(myTemplates);
+  const [templates, setTemplates] = React.useState<Template[]>([]);
   const [copiedIds, setCopiedIds] = React.useState<Set<number>>(new Set());
-  const [editingId, setEditingId] = React.useState<number | null>(null);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [editForm, setEditForm] = React.useState<CreateFormState>(defaultForm);
+  const [isLoaded, setIsLoaded] = React.useState(false);
+
+  // Load templates from localStorage on mount
+  React.useEffect(() => {
+    setTemplates(loadTemplates());
+    setIsLoaded(true);
+  }, []);
+
+  // Persist templates to localStorage whenever they change (after initial load)
+  React.useEffect(() => {
+    if (isLoaded) {
+      saveTemplates(templates);
+    }
+  }, [templates, isLoaded]);
 
   const handleCreate = () => {
     if (!form.name.trim()) return;
     const newTemplate: Template = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       name: form.name,
       platform: form.platform,
       type: form.type,
@@ -177,20 +237,62 @@ export default function TemplatesPage() {
       lastUsed: "Never",
       prompt: form.prompt,
       exampleOutput: form.exampleOutput,
+      createdAt: new Date().toISOString(),
     };
     setTemplates([newTemplate, ...templates]);
     setForm(defaultForm);
     setShowCreateForm(false);
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string) => {
     setTemplates(templates.filter((t) => t.id !== id));
   };
 
-  const handleCopyPublic = (id: number) => {
-    setCopiedIds((prev) => new Set(prev).add(id));
+  const handleStartEdit = (template: Template) => {
+    setEditingId(template.id);
+    setEditForm({
+      name: template.name,
+      platform: template.platform,
+      type: template.type,
+      prompt: template.prompt,
+      exampleOutput: template.exampleOutput,
+      isPublic: false,
+    });
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingId || !editForm.name.trim()) return;
+    setTemplates(templates.map((t) =>
+      t.id === editingId
+        ? { ...t, name: editForm.name, platform: editForm.platform, type: editForm.type, prompt: editForm.prompt, exampleOutput: editForm.exampleOutput }
+        : t
+    ));
+    setEditingId(null);
+    setEditForm(defaultForm);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditForm(defaultForm);
+  };
+
+  const handleCopyPublic = (pubTemplate: PublicTemplate) => {
+    // Copy the public template into user's personal templates
+    const newTemplate: Template = {
+      id: crypto.randomUUID(),
+      name: pubTemplate.name,
+      platform: pubTemplate.platform,
+      type: pubTemplate.type,
+      usedCount: 0,
+      lastUsed: "Never",
+      prompt: pubTemplate.prompt,
+      exampleOutput: pubTemplate.exampleOutput,
+      createdAt: new Date().toISOString(),
+    };
+    setTemplates((prev) => [newTemplate, ...prev]);
+    setCopiedIds((prev) => new Set(prev).add(pubTemplate.id));
     setTimeout(() => {
-      setCopiedIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
+      setCopiedIds((prev) => { const s = new Set(prev); s.delete(pubTemplate.id); return s; });
     }, 2000);
   };
 
@@ -333,52 +435,108 @@ export default function TemplatesPage() {
 
       {/* My Templates grid */}
       {activeTab === "mine" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {templates.map((template) => (
-            <div
-              key={template.id}
-              className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 hover:border-violet-200 dark:hover:border-violet-800 transition-colors group"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <PlatformBadge platform={template.platform} />
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => setEditingId(editingId === template.id ? null : template.id)}
-                    className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    <Edit2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(template.id)}
-                    className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 transition-colors"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              <h3 className="font-semibold text-gray-900 dark:text-white text-sm mb-1 leading-tight">
-                {template.name}
-              </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                {template.type} · Used {template.usedCount}×
-              </p>
-
-              {template.exampleOutput && (
-                <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-3 italic">
-                  &ldquo;{template.exampleOutput}&rdquo;
-                </p>
-              )}
-
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-400">Last used: {template.lastUsed}</span>
-                <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white text-xs h-7 px-3">
-                  Use
-                </Button>
-              </div>
+        <>
+          {!isLoaded ? (
+            <div className="flex items-center justify-center py-16 text-gray-400">
+              <span className="text-sm">Loading templates...</span>
             </div>
-          ))}
-        </div>
+          ) : templates.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <FileText className="h-12 w-12 text-gray-300 dark:text-gray-600 mb-4" />
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">No templates yet</h3>
+              <p className="text-xs text-gray-400 mb-4">Create your first one, or copy a starter from Public Templates!</p>
+              <Button
+                onClick={() => setShowCreateForm(true)}
+                className="bg-violet-600 hover:bg-violet-700 text-white gap-1.5"
+                size="sm"
+              >
+                <Plus className="h-4 w-4" />
+                Create Template
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {templates.map((template) => (
+                <div
+                  key={template.id}
+                  className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 hover:border-violet-200 dark:hover:border-violet-800 transition-colors group"
+                >
+                  {editingId === template.id ? (
+                    /* Inline edit form */
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={editForm.name}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                        className="w-full px-2 py-1 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      />
+                      <select
+                        value={editForm.platform}
+                        onChange={(e) => setEditForm({ ...editForm, platform: e.target.value })}
+                        className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      >
+                        {["Instagram", "LinkedIn", "YouTube", "Twitter", "TikTok", "Facebook", "Pinterest", "Threads"].map((p) => (
+                          <option key={p}>{p}</option>
+                        ))}
+                      </select>
+                      <textarea
+                        value={editForm.prompt}
+                        onChange={(e) => setEditForm({ ...editForm, prompt: e.target.value })}
+                        rows={2}
+                        className="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500 resize-none"
+                        placeholder="Prompt text..."
+                      />
+                      <div className="flex justify-end gap-1.5">
+                        <Button variant="outline" size="sm" className="text-xs h-6 px-2" onClick={handleCancelEdit}>Cancel</Button>
+                        <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white text-xs h-6 px-2" onClick={handleSaveEdit}>Save</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between mb-3">
+                        <PlatformBadge platform={template.platform} />
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => handleStartEdit(template)}
+                            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-600 transition-colors"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(template.id)}
+                            className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <h3 className="font-semibold text-gray-900 dark:text-white text-sm mb-1 leading-tight">
+                        {template.name}
+                      </h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                        {template.type} · Used {template.usedCount}x
+                      </p>
+
+                      {template.exampleOutput && (
+                        <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-3 italic">
+                          &ldquo;{template.exampleOutput}&rdquo;
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-400">Last used: {template.lastUsed}</span>
+                        <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white text-xs h-7 px-3">
+                          Use
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Public Templates grid */}
@@ -399,7 +557,7 @@ export default function TemplatesPage() {
                 <div className="flex items-start justify-between mb-3">
                   <PlatformBadge platform={template.platform} />
                   <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-full">
-                    ✦ Official
+                    Official
                   </span>
                 </div>
 
@@ -420,7 +578,7 @@ export default function TemplatesPage() {
                       "text-xs h-7 px-3 gap-1",
                       !copiedIds.has(template.id) && "bg-violet-600 hover:bg-violet-700 text-white"
                     )}
-                    onClick={() => handleCopyPublic(template.id)}
+                    onClick={() => handleCopyPublic(template)}
                   >
                     <Copy className="h-3 w-3" />
                     {copiedIds.has(template.id) ? "Copied!" : "Copy"}
