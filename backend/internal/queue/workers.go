@@ -359,7 +359,7 @@ type ServerConfig struct {
 // DefaultServerConfig returns sensible production defaults.
 func DefaultServerConfig() ServerConfig {
 	return ServerConfig{
-		Concurrency: 20,
+		Concurrency: 5, // keep CPU/memory low on free tier; raise when scaling
 		Queues: map[string]int{
 			"critical": 6,
 			"default":  3,

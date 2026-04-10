@@ -70,7 +70,7 @@ func NewScheduler(redisClient *redis.Client, db *gorm.DB, log *zap.Logger) (*Sch
 
 // registerJobs wires all recurring tasks to their cron expressions.
 func (s *Scheduler) registerJobs() error {
-	// ── Every 5 minutes: enqueue posts that are due to be published ──────────
+	// ── Every minute: enqueue posts that are due to be published ────────────
 	{
 		task, err := NewPublishDuePostsTask()
 		if err != nil {
@@ -78,7 +78,8 @@ func (s *Scheduler) registerJobs() error {
 		}
 		if _, err := s.inner.Register("* * * * *", task,
 			asynq.Queue("critical"),
-			asynq.Unique(50*time.Second), // de-duplicate concurrent runs
+			asynq.Unique(55*time.Second), // de-duplicate — only one in flight per minute
+			asynq.Timeout(50*time.Second), // kill stale tasks from backlog on restart
 		); err != nil {
 			return fmt.Errorf("register enqueue_due_posts: %w", err)
 		}
