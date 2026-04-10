@@ -160,7 +160,7 @@ export default function OnboardingPage() {
         const [day, slot] = key.split("-");
         for (const platform of connectedPlatforms) {
           calls.push(
-            scheduleApi.createSlot(workspace.id, {
+            scheduleApi.createSlot({
               platform,
               dayOfWeek: dayToInt[day],
               time: slotToTime[slot],

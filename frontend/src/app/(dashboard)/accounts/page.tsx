@@ -249,7 +249,7 @@ export default function AccountsPage() {
       return;
     }
     try {
-      const res = await accountsApi.getOAuthUrl(platform, workspace.id);
+      const res = await accountsApi.getOAuthUrl(platform);
       window.location.href = res.data.url;
     } catch {
       toast.error(`Failed to connect ${getPlatformDisplayName(platform)}`);

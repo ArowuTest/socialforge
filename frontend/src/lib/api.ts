@@ -31,7 +31,10 @@ import {
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
-// Token management
+// ============================================================
+// Token management + HTTP
+// ============================================================
+
 let accessToken: string | null = null;
 let refreshToken: string | null = null;
 let isRefreshing = false;
@@ -62,6 +65,24 @@ export function loadTokensFromStorage() {
   }
 }
 
+/**
+ * Resolves the active workspace ID from the zustand auth store persisted in
+ * localStorage. Used by API methods so call sites never need to pass the
+ * workspace id explicitly — the dashboard always operates on exactly one
+ * active workspace at a time.
+ */
+function getActiveWorkspaceId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = localStorage.getItem("sf-auth");
+    if (!raw) return "";
+    const parsed = JSON.parse(raw);
+    return parsed?.state?.workspace?.id ?? "";
+  } catch {
+    return "";
+  }
+}
+
 async function doRefreshToken(): Promise<string> {
   const rt = refreshToken ?? localStorage.getItem("sf_refresh_token");
   if (!rt) throw new Error("No refresh token available");
@@ -85,9 +106,9 @@ async function doRefreshToken(): Promise<string> {
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  retry = true
+  retry = true,
 ): Promise<T> {
-  const token = accessToken ?? localStorage.getItem("sf_access_token");
+  const token = accessToken ?? (typeof window !== "undefined" ? localStorage.getItem("sf_access_token") : null);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -139,6 +160,22 @@ async function request<T>(
   return res.json();
 }
 
+/** Build a query string, skipping undefined/null values. */
+function qs(params: Record<string, unknown> | undefined): string {
+  if (!params) return "";
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) q.set(k, String(v));
+  });
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+/** Prefix for workspace-scoped endpoints, resolving the active workspace. */
+function ws(): string {
+  return `/api/v1/workspaces/${getActiveWorkspaceId()}`;
+}
+
 // ============================================================
 // Auth API
 // ============================================================
@@ -147,13 +184,13 @@ export const authApi = {
   login: (data: LoginRequest) =>
     request<ApiResponse<{ user: User; workspace: Workspace; tokens: AuthTokens }>>(
       "/api/v1/auth/login",
-      { method: "POST", body: JSON.stringify(data) }
+      { method: "POST", body: JSON.stringify(data) },
     ),
 
   register: (data: RegisterRequest) =>
     request<ApiResponse<{ user: User; workspace: Workspace; tokens: AuthTokens }>>(
       "/api/v1/auth/register",
-      { method: "POST", body: JSON.stringify(data) }
+      { method: "POST", body: JSON.stringify(data) },
     ),
 
   refreshToken: (token: string) =>
@@ -162,23 +199,9 @@ export const authApi = {
       body: JSON.stringify({ refreshToken: token }),
     }),
 
-  logout: () =>
-    request<void>("/api/v1/auth/logout", { method: "POST" }),
+  logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),
 
-  me: () =>
-    request<ApiResponse<User>>("/api/v1/auth/me"),
-
-  getApiKeys: () =>
-    request<ApiResponse<ApiKey[]>>("/api/v1/auth/api-keys"),
-
-  createApiKey: (data: { name: string; permissions?: string[] }) =>
-    request<ApiResponse<ApiKey & { key: string }>>("/api/v1/auth/api-keys", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  deleteApiKey: (id: string) =>
-    request<void>(`/api/v1/auth/api-keys/${id}`, { method: "DELETE" }),
+  me: () => request<ApiResponse<User>>("/api/v1/auth/me"),
 
   requestPasswordReset: (email: string) =>
     request<ApiResponse<{ message: string }>>("/api/v1/auth/password-reset/request", {
@@ -193,119 +216,195 @@ export const authApi = {
     }),
 
   acceptInvite: (token: string) =>
-    request<ApiResponse<{ workspace_id: string; role: string }>>("/api/v1/auth/accept-invite", {
-      method: "POST",
-      body: JSON.stringify({ token }),
-    }),
+    request<ApiResponse<{ workspace_id: string; role: string }>>(
+      "/api/v1/auth/accept-invite",
+      { method: "POST", body: JSON.stringify({ token }) },
+    ),
 };
 
 // ============================================================
-// OAuth API
+// API Keys (workspace-less, user-scoped via JWT)
 // ============================================================
 
-export const oauthApi = {
-  getConnectUrl: (platform: Platform, workspaceId: string) =>
-    `${BASE_URL}/api/v1/oauth/${platform}/connect?workspaceId=${workspaceId}`,
-};
+export const apiKeysApi = {
+  list: () => request<ApiResponse<ApiKey[]>>("/api/v1/auth/api-keys"),
 
-// ============================================================
-// Social Accounts API
-// ============================================================
-
-export const accountsApi = {
-  list: (workspaceId: string) =>
-    request<ApiResponse<SocialAccount[]>>(`/api/v1/workspaces/${workspaceId}/accounts`),
-
-  disconnect: (workspaceId: string, id: string) =>
-    request<void>(`/api/v1/workspaces/${workspaceId}/accounts/${id}`, { method: "DELETE" }),
-};
-
-// ============================================================
-// Posts API
-// ============================================================
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const postsApi: Record<string, any> = {
-  list: (
-    workspaceId: string,
-    params?: {
-      status?: PostStatus;
-      platform?: Platform;
-      page?: number;
-      pageSize?: number;
-      startDate?: string;
-      endDate?: string;
-    }
-  ) => {
-    const query = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined) query.set(k, String(v));
-      });
-    }
-    return request<PaginatedResponse<Post>>(
-      `/api/v1/workspaces/${workspaceId}/posts?${query}`
-    );
-  },
-
-  get: (workspaceId: string, id: string) =>
-    request<ApiResponse<Post>>(`/api/v1/workspaces/${workspaceId}/posts/${id}`),
-
-  create: (
-    workspaceId: string,
-    data: {
-      caption: string;
-      platforms: Platform[];
-      mediaIds?: string[];
-      scheduledAt?: string;
-      postType: PostType;
-      tags?: string[];
-    }
-  ) =>
-    request<ApiResponse<Post>>(`/api/v1/workspaces/${workspaceId}/posts`, {
+  create: (data: { name: string; permissions?: string[] }) =>
+    request<ApiResponse<ApiKey & { key: string }>>("/api/v1/auth/api-keys", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  update: (workspaceId: string, id: string, data: Partial<Post>) =>
-    request<ApiResponse<Post>>(`/api/v1/workspaces/${workspaceId}/posts/${id}`, {
+  /** Delete an API key. `revoke` is an alias kept for older call sites. */
+  delete: (id: string) =>
+    request<void>(`/api/v1/auth/api-keys/${id}`, { method: "DELETE" }),
+
+  revoke: (id: string) =>
+    request<void>(`/api/v1/auth/api-keys/${id}`, { method: "DELETE" }),
+};
+
+// ============================================================
+// OAuth helper
+// ============================================================
+
+export const oauthApi = {
+  getConnectUrl: (platform: Platform | string, workspaceId?: string) => {
+    const wsId = workspaceId ?? getActiveWorkspaceId();
+    return `${BASE_URL}/api/v1/oauth/${platform}/connect?workspaceId=${wsId}`;
+  },
+};
+
+// ============================================================
+// Workspace + members
+// ============================================================
+
+export const workspaceApi = {
+  get: (id?: string) => {
+    const wsId = id ?? getActiveWorkspaceId();
+    return request<ApiResponse<Workspace>>(`/api/v1/workspaces/${wsId}`);
+  },
+
+  update: (
+    idOrData: string | Partial<Workspace>,
+    maybeData?: Partial<Workspace>,
+  ) => {
+    const wsId = typeof idOrData === "string" ? idOrData : getActiveWorkspaceId();
+    const data = typeof idOrData === "string" ? maybeData : idOrData;
+    return request<ApiResponse<Workspace>>(`/api/v1/workspaces/${wsId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  listMembers: (id?: string) => {
+    const wsId = id ?? getActiveWorkspaceId();
+    return request<
+      ApiResponse<
+        Array<{ id: string; user_id: string; email: string; name: string; role: string }>
+      >
+    >(`/api/v1/workspaces/${wsId}/members`);
+  },
+
+  inviteMember: (data: { email: string; role: string }) =>
+    request<ApiResponse<{ status?: string; email?: string; message?: string }>>(
+      `${ws()}/members/invite`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  updateMemberRole: (memberId: string, role: string) =>
+    request<ApiResponse<{ id: string; role: string }>>(
+      `${ws()}/members/${memberId}`,
+      { method: "PATCH", body: JSON.stringify({ role }) },
+    ),
+
+  removeMember: (memberId: string) =>
+    request<void>(`${ws()}/members/${memberId}`, { method: "DELETE" }),
+};
+
+// ============================================================
+// Social accounts
+// ============================================================
+
+export const accountsApi = {
+  list: () => request<ApiResponse<SocialAccount[]>>(`${ws()}/accounts`),
+
+  disconnect: (id: string) =>
+    request<void>(`${ws()}/accounts/${id}`, { method: "DELETE" }),
+
+  refresh: (id: string) =>
+    request<ApiResponse<SocialAccount>>(`${ws()}/accounts/${id}/refresh`, {
+      method: "POST",
+    }),
+
+  /** Build the backend OAuth initiation URL for the given platform. */
+  getOAuthUrl: async (
+    platform: Platform | string,
+  ): Promise<ApiResponse<{ url: string }>> => ({
+    success: true,
+    data: { url: oauthApi.getConnectUrl(platform) },
+  }),
+};
+
+// ============================================================
+// Posts
+// ============================================================
+
+interface PostCreatePayload {
+  caption: string;
+  platforms: Platform[];
+  mediaIds?: string[];
+  scheduledAt?: string;
+  postType: PostType;
+  tags?: string[];
+}
+
+export const postsApi = {
+  list: (params?: {
+    status?: PostStatus;
+    platform?: Platform;
+    page?: number;
+    pageSize?: number;
+    startDate?: string;
+    endDate?: string;
+  }) => request<PaginatedResponse<Post>>(`${ws()}/posts${qs(params)}`),
+
+  get: (id: string) => request<ApiResponse<Post>>(`${ws()}/posts/${id}`),
+
+  create: (data: PostCreatePayload) =>
+    request<ApiResponse<Post>>(`${ws()}/posts`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  update: (id: string, data: Partial<Post>) =>
+    request<ApiResponse<Post>>(`${ws()}/posts/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
 
-  delete: (workspaceId: string, id: string) =>
-    request<void>(`/api/v1/workspaces/${workspaceId}/posts/${id}`, { method: "DELETE" }),
+  delete: (id: string) =>
+    request<void>(`${ws()}/posts/${id}`, { method: "DELETE" }),
 
-  publishNow: (workspaceId: string, id: string) =>
-    request<ApiResponse<Post>>(`/api/v1/workspaces/${workspaceId}/posts/${id}/publish`, {
-      method: "POST",
-    }),
+  publishNow: (id: string) =>
+    request<ApiResponse<Post>>(`${ws()}/posts/${id}/publish`, { method: "POST" }),
 
-  bulkCreate: (workspaceId: string, posts: Parameters<typeof postsApi.create>[1][]) =>
-    request<ApiResponse<Post[]>>(`/api/v1/workspaces/${workspaceId}/posts/bulk`, {
+  bulkCreate: (posts: PostCreatePayload[]) =>
+    request<ApiResponse<Post[]>>(`${ws()}/posts/bulk`, {
       method: "POST",
       body: JSON.stringify({ posts }),
     }),
+
+  /**
+   * Fetch calendar entries for a given month (YYYY-MM). Convenience wrapper
+   * around the schedule/calendar endpoint used by the dashboard calendar view.
+   */
+  getCalendar: (monthKey: string) => {
+    const [year, month] = monthKey.split("-").map((n) => parseInt(n, 10));
+    const start = new Date(Date.UTC(year, month - 1, 1));
+    const end = new Date(Date.UTC(year, month, 0, 23, 59, 59));
+    const startDate = start.toISOString().slice(0, 10);
+    const endDate = end.toISOString().slice(0, 10);
+    return request<ApiResponse<CalendarEntry[]>>(
+      `${ws()}/schedule/calendar?startDate=${startDate}&endDate=${endDate}`,
+    );
+  },
 };
 
 // ============================================================
-// Schedule API
+// Schedule
 // ============================================================
 
 export const scheduleApi = {
-  getSlots: (workspaceId: string) =>
-    request<ApiResponse<ScheduleSlot[]>>(`/api/v1/workspaces/${workspaceId}/schedule/slots`),
+  getSlots: () =>
+    request<ApiResponse<ScheduleSlot[]>>(`${ws()}/schedule/slots`),
 
-  createSlot: (
-    workspaceId: string,
-    data: {
-      platform: Platform | string;
-      dayOfWeek: number;
-      time: string;
-      timezone: string;
-    }
-  ) =>
-    request<ApiResponse<ScheduleSlot>>(`/api/v1/workspaces/${workspaceId}/schedule/slots`, {
+  createSlot: (data: {
+    platform: Platform | string;
+    dayOfWeek: number;
+    time: string;
+    timezone: string;
+  }) =>
+    request<ApiResponse<ScheduleSlot>>(`${ws()}/schedule/slots`, {
       method: "POST",
       body: JSON.stringify({
         platform: data.platform,
@@ -315,82 +414,96 @@ export const scheduleApi = {
       }),
     }),
 
-  deleteSlot: (workspaceId: string, id: string) =>
-    request<void>(`/api/v1/workspaces/${workspaceId}/schedule/slots/${id}`, {
-      method: "DELETE",
-    }),
+  deleteSlot: (id: string) =>
+    request<void>(`${ws()}/schedule/slots/${id}`, { method: "DELETE" }),
 
-  getNextSlot: (workspaceId: string, platform?: Platform) => {
-    const query = platform ? `?platform=${platform}` : "";
-    return request<ApiResponse<{ slot: ScheduleSlot; scheduledAt: string }>>(
-      `/api/v1/workspaces/${workspaceId}/schedule/next-slot${query}`
-    );
-  },
+  getNextSlot: (platform?: Platform) =>
+    request<ApiResponse<{ slot: ScheduleSlot; scheduledAt: string }>>(
+      `${ws()}/schedule/next-slot${qs({ platform })}`,
+    ),
 
-  getCalendar: (workspaceId: string, startDate: string, endDate: string) =>
+  getCalendar: (startDate: string, endDate: string) =>
     request<ApiResponse<CalendarEntry[]>>(
-      `/api/v1/workspaces/${workspaceId}/schedule/calendar?startDate=${startDate}&endDate=${endDate}`
+      `${ws()}/schedule/calendar?startDate=${startDate}&endDate=${endDate}`,
     ),
 };
 
 // ============================================================
-// AI API
+// AI
 // ============================================================
 
 export const aiApi = {
-  generateCaption: (workspaceId: string, data: GenerateCaptionRequest) =>
-    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/generate-caption`, {
+  generateCaption: (data: GenerateCaptionRequest) =>
+    request<ApiResponse<AIJob>>(`${ws()}/ai/generate-caption`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  generateImage: (workspaceId: string, data: GenerateImageRequest) =>
-    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/generate-image`, {
+  generateImage: (data: GenerateImageRequest) =>
+    request<ApiResponse<AIJob>>(`${ws()}/ai/generate-image`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  generateVideo: (
-    workspaceId: string,
-    data: {
-      concept: string;
-      duration: 15 | 30 | 60;
-      style: string;
+  generateVideo: (data: { concept: string; duration: 15 | 30 | 60; style: string }) =>
+    request<ApiResponse<AIJob>>(`${ws()}/ai/generate-video`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  repurpose: (data: RepurposeRequest) =>
+    request<ApiResponse<AIJob>>(`${ws()}/repurpose`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  analyse: (data: { postId?: string; content?: string; platform: Platform }) =>
+    request<ApiResponse<AIJob>>(`${ws()}/ai/analyse`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  addHashtags: (data: { content: string; platform: Platform; count?: number }) =>
+    request<ApiResponse<{ hashtags: string[] }>>(`${ws()}/ai/hashtags`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  getJobStatus: (jobId: string) =>
+    request<ApiResponse<AIJob>>(`${ws()}/ai/jobs/${jobId}`),
+
+  /**
+   * Adapts the credit balance endpoint to the legacy {used, limit, resetAt}
+   * shape consumed by the AI dashboard sidebar.
+   */
+  getCreditsUsage: async (): Promise<
+    ApiResponse<{ used: number; limit: number; resetAt: string }>
+  > => {
+    try {
+      const res = await request<{ data: CreditBalance }>(
+        `${ws()}/billing/credits/balance`,
+      );
+      const b = res.data;
+      return {
+        success: true,
+        data: {
+          used: b.plan_credits_used,
+          limit: b.plan_credits_limit,
+          resetAt: "",
+        },
+      };
+    } catch {
+      return { success: true, data: { used: 0, limit: 0, resetAt: "" } };
     }
-  ) =>
-    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/generate-video`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  repurpose: (workspaceId: string, data: RepurposeRequest) =>
-    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/repurpose`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  analyse: (
-    workspaceId: string,
-    data: { postId?: string; content?: string; platform: Platform }
-  ) =>
-    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/analyse`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-
-  getJobStatus: (workspaceId: string, jobId: string) =>
-    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/ai/jobs/${jobId}`),
+  },
 };
 
 // ============================================================
-// Analytics API
+// Analytics
 // ============================================================
 
 export const analyticsApi = {
-  getOverview: (
-    workspaceId: string,
-    params: { startDate: string; endDate: string }
-  ) =>
+  getOverview: (params: { startDate: string; endDate: string }) =>
     request<
       ApiResponse<{
         totalPosts: number;
@@ -401,18 +514,18 @@ export const analyticsApi = {
         engagementByPlatform: Array<{ platform: string; engagement: number }>;
         platformBreakdown: Array<{ platform: string; posts: number; reach: number }>;
       }>
-    >(
-      `/api/v1/workspaces/${workspaceId}/analytics?startDate=${params.startDate}&endDate=${params.endDate}`
-    ),
+    >(`${ws()}/analytics${qs(params)}`),
+
+  getTopPosts: (params?: { startDate?: string; endDate?: string; limit?: number }) =>
+    request<ApiResponse<Post[]>>(`${ws()}/analytics/top-posts${qs(params)}`),
 };
 
 // ============================================================
-// Billing API
+// Billing
 // ============================================================
 
 export const billingApi = {
-  getPlans: () =>
-    request<ApiResponse<Plan[]>>("/api/v1/billing/plans"),
+  getPlans: () => request<ApiResponse<Plan[]>>("/api/v1/billing/plans"),
 
   createSubscription: (data: { planType: string; interval: "monthly" | "yearly" }) =>
     request<ApiResponse<{ checkoutUrl: string }>>("/api/v1/billing/subscribe", {
@@ -423,193 +536,121 @@ export const billingApi = {
   getPortalUrl: () =>
     request<ApiResponse<{ url: string }>>("/api/v1/billing/portal", { method: "POST" }),
 
-  getUsage: () =>
-    request<ApiResponse<BillingUsage>>("/api/v1/billing/usage"),
+  getUsage: () => request<ApiResponse<BillingUsage>>("/api/v1/billing/usage"),
+
+  getSubscription: () =>
+    request<ApiResponse<Subscription>>("/api/v1/billing/subscription"),
+
+  getWorkspaceUsage: () =>
+    request<ApiResponse<BillingUsage>>(`${ws()}/billing/usage`),
 
   getCreditPackages: () =>
     request<{ currency: string; packages: CreditPackage[] }>(
-      "/api/v1/billing/credits/packages"
+      "/api/v1/billing/credits/packages",
     ),
 
-  initiateCreditTopUp: (workspaceId: string, packageId: string) =>
-    request<CreditTopUpSession>(
-      `/api/v1/workspaces/${workspaceId}/billing/credits/topup`,
-      {
-        method: "POST",
-        body: JSON.stringify({ package_id: packageId }),
-      }
-    ),
+  initiateCreditTopUp: (packageId: string) =>
+    request<CreditTopUpSession>(`${ws()}/billing/credits/topup`, {
+      method: "POST",
+      body: JSON.stringify({ package_id: packageId }),
+    }),
 
-  getCreditBalance: (workspaceId: string) =>
-    request<{ data: CreditBalance }>(
-      `/api/v1/workspaces/${workspaceId}/billing/credits/balance`
-    ),
+  getCreditBalance: () =>
+    request<{ data: CreditBalance }>(`${ws()}/billing/credits/balance`),
 
-  getCreditLedger: (
-    workspaceId: string,
-    params?: { limit?: number; offset?: number }
-  ) => {
-    const q = new URLSearchParams();
-    if (params?.limit) q.set("limit", String(params.limit));
-    if (params?.offset) q.set("offset", String(params.offset));
-    return request<{ data: CreditLedgerEntry[]; total: number }>(
-      `/api/v1/workspaces/${workspaceId}/billing/credits/ledger?${q}`
-    );
-  },
-
-  getWorkspaceUsage: (workspaceId: string) =>
-    request<ApiResponse<BillingUsage>>(
-      `/api/v1/workspaces/${workspaceId}/billing/usage`
+  getCreditLedger: (params?: { limit?: number; offset?: number }) =>
+    request<{ data: CreditLedgerEntry[]; total: number }>(
+      `${ws()}/billing/credits/ledger${qs(params)}`,
     ),
 };
 
 // ============================================================
-// Media API
+// Media
 // ============================================================
 
 export const mediaApi = {
-  presign: (workspaceId: string, data: { filename: string; contentType: string }) =>
+  presign: (data: { filename: string; contentType: string }) =>
     request<ApiResponse<{ uploadUrl: string; key: string }>>(
-      `/api/v1/workspaces/${workspaceId}/media/presign`,
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-      }
+      `${ws()}/media/presign`,
+      { method: "POST", body: JSON.stringify(data) },
     ),
 
-  list: (workspaceId: string) =>
-    request<ApiResponse<Array<{ key: string; url: string; size: number; createdAt: string }>>>(
-      `/api/v1/workspaces/${workspaceId}/media`
-    ),
+  list: () =>
+    request<
+      ApiResponse<Array<{ key: string; url: string; size: number; createdAt: string }>>
+    >(`${ws()}/media`),
 
-  delete: (workspaceId: string, key: string) =>
-    request<void>(`/api/v1/workspaces/${workspaceId}/media/${key}`, {
-      method: "DELETE",
-    }),
+  delete: (key: string) =>
+    request<void>(`${ws()}/media/${key}`, { method: "DELETE" }),
 };
 
 // ============================================================
-// White-label API
+// White-label
 // ============================================================
 
 export const whitelabelApi = {
-  getConfig: (workspaceId: string) =>
-    request<ApiResponse<WhitelabelConfig>>(
-      `/api/v1/workspaces/${workspaceId}/whitelabel`
-    ),
+  getConfig: () =>
+    request<ApiResponse<WhitelabelConfig>>(`${ws()}/whitelabel`),
 
-  updateConfig: (workspaceId: string, data: Partial<WhitelabelConfig>) =>
-    request<ApiResponse<WhitelabelConfig>>(
-      `/api/v1/workspaces/${workspaceId}/whitelabel`,
-      {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }
-    ),
+  updateConfig: (data: Partial<WhitelabelConfig>) =>
+    request<ApiResponse<WhitelabelConfig>>(`${ws()}/whitelabel`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
 
-  listClients: (
-    workspaceId: string,
-    params?: { page?: number; pageSize?: number }
-  ) => {
-    const query = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined) query.set(k, String(v));
-      });
-    }
-    return request<PaginatedResponse<Client>>(
-      `/api/v1/workspaces/${workspaceId}/clients?${query}`
-    );
-  },
+  listClients: (params?: { page?: number; pageSize?: number }) =>
+    request<PaginatedResponse<Client>>(`${ws()}/clients${qs(params)}`),
 
-  createClient: (
-    workspaceId: string,
-    data: {
-      name: string;
-      email: string;
-      plan: string;
-    }
-  ) =>
-    request<ApiResponse<Client>>(`/api/v1/workspaces/${workspaceId}/clients`, {
+  createClient: (data: { name: string; email: string; plan: string }) =>
+    request<ApiResponse<Client>>(`${ws()}/clients`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
-  removeClient: (workspaceId: string, clientId: string) =>
-    request<void>(`/api/v1/workspaces/${workspaceId}/clients/${clientId}`, {
-      method: "DELETE",
-    }),
+  removeClient: (clientId: string) =>
+    request<void>(`${ws()}/clients/${clientId}`, { method: "DELETE" }),
 };
 
 // ============================================================
-// Repurpose API
+// Repurpose
 // ============================================================
 
 export const repurposeApi = {
-  repurpose: (workspaceId: string, data: RepurposeRequest) =>
-    request<ApiResponse<AIJob>>(`/api/v1/workspaces/${workspaceId}/repurpose`, {
+  repurpose: (data: RepurposeRequest) =>
+    request<ApiResponse<AIJob>>(`${ws()}/repurpose`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
 };
 
 // ============================================================
-// Admin API (super-admin only)
+// Admin (super-admin only)
 // ============================================================
 
 export const adminApi = {
   getStats: () =>
     request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/stats"),
 
-  listUsers: (params?: { page?: number; pageSize?: number }) => {
-    const query = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined) query.set(k, String(v));
-      });
-    }
-    return request<PaginatedResponse<User>>(`/api/v1/admin/users?${query}`);
-  },
+  listUsers: (params?: { page?: number; pageSize?: number }) =>
+    request<PaginatedResponse<User>>(`/api/v1/admin/users${qs(params)}`),
 
-  getUser: (id: string) =>
-    request<ApiResponse<User>>(`/api/v1/admin/users/${id}`),
+  getUser: (id: string) => request<ApiResponse<User>>(`/api/v1/admin/users/${id}`),
 
   suspendUser: (id: string) =>
     request<ApiResponse<User>>(`/api/v1/admin/users/${id}/suspend`, {
       method: "POST",
     }),
 
-  listWorkspaces: (params?: { page?: number; pageSize?: number }) => {
-    const query = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined) query.set(k, String(v));
-      });
-    }
-    return request<PaginatedResponse<Workspace>>(`/api/v1/admin/workspaces?${query}`);
-  },
+  listWorkspaces: (params?: { page?: number; pageSize?: number }) =>
+    request<PaginatedResponse<Workspace>>(`/api/v1/admin/workspaces${qs(params)}`),
 
-  listAiJobs: (params?: { page?: number; pageSize?: number }) => {
-    const query = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined) query.set(k, String(v));
-      });
-    }
-    return request<PaginatedResponse<AIJob>>(`/api/v1/admin/ai-jobs?${query}`);
-  },
+  listAiJobs: (params?: { page?: number; pageSize?: number }) =>
+    request<PaginatedResponse<AIJob>>(`/api/v1/admin/ai-jobs${qs(params)}`),
 
-  getAuditLogs: (params?: { page?: number; pageSize?: number }) => {
-    const query = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined) query.set(k, String(v));
-      });
-    }
-    return request<PaginatedResponse<Record<string, unknown>>>(
-      `/api/v1/admin/audit-logs?${query}`
-    );
-  },
+  getAuditLogs: (params?: { page?: number; pageSize?: number }) =>
+    request<PaginatedResponse<Record<string, unknown>>>(
+      `/api/v1/admin/audit-logs${qs(params)}`,
+    ),
 
   getRevenue: () =>
     request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/revenue"),
@@ -626,241 +667,3 @@ export const adminApi = {
       body: JSON.stringify(data),
     }),
 };
-
-// ============================================================
-// Backwards-compat layer
-// ----------------------------------------------------------------
-// The dashboard pages were written against an earlier API client that:
-//   - did not require workspaceId as the first argument
-//   - had a separate `workspaceApi` and `apiKeysApi`
-//   - exposed extra methods that have since been removed or moved
-//
-// Rather than rewrite every page in lock-step with the new client, this
-// shim lets both shapes coexist. Legacy calls resolve the active
-// workspace ID from the zustand auth store persisted in localStorage.
-// New call sites that pass workspaceId explicitly still work unchanged.
-//
-// TODO: migrate each dashboard page to the canonical api.ts shape and
-// delete this section.
-// ============================================================
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-function getActiveWorkspaceId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    const raw = localStorage.getItem("sf-auth");
-    if (!raw) return "";
-    const parsed = JSON.parse(raw);
-    return parsed?.state?.workspace?.id ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function resolveArgs<T extends any[]>(args: any[]): [string, ...T] {
-  // If the first arg is a string that looks like a UUID/workspace id, use it.
-  // Otherwise fall back to the active workspace from the auth store.
-  if (typeof args[0] === "string" && args[0].length > 0 && !args[0].startsWith("{")) {
-    return args as [string, ...T];
-  }
-  return [getActiveWorkspaceId(), ...args] as [string, ...T];
-}
-
-// ---- accountsApi additions ----
-const originalAccountsList = accountsApi.list.bind(accountsApi);
-const originalAccountsDisconnect = accountsApi.disconnect.bind(accountsApi);
-
-Object.assign(accountsApi, {
-  list: (...args: any[]) => {
-    const [wsId] = resolveArgs(args);
-    return originalAccountsList(wsId);
-  },
-  disconnect: (...args: any[]) => {
-    const [wsId, id] = resolveArgs<[string]>(args);
-    return originalAccountsDisconnect(wsId, id);
-  },
-  refresh: (id?: string) => {
-    const wsId = getActiveWorkspaceId();
-    return request<ApiResponse<SocialAccount>>(
-      `/api/v1/workspaces/${wsId}/accounts/${id}/refresh`,
-      { method: "POST" }
-    );
-  },
-  getOAuthUrl: (platform: Platform) => {
-    const wsId = getActiveWorkspaceId();
-    return Promise.resolve({
-      data: { url: oauthApi.getConnectUrl(platform, wsId) },
-    });
-  },
-});
-
-// ---- aiApi additions ----
-const originalAiGenerateCaption = aiApi.generateCaption.bind(aiApi);
-const originalAiGenerateImage = aiApi.generateImage.bind(aiApi);
-const originalAiGenerateVideo = aiApi.generateVideo.bind(aiApi);
-const originalAiRepurpose = aiApi.repurpose.bind(aiApi);
-const originalAiAnalyse = aiApi.analyse.bind(aiApi);
-
-Object.assign(aiApi, {
-  generateCaption: (...args: any[]) => {
-    const [wsId, data] = resolveArgs<[GenerateCaptionRequest]>(args);
-    return originalAiGenerateCaption(wsId, data);
-  },
-  generateImage: (...args: any[]) => {
-    const [wsId, data] = resolveArgs<[GenerateImageRequest]>(args);
-    return originalAiGenerateImage(wsId, data);
-  },
-  generateVideo: (...args: any[]) => {
-    const [wsId, data] = resolveArgs<[{ concept: string; duration: 15 | 30 | 60; style: string }]>(args);
-    return originalAiGenerateVideo(wsId, data);
-  },
-  repurpose: (...args: any[]) => {
-    const [wsId, data] = resolveArgs<[RepurposeRequest]>(args);
-    return originalAiRepurpose(wsId, data);
-  },
-  analyse: (...args: any[]) => {
-    const [wsId, data] = resolveArgs<[{ postId?: string; content?: string; platform: Platform }]>(args);
-    return originalAiAnalyse(wsId, data);
-  },
-  addHashtags: (data: { content: string; platform: Platform; count?: number }) => {
-    const wsId = getActiveWorkspaceId();
-    return request<ApiResponse<{ hashtags: string[] }>>(
-      `/api/v1/workspaces/${wsId}/ai/hashtags`,
-      { method: "POST", body: JSON.stringify(data) }
-    );
-  },
-  getCreditsUsage: async () => {
-    // Redirect to the real credit balance endpoint and adapt the shape.
-    const wsId = getActiveWorkspaceId();
-    try {
-      const res = await request<{ data: CreditBalance }>(
-        `/api/v1/workspaces/${wsId}/billing/credits/balance`
-      );
-      const balance = res.data;
-      return {
-        data: {
-          used: balance.used ?? 0,
-          limit: balance.limit ?? 0,
-          resetAt: balance.resetAt ?? "",
-        },
-      };
-    } catch {
-      return { data: { used: 0, limit: 0, resetAt: "" } };
-    }
-  },
-});
-
-// ---- postsApi legacy shape support ----
-const originalPostsList = postsApi.list.bind(postsApi);
-const originalPostsCreate = postsApi.create.bind(postsApi);
-const originalPostsUpdate = postsApi.update.bind(postsApi);
-const originalPostsDelete = postsApi.delete.bind(postsApi);
-const originalPostsGet = postsApi.get.bind(postsApi);
-
-Object.assign(postsApi, {
-  list: (...args: any[]) => {
-    const [wsId, params] = resolveArgs<[any?]>(args);
-    return originalPostsList(wsId, params);
-  },
-  get: (...args: any[]) => {
-    const [wsId, id] = resolveArgs<[string]>(args);
-    return originalPostsGet(wsId, id);
-  },
-  create: (...args: any[]) => {
-    const [wsId, data] = resolveArgs<[any]>(args);
-    return originalPostsCreate(wsId, data);
-  },
-  update: (...args: any[]) => {
-    // Old shape: update(id, data)  → new shape: update(wsId, id, data)
-    if (args.length === 2) {
-      return originalPostsUpdate(getActiveWorkspaceId(), args[0], args[1]);
-    }
-    return originalPostsUpdate(args[0], args[1], args[2]);
-  },
-  delete: (...args: any[]) => {
-    const [wsId, id] = resolveArgs<[string]>(args);
-    return originalPostsDelete(wsId, id);
-  },
-});
-
-// ---- analyticsApi additions ----
-const originalAnalyticsOverview = analyticsApi.getOverview.bind(analyticsApi);
-
-Object.assign(analyticsApi, {
-  getOverview: (...args: any[]) => {
-    if (args.length === 1 && typeof args[0] === "object") {
-      return originalAnalyticsOverview(getActiveWorkspaceId(), args[0]);
-    }
-    return originalAnalyticsOverview(args[0], args[1]);
-  },
-  getTopPosts: (params?: { startDate: string; endDate: string; limit?: number }) => {
-    const wsId = getActiveWorkspaceId();
-    const q = new URLSearchParams();
-    if (params) {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined) q.set(k, String(v));
-      });
-    }
-    return request<ApiResponse<Post[]>>(
-      `/api/v1/workspaces/${wsId}/analytics/top-posts?${q}`
-    );
-  },
-});
-
-// ---- billingApi additions ----
-Object.assign(billingApi, {
-  getSubscription: () =>
-    request<ApiResponse<Subscription>>("/api/v1/billing/subscription"),
-});
-
-// ---- workspaceApi (new export, legacy shape) ----
-export const workspaceApi: Record<string, any> = {
-  get: (id?: string) => {
-    const wsId = id ?? getActiveWorkspaceId();
-    return request<ApiResponse<Workspace>>(`/api/v1/workspaces/${wsId}`);
-  },
-  update: (idOrData: string | Partial<Workspace>, maybeData?: Partial<Workspace>) => {
-    const wsId = typeof idOrData === "string" ? idOrData : getActiveWorkspaceId();
-    const data = typeof idOrData === "string" ? maybeData : idOrData;
-    return request<ApiResponse<Workspace>>(`/api/v1/workspaces/${wsId}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
-  },
-  listMembers: (id?: string) => {
-    const wsId = id ?? getActiveWorkspaceId();
-    return request<ApiResponse<Array<{ id: string; email: string; name: string; role: string }>>>(
-      `/api/v1/workspaces/${wsId}/members`
-    );
-  },
-  inviteMember: (data: { email: string; role: string }) => {
-    const wsId = getActiveWorkspaceId();
-    return request<ApiResponse<Record<string, unknown>>>(
-      `/api/v1/workspaces/${wsId}/members/invite`,
-      { method: "POST", body: JSON.stringify(data) }
-    );
-  },
-  removeMember: (memberId: string) => {
-    const wsId = getActiveWorkspaceId();
-    return request<void>(`/api/v1/workspaces/${wsId}/members/${memberId}`, {
-      method: "DELETE",
-    });
-  },
-  updateMemberRole: (memberId: string, role: string) => {
-    const wsId = getActiveWorkspaceId();
-    return request<ApiResponse<Record<string, unknown>>>(
-      `/api/v1/workspaces/${wsId}/members/${memberId}`,
-      { method: "PATCH", body: JSON.stringify({ role }) }
-    );
-  },
-};
-
-// ---- apiKeysApi (new export, alias to authApi) ----
-export const apiKeysApi: Record<string, any> = {
-  list: () => authApi.getApiKeys(),
-  create: (data: { name: string; permissions?: string[] }) => authApi.createApiKey(data),
-  delete: (id: string) => authApi.deleteApiKey(id),
-};
-
-/* eslint-enable @typescript-eslint/no-explicit-any */

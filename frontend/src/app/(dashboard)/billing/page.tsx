@@ -305,7 +305,7 @@ function CreditPackagesGrid({
   const handlePurchase = async (pkg: CreditPackage) => {
     setPurchasing(pkg.id);
     try {
-      const session = await billingApi.initiateCreditTopUp(workspaceId, pkg.id);
+      const session = await billingApi.initiateCreditTopUp(pkg.id);
       window.open(session.checkout_url, "_blank", "noopener,noreferrer");
     } catch {
       toast.error("Failed to start checkout. Please try again.");

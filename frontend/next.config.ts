@@ -1,12 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Temporary: dashboard pages still reference the old api.ts shape and need
-  // to be migrated to the new client in src/lib/api.ts. Until that migration
-  // is complete, skip type + lint errors during build so the site can deploy.
-  // TODO: remove these flags once (dashboard)/* pages are updated.
-  typescript: { ignoreBuildErrors: true },
-  eslint: { ignoreDuringBuilds: true },
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "pbs.twimg.com" },

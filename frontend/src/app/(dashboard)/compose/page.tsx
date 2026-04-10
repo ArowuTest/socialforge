@@ -359,25 +359,15 @@ export default function ComposePage() {
     }
     try {
       const res = await aiApi.addHashtags({
-        caption,
+        content: caption,
         platform: selectedPlatforms[0] as Platform,
         count: 8,
       });
-      // Poll for result
-      let attempts = 0;
-      const poll = async (): Promise<void> => {
-        if (attempts > 15) return;
-        attempts++;
-        const job = await aiApi.getJobStatus(res.data.id);
-        if (job.data.status === "completed" && job.data.result?.caption) {
-          setCaption(job.data.result.caption);
-          toast.success("Hashtags added!");
-        } else if (job.data.status !== "failed") {
-          await new Promise((r) => setTimeout(r, 1500));
-          await poll();
-        }
-      };
-      await poll();
+      const tags = res.data.hashtags;
+      if (tags.length > 0) {
+        setCaption(caption.trimEnd() + "\n\n" + tags.map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" "));
+        toast.success("Hashtags added!");
+      }
     } catch {
       toast.error("Failed to generate hashtags");
     }
