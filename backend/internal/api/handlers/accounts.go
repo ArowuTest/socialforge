@@ -25,10 +25,17 @@ type PlatformOAuthClient interface {
 	ExchangeCode(ctx context.Context, code, state string, workspaceID uuid.UUID) (*models.SocialAccount, error)
 }
 
+// BlueskyConnector is the interface for Bluesky app-password auth.
+// Bluesky does not use OAuth — it uses the AT Protocol session API.
+type BlueskyConnector interface {
+	ConnectWithAppPassword(ctx context.Context, workspaceID uuid.UUID, identifier, appPassword string) (*models.SocialAccount, error)
+}
+
 // AccountsHandler handles social account management endpoints.
 type AccountsHandler struct {
 	db              *gorm.DB
 	platformClients map[string]PlatformOAuthClient
+	bluesky         BlueskyConnector
 	cfg             *config.Config
 	log             *zap.Logger
 }
@@ -37,12 +44,14 @@ type AccountsHandler struct {
 func NewAccountsHandler(
 	db *gorm.DB,
 	clients map[string]PlatformOAuthClient,
+	bluesky BlueskyConnector,
 	cfg *config.Config,
 	log *zap.Logger,
 ) *AccountsHandler {
 	return &AccountsHandler{
 		db:              db,
 		platformClients: clients,
+		bluesky:         bluesky,
 		cfg:             cfg,
 		log:             log.Named("accounts_handler"),
 	}
@@ -297,6 +306,81 @@ func (h *AccountsHandler) OAuthCallback(c *fiber.Ctx) error {
 	redirectURL := fmt.Sprintf("%s/dashboard/accounts?success=true&platform=%s",
 		h.cfg.App.FrontendURL, platform)
 	return c.Redirect(redirectURL, fiber.StatusFound)
+}
+
+// ── ConnectBluesky ────────────────────────────────────────────────────────────
+
+type connectBlueskyRequest struct {
+	Handle      string `json:"handle"`      // e.g. user.bsky.social
+	AppPassword string `json:"appPassword"` // Bluesky app password (not account password)
+	WorkspaceID string `json:"workspace_id"` // optional — falls back to user's first workspace
+}
+
+// ConnectBluesky connects a Bluesky account using the AT Protocol app-password flow.
+// Bluesky does not use OAuth; this is a dedicated non-OAuth endpoint.
+// POST /api/v1/oauth/bluesky/connect
+func (h *AccountsHandler) ConnectBluesky(c *fiber.Ctx) error {
+	if h.bluesky == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+			"error": "Bluesky integration is not configured",
+			"code":  "BLUESKY_NOT_CONFIGURED",
+		})
+	}
+
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req connectBlueskyRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+
+	if strings.TrimSpace(req.Handle) == "" {
+		return badRequest(c, "handle is required", "VALIDATION_ERROR")
+	}
+	if strings.TrimSpace(req.AppPassword) == "" {
+		return badRequest(c, "appPassword is required", "VALIDATION_ERROR")
+	}
+
+	// Resolve workspace_id from request or fall back to user's first workspace.
+	var wid uuid.UUID
+	if req.WorkspaceID != "" {
+		id, err := uuid.Parse(req.WorkspaceID)
+		if err != nil {
+			return badRequest(c, "workspace_id must be a valid UUID", "INVALID_ID")
+		}
+		wid = id
+	} else {
+		var ws models.Workspace
+		if err := h.db.WithContext(c.Context()).
+			Where("owner_id = ?", user.ID).
+			First(&ws).Error; err != nil {
+			return badRequest(c, "workspace_id is required", "VALIDATION_ERROR")
+		}
+		wid = ws.ID
+	}
+
+	account, err := h.bluesky.ConnectWithAppPassword(c.Context(), wid, req.Handle, req.AppPassword)
+	if err != nil {
+		h.log.Error("ConnectBluesky: ConnectWithAppPassword failed",
+			zap.String("handle", req.Handle),
+			zap.Error(err),
+		)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to connect Bluesky account: " + err.Error(),
+			"code":  "BLUESKY_AUTH_FAILED",
+		})
+	}
+
+	h.log.Info("Bluesky account connected",
+		zap.String("handle", req.Handle),
+		zap.String("workspace_id", wid.String()),
+		zap.String("account_id", account.ID.String()),
+	)
+
+	return c.JSON(fiber.Map{"data": account})
 }
 
 // ── OAuth state helpers ───────────────────────────────────────────────────────

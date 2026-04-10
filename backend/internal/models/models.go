@@ -512,6 +512,27 @@ type AIJob struct {
 
 func (AIJob) TableName() string { return "ai_jobs" }
 
+// ─── MediaItem ────────────────────────────────────────────────────────────────
+
+// MediaItem tracks an uploaded media file stored in object storage.
+type MediaItem struct {
+	Base
+	WorkspaceID uuid.UUID  `gorm:"type:uuid;not null;index"       json:"workspace_id"`
+	UploadedByID uuid.UUID `gorm:"type:uuid;not null;index"       json:"uploaded_by_id"`
+	Filename    string     `gorm:"not null;size:512"              json:"filename"`
+	ContentType string     `gorm:"not null;size:100"              json:"content_type"`
+	SizeBytes   int64      `gorm:"not null;default:0"             json:"size_bytes"`
+	StorageKey  string     `gorm:"not null;type:text;uniqueIndex" json:"storage_key"`
+	PublicURL   string     `gorm:"type:text"                      json:"public_url"`
+	MediaType   string     `gorm:"not null;size:10;default:'image'" json:"media_type"` // image | video
+
+	// Associations
+	Workspace  Workspace `gorm:"foreignKey:WorkspaceID"   json:"-"`
+	UploadedBy User      `gorm:"foreignKey:UploadedByID"  json:"-"`
+}
+
+func (MediaItem) TableName() string { return "media_items" }
+
 // ─── ApiKey ───────────────────────────────────────────────────────────────────
 
 // ApiKey stores a hashed API key for programmatic / webhook access.

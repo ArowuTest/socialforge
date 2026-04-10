@@ -33,6 +33,7 @@ import (
 	"github.com/socialforge/backend/internal/services/publishing"
 	"github.com/socialforge/backend/internal/services/scheduling"
 
+	"github.com/socialforge/backend/internal/platforms/bluesky"
 	"github.com/socialforge/backend/internal/platforms/facebook"
 	"github.com/socialforge/backend/internal/platforms/instagram"
 	"github.com/socialforge/backend/internal/platforms/linkedin"
@@ -95,6 +96,7 @@ func main() {
 	notificationsService := notifications.NewService(cfg, log)
 
 	// ── Platform clients ──────────────────────────────────────────────────────
+	bsClient := bluesky.New(encryptionSecret, db, log) // AT Protocol (app-password, not OAuth)
 	igClient := instagram.New(cfg.OAuth.Instagram, encryptionSecret, db, log)
 	ttClient := tiktok.New(cfg.OAuth.TikTok, encryptionSecret, db, rdb, log)
 	ytClient := youtube.New(cfg.OAuth.YouTube, encryptionSecret, db, log)
@@ -106,6 +108,7 @@ func main() {
 
 	// ── Publishing service ────────────────────────────────────────────────────
 	platformMap := map[string]publishing.PlatformClient{
+		"bluesky":   bsClient,
 		"instagram": igClient,
 		"tiktok":    ttClient,
 		"youtube":   ytClient,
@@ -222,6 +225,7 @@ func main() {
 			"pinterest": piClient,
 			"threads":   thClient,
 		},
+		BlueskyClient: bsClient,
 	}
 	api.SetupRoutes(app, deps)
 

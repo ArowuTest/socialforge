@@ -39,7 +39,8 @@ type presignRequest struct {
 	SizeBytes   int64  `json:"size_bytes"`
 }
 
-// GetPresignedUploadURL returns a pre-signed upload URL for client-side media uploads.
+// GetPresignedUploadURL returns a pre-signed upload URL for client-side media uploads
+// and records the pending upload in the media_items table.
 // POST /api/v1/workspaces/:wid/media/presign
 func (h *MediaHandler) GetPresignedUploadURL(c *fiber.Ctx) error {
 	if h.storage == nil || !h.storage.IsConfigured() {
@@ -77,6 +78,11 @@ func (h *MediaHandler) GetPresignedUploadURL(c *fiber.Ctx) error {
 		return badRequest(c, "content_type must be image/* or video/*", "VALIDATION_ERROR")
 	}
 
+	mediaType := "image"
+	if strings.HasPrefix(req.ContentType, "video/") {
+		mediaType = "video"
+	}
+
 	// Generate a unique storage key
 	fileUUID := uuid.New().String()
 	key := fmt.Sprintf("workspaces/%s/media/%s/%s", wid.String(), fileUUID, req.Filename)
@@ -90,6 +96,26 @@ func (h *MediaHandler) GetPresignedUploadURL(c *fiber.Ctx) error {
 		})
 	}
 
+	// Record the media item in the DB so it appears in the library immediately.
+	// The public_url is set now; size_bytes will be 0 until confirmed by client.
+	mediaItem := &models.MediaItem{
+		WorkspaceID:  wid,
+		UploadedByID: user.ID,
+		Filename:     req.Filename,
+		ContentType:  req.ContentType,
+		SizeBytes:    req.SizeBytes,
+		StorageKey:   result.Key,
+		PublicURL:    result.PublicURL,
+		MediaType:    mediaType,
+	}
+	if err := h.db.WithContext(c.Context()).Create(mediaItem).Error; err != nil {
+		// Non-fatal: log the error but still return the presign URL so the upload can proceed.
+		h.log.Warn("failed to record media item in DB",
+			zap.Error(err),
+			zap.String("key", key),
+		)
+	}
+
 	h.log.Info("GetPresignedUploadURL",
 		zap.String("workspace_id", wid.String()),
 		zap.String("key", key),
@@ -100,6 +126,7 @@ func (h *MediaHandler) GetPresignedUploadURL(c *fiber.Ctx) error {
 		"upload_url": result.UploadURL,
 		"key":        result.Key,
 		"public_url": result.PublicURL,
+		"media_id":   mediaItem.ID,
 	})
 }
 
@@ -108,19 +135,43 @@ func (h *MediaHandler) GetPresignedUploadURL(c *fiber.Ctx) error {
 // ListMedia returns a paginated list of media items for a workspace.
 // GET /api/v1/workspaces/:wid/media?page=1&limit=24&type=
 func (h *MediaHandler) ListMedia(c *fiber.Ctx) error {
-	_, err := resolveWorkspaceID(c)
+	wid, err := resolveWorkspaceID(c)
 	if err != nil {
 		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
 	}
 
 	page := max(1, c.QueryInt("page", 1))
 	limit := clamp(c.QueryInt("limit", 24), 1, 100)
+	offset := (page - 1) * limit
+	mediaTypeFilter := c.Query("type") // "image" | "video" | "" (all)
 
-	// Media items are not yet tracked in a table — return empty for now.
-	// A media_items migration can be added later to track uploads.
+	query := h.db.WithContext(c.Context()).
+		Model(&models.MediaItem{}).
+		Where("workspace_id = ?", wid)
+
+	if mediaTypeFilter == "image" || mediaTypeFilter == "video" {
+		query = query.Where("media_type = ?", mediaTypeFilter)
+	}
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		h.log.Error("ListMedia: count query", zap.Error(err))
+		return internalError(c, "failed to list media")
+	}
+
+	var items []models.MediaItem
+	if err := query.
+		Order("created_at DESC").
+		Offset(offset).
+		Limit(limit).
+		Find(&items).Error; err != nil {
+		h.log.Error("ListMedia: find query", zap.Error(err))
+		return internalError(c, "failed to list media")
+	}
+
 	return c.JSON(fiber.Map{
-		"items": []interface{}{},
-		"total": 0,
+		"items": items,
+		"total": total,
 		"page":  page,
 		"limit": limit,
 	})
@@ -141,6 +192,7 @@ func (h *MediaHandler) DeleteMedia(c *fiber.Ctx) error {
 		return badRequest(c, "key is required", "VALIDATION_ERROR")
 	}
 
+	// Delete from storage first.
 	if h.storage != nil && h.storage.IsConfigured() {
 		if err := h.storage.Delete(c.Context(), key); err != nil {
 			h.log.Error("failed to delete from storage", zap.Error(err), zap.String("key", key))
@@ -149,6 +201,14 @@ func (h *MediaHandler) DeleteMedia(c *fiber.Ctx) error {
 				"code":  "STORAGE_DELETE_FAILED",
 			})
 		}
+	}
+
+	// Remove from DB. Only delete records belonging to this workspace.
+	if err := h.db.WithContext(c.Context()).
+		Where("storage_key = ? AND workspace_id = ?", key, wid).
+		Delete(&models.MediaItem{}).Error; err != nil {
+		h.log.Warn("DeleteMedia: db delete failed", zap.Error(err), zap.String("key", key))
+		// Non-fatal — storage object is already deleted.
 	}
 
 	h.log.Info("DeleteMedia",

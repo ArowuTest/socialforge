@@ -38,6 +38,7 @@ type Deps struct {
 	NotificationsService *notifications.Service
 	AsynqClient          *asynq.Client
 	PlatformClients  map[string]handlers.PlatformOAuthClient
+	BlueskyClient    handlers.BlueskyConnector
 }
 
 // SetupRoutes registers all API routes on the provided Fiber app.
@@ -51,7 +52,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	// Build handler groups, injecting repository interfaces instead of raw *gorm.DB.
 	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.NotificationsService, deps.Config, deps.Log)
 	postsH := handlers.NewPostsHandler(repos.Posts, deps.ScheduleService, deps.AsynqClient, deps.Log)
-	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.Config, deps.Log)
+	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.BlueskyClient, deps.Config, deps.Log)
 	scheduleH := handlers.NewScheduleHandler(deps.DB, deps.ScheduleService, deps.Log)
 	aiH := handlers.NewAIHandler(deps.DB, deps.AIService, deps.AnalyticsService, deps.AsynqClient, deps.Log)
 	billingH := handlers.NewBillingHandler(deps.BillingService, deps.Log, deps.RDB)
@@ -113,6 +114,9 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 
 	// ── OAuth ─────────────────────────────────────────────────────────────────
 	oauth := v1.Group("/oauth")
+	// Bluesky uses AT Protocol app-password auth — not OAuth. Dedicated route.
+	oauth.Post("/bluesky/connect", mw.JWTAuth(), accountsH.ConnectBluesky)
+	// Generic OAuth routes for all standard OAuth platforms.
 	oauth.Get("/:platform/connect", mw.JWTAuth(), accountsH.InitiateOAuth)
 	oauth.Get("/:platform/callback", accountsH.OAuthCallback)
 
