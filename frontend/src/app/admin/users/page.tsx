@@ -1,44 +1,79 @@
 "use client";
 
 import * as React from "react";
-import { Search, ChevronDown, Eye, ShieldOff, Trash2, MoreHorizontal } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Search, ChevronDown, Eye, ShieldOff, Trash2, Loader2 } from "lucide-react";
+import { cn, formatDate, getInitials } from "@/lib/utils";
+import { adminApi } from "@/lib/api";
+import { toast } from "sonner";
 
-const allUsers = [
-  { id: "1", name: "Alice Johnson", email: "alice@brandlift.io", plan: "Pro", status: "active", joined: "Apr 6, 2026", accounts: 8, workspaces: 3 },
-  { id: "2", name: "Marcus Chen", email: "marcus@mediaflow.co", plan: "Agency", status: "active", joined: "Apr 5, 2026", accounts: 24, workspaces: 12 },
-  { id: "3", name: "Priya Mehta", email: "priya@contentx.io", plan: "Starter", status: "active", joined: "Apr 5, 2026", accounts: 5, workspaces: 2 },
-  { id: "4", name: "Jordan Williams", email: "jordan@viralco.com", plan: "Free", status: "active", joined: "Apr 4, 2026", accounts: 2, workspaces: 1 },
-  { id: "5", name: "Sophie Laurent", email: "sophie@agencypro.fr", plan: "Pro", status: "active", joined: "Apr 4, 2026", accounts: 10, workspaces: 4 },
-  { id: "6", name: "David Kim", email: "david@growthstack.io", plan: "Pro", status: "suspended", joined: "Mar 28, 2026", accounts: 7, workspaces: 3 },
-  { id: "7", name: "Emma Torres", email: "emma@mediaplus.co", plan: "Starter", status: "active", joined: "Mar 25, 2026", accounts: 4, workspaces: 1 },
-  { id: "8", name: "Ryan Park", email: "ryan@contentlabs.dev", plan: "Agency", status: "active", joined: "Mar 20, 2026", accounts: 31, workspaces: 18 },
-  { id: "9", name: "Isabelle Moore", email: "isabelle@viral.media", plan: "Free", status: "active", joined: "Mar 15, 2026", accounts: 1, workspaces: 1 },
-  { id: "10", name: "Carlos Ruiz", email: "carlos@socialdrive.mx", plan: "Starter", status: "active", joined: "Mar 10, 2026", accounts: 6, workspaces: 2 },
-];
+interface UserRow {
+  id: string;
+  name: string;
+  email: string;
+  plan: string;
+  is_suspended: boolean;
+  created_at: string;
+  avatar_url?: string;
+}
 
 const planColors: Record<string, string> = {
-  Free: "bg-slate-800 text-slate-300",
-  Starter: "bg-blue-900/50 text-blue-300",
-  Pro: "bg-violet-900/50 text-violet-300",
-  Agency: "bg-amber-900/50 text-amber-300",
+  free: "bg-slate-800 text-slate-300",
+  starter: "bg-blue-900/50 text-blue-300",
+  pro: "bg-violet-900/50 text-violet-300",
+  agency: "bg-amber-900/50 text-amber-300",
+  enterprise: "bg-emerald-900/50 text-emerald-300",
 };
 
 const statusColors: Record<string, string> = {
   active: "bg-emerald-900/40 text-emerald-400",
   suspended: "bg-red-900/40 text-red-400",
-  trialing: "bg-blue-900/40 text-blue-400",
 };
 
 export default function AdminUsersPage() {
   const [search, setSearch] = React.useState("");
   const [planFilter, setPlanFilter] = React.useState("all");
+  const [users, setUsers] = React.useState<UserRow[]>([]);
+  const [total, setTotal] = React.useState(0);
+  const [page, setPage] = React.useState(1);
+  const [loading, setLoading] = React.useState(true);
+  const pageSize = 20;
 
-  const filtered = allUsers.filter((u) => {
-    const matchSearch = u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
-    const matchPlan = planFilter === "all" || u.plan.toLowerCase() === planFilter;
+  const fetchUsers = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await adminApi.listUsers({ page, pageSize });
+      if (res?.data) {
+        setUsers(res.data as unknown as UserRow[]);
+        setTotal((res as unknown as { total?: number }).total || res.data.length);
+      }
+    } catch {
+      toast.error("Failed to load users");
+    } finally {
+      setLoading(false);
+    }
+  }, [page]);
+
+  React.useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const handleSuspend = async (user: UserRow) => {
+    try {
+      await adminApi.suspendUser(user.id);
+      toast.success(`${user.is_suspended ? "Unsuspended" : "Suspended"} ${user.name}`);
+      fetchUsers();
+    } catch {
+      toast.error("Failed to update user status");
+    }
+  };
+
+  const filtered = users.filter((u) => {
+    const matchSearch = !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
+    const matchPlan = planFilter === "all" || u.plan === planFilter;
     return matchSearch && matchPlan;
   });
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -46,7 +81,7 @@ export default function AdminUsersPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <h2 className="text-lg font-bold text-white">Users</h2>
-          <p className="text-sm text-slate-400">{allUsers.length} total users</p>
+          <p className="text-sm text-slate-400">{total} total users</p>
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <div className="relative flex-1 sm:w-64">
@@ -55,7 +90,7 @@ export default function AdminUsersPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search users…"
+              placeholder="Search users..."
               className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500"
             />
           </div>
@@ -84,55 +119,77 @@ export default function AdminUsersPage() {
           <div className="col-span-2 hidden sm:block">Plan</div>
           <div className="col-span-2 hidden md:block">Status</div>
           <div className="col-span-2 hidden lg:block">Joined</div>
-          <div className="col-span-2 hidden lg:block">Accounts</div>
-          <div className="col-span-2 lg:col-span-0">Actions</div>
+          <div className="col-span-2">Actions</div>
         </div>
 
-        <div className="divide-y divide-slate-800">
-          {filtered.map((u) => (
-            <div key={u.id} className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
-              <div className="col-span-6 sm:col-span-4 flex items-center gap-3 min-w-0">
-                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  {u.name[0]}
+        {loading ? (
+          <div className="px-5 py-16 flex items-center justify-center">
+            <Loader2 className="h-6 w-6 text-violet-400 animate-spin" />
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-800">
+            {filtered.map((u) => (
+              <div key={u.id} className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
+                <div className="col-span-6 sm:col-span-4 flex items-center gap-3 min-w-0">
+                  <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {getInitials(u.name)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{u.name}</p>
+                    <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{u.name}</p>
-                  <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                <div className="col-span-2 hidden sm:block">
+                  <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full capitalize", planColors[u.plan] || planColors.free)}>
+                    {u.plan}
+                  </span>
+                </div>
+                <div className="col-span-2 hidden md:block">
+                  <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full", u.is_suspended ? statusColors.suspended : statusColors.active)}>
+                    {u.is_suspended ? "Suspended" : "Active"}
+                  </span>
+                </div>
+                <div className="col-span-2 hidden lg:block text-sm text-slate-400">
+                  {formatDate(u.created_at)}
+                </div>
+                <div className="col-span-6 sm:col-span-2 flex items-center justify-end gap-1">
+                  <button
+                    onClick={() => handleSuspend(u)}
+                    className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-amber-400 transition-colors"
+                    title={u.is_suspended ? "Unsuspend" : "Suspend"}
+                  >
+                    <ShieldOff className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
-              <div className="col-span-2 hidden sm:block">
-                <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full", planColors[u.plan])}>{u.plan}</span>
-              </div>
-              <div className="col-span-2 hidden md:block">
-                <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full capitalize", statusColors[u.status])}>{u.status}</span>
-              </div>
-              <div className="col-span-2 hidden lg:block text-sm text-slate-400">{u.joined}</div>
-              <div className="col-span-2 hidden lg:block text-sm text-slate-400">{u.accounts} accounts</div>
-              <div className="col-span-6 sm:col-span-2 flex items-center justify-end gap-1">
-                <button className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors" title="View">
-                  <Eye className="h-4 w-4" />
-                </button>
-                <button className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-amber-400 transition-colors" title="Suspend">
-                  <ShieldOff className="h-4 w-4" />
-                </button>
-                <button className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-red-400 transition-colors" title="Delete">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <div className="px-5 py-12 text-center text-slate-500">No users match your search.</div>
         )}
 
         <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between">
-          <p className="text-xs text-slate-500">Showing {filtered.length} of {allUsers.length} users</p>
+          <p className="text-xs text-slate-500">
+            Page {page} of {totalPages} ({total} users)
+          </p>
           <div className="flex items-center gap-2">
-            <button className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">Previous</button>
-            <button className="text-xs text-white bg-violet-600 px-3 py-1.5 rounded-lg">1</button>
-            <button className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">Next</button>
+            <button
+              onClick={() => setPage(Math.max(1, page - 1))}
+              disabled={page <= 1}
+              className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-xs text-white bg-violet-600 px-3 py-1.5 rounded-lg">{page}</span>
+            <button
+              onClick={() => setPage(Math.min(totalPages, page + 1))}
+              disabled={page >= totalPages}
+              className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-40"
+            >
+              Next
+            </button>
           </div>
         </div>
       </div>

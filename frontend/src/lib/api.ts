@@ -736,4 +736,13 @@ export const adminApi = {
     request<ApiResponse<Array<{ key: string; label: string; configured: boolean; masked: string; updated_at: string | null }>>>(
       "/api/v1/admin/cost-config/integrations",
     ),
+
+  sendBroadcast: (data: { subject: string; body: string; target: string; msg_type: string }) =>
+    request<ApiResponse<{ message: string; recipients: number }>>("/api/v1/admin/broadcast", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  listBroadcasts: () =>
+    request<ApiResponse<Array<Record<string, unknown>>>>("/api/v1/admin/broadcasts"),
 };

@@ -373,6 +373,85 @@ export default function ComposePage() {
     }
   };
 
+  const handleRepurpose = async () => {
+    if (!caption.trim()) {
+      toast.error("Please write some content first");
+      return;
+    }
+    if (selectedPlatforms.length === 0) {
+      toast.error("Please select a platform first");
+      return;
+    }
+    try {
+      const res = await aiApi.repurpose({
+        content: caption,
+        sourcePlatform: selectedPlatforms[0] as Platform,
+        targetPlatforms: platforms
+          .map((p) => p.id as Platform)
+          .filter((p) => !selectedPlatforms.includes(p)),
+      });
+      // Poll for result
+      let attempts = 0;
+      const poll = async () => {
+        if (attempts > 30) throw new Error("Repurpose timed out");
+        attempts++;
+        const jobRes = await aiApi.getJobStatus(res.data.id);
+        if (jobRes.data.status === "completed") {
+          toast.success("Content repurposed! Check the Repurpose page for results.");
+        } else if (jobRes.data.status === "failed") {
+          throw new Error(jobRes.data.error || "Repurpose failed");
+        } else {
+          await new Promise((r) => setTimeout(r, 2000));
+          await poll();
+        }
+      };
+      toast.info("Repurposing content across platforms...");
+      await poll();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to repurpose content");
+    }
+  };
+
+  const handleAnalyse = async () => {
+    if (!caption.trim()) {
+      toast.error("Please write some content first");
+      return;
+    }
+    if (selectedPlatforms.length === 0) {
+      toast.error("Please select a platform first");
+      return;
+    }
+    try {
+      const res = await aiApi.analyse({
+        content: caption,
+        platform: selectedPlatforms[0] as Platform,
+      });
+      let attempts = 0;
+      const poll = async () => {
+        if (attempts > 20) throw new Error("Analysis timed out");
+        attempts++;
+        const jobRes = await aiApi.getJobStatus(res.data.id);
+        if (jobRes.data.status === "completed" && jobRes.data.result) {
+          const r = jobRes.data.result as Record<string, unknown>;
+          const score = r.score ?? r.viral_score ?? "N/A";
+          toast.success(`Viral potential score: ${score}/100`, {
+            description: (r.feedback || r.suggestions || "Analysis complete") as string,
+            duration: 8000,
+          });
+        } else if (jobRes.data.status === "failed") {
+          throw new Error(jobRes.data.error || "Analysis failed");
+        } else {
+          await new Promise((r) => setTimeout(r, 1500));
+          await poll();
+        }
+      };
+      toast.info("Analysing viral potential...");
+      await poll();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to analyse content");
+    }
+  };
+
   const handleFileSelect = (files: FileList | null) => {
     if (!files) return;
     const newFiles = Array.from(files).slice(0, 10 - media.length);
@@ -570,11 +649,11 @@ export default function ComposePage() {
                 <Hash className="h-3.5 w-3.5 mr-1.5" />
                 Hashtags
               </Button>
-              <Button variant="outline" size="sm" disabled={!caption.trim()}>
+              <Button variant="outline" size="sm" disabled={!caption.trim()} onClick={handleRepurpose}>
                 <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                 Repurpose
               </Button>
-              <Button variant="outline" size="sm" disabled={!caption.trim()}>
+              <Button variant="outline" size="sm" disabled={!caption.trim()} onClick={handleAnalyse}>
                 <BarChart2 className="h-3.5 w-3.5 mr-1.5" />
                 Analyse
               </Button>

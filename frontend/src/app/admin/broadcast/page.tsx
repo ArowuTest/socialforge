@@ -3,34 +3,11 @@
 import * as React from "react";
 import {
   Megaphone, Send, Calendar, Mail, Bell, Users, Eye,
-  CheckCircle2, Clock, XCircle,
+  CheckCircle2, Clock, XCircle, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface BroadcastRecord {
-  id: string;
-  subject: string;
-  target: string;
-  sentTo: number;
-  type: string;
-  sentAt: string;
-  openRate: string;
-  status: "sent" | "scheduled" | "failed";
-}
-
-const history: BroadcastRecord[] = [
-  { id: "bc_001", subject: "🚀 New Feature: AI Video Generation is Live!", target: "All Users", sentTo: 982, type: "Email + In-App", sentAt: "Apr 2, 2026 10:00 AM", openRate: "61.3%", status: "sent" },
-  { id: "bc_002", subject: "Your Free Trial is Ending Soon", target: "Free Plan", sentTo: 314, type: "Email", sentAt: "Mar 28, 2026 9:00 AM", openRate: "72.1%", status: "sent" },
-  { id: "bc_003", subject: "Exclusive: Upgrade to Agency & Save 20%", target: "Pro Plan", sentTo: 218, type: "Email + In-App", sentAt: "Mar 20, 2026 11:00 AM", openRate: "48.7%", status: "sent" },
-  { id: "bc_004", subject: "Scheduled Maintenance: Apr 8, 2026 2-4 AM UTC", target: "All Users", sentTo: 0, type: "In-App", sentAt: "Apr 8, 2026 1:00 AM", openRate: "—", status: "scheduled" },
-  { id: "bc_005", subject: "Platform Update: New LinkedIn Integration", target: "Paid Users", sentTo: 488, type: "Email", sentAt: "Mar 10, 2026 8:30 AM", openRate: "55.2%", status: "sent" },
-];
-
-const statusConfig = {
-  sent: { label: "Sent", color: "bg-emerald-900/50 text-emerald-300 border-emerald-800/60", icon: CheckCircle2 },
-  scheduled: { label: "Scheduled", color: "bg-blue-900/50 text-blue-300 border-blue-800/60", icon: Clock },
-  failed: { label: "Failed", color: "bg-red-900/50 text-red-300 border-red-800/60", icon: XCircle },
-};
+import { adminApi } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function BroadcastPage() {
   const [target, setTarget] = React.useState("all");
@@ -38,6 +15,7 @@ export default function BroadcastPage() {
   const [subject, setSubject] = React.useState("");
   const [body, setBody] = React.useState("");
   const [showPreview, setShowPreview] = React.useState(false);
+  const [sending, setSending] = React.useState(false);
 
   const targetLabels: Record<string, string> = {
     all: "All Users",
@@ -46,6 +24,34 @@ export default function BroadcastPage() {
     starter: "Starter Plan",
     pro: "Pro Plan",
     agency: "Agency Plan",
+  };
+
+  const handleSend = async () => {
+    if (!subject.trim()) {
+      toast.error("Please enter a subject");
+      return;
+    }
+    if (!body.trim()) {
+      toast.error("Please enter a message body");
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await adminApi.sendBroadcast({
+        subject,
+        body,
+        target,
+        msg_type: msgType,
+      });
+      const recipients = (res?.data as { recipients?: number })?.recipients ?? 0;
+      toast.success(`Broadcast sent to ${recipients} users`);
+      setSubject("");
+      setBody("");
+    } catch {
+      toast.error("Failed to send broadcast");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -164,71 +170,36 @@ export default function BroadcastPage() {
 
             {/* Actions */}
             <div className="flex gap-2 pt-1">
-              <button className="flex-1 flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-                <Send className="h-4 w-4" />
-                Send Now
-              </button>
-              <button className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
-                <Calendar className="h-4 w-4" />
-                Schedule
+              <button
+                onClick={handleSend}
+                disabled={sending || !subject.trim() || !body.trim()}
+                className="flex-1 flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-60"
+              >
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {sending ? "Sending..." : "Send Now"}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Stats summary */}
+        {/* Info panel */}
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: "Total Sent", value: "5", color: "text-white" },
-              { label: "Avg Open Rate", value: "59.5%", color: "text-emerald-400" },
-              { label: "Total Recipients", value: "2,002", color: "text-violet-400" },
-            ].map((s) => (
-              <div key={s.label} className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-center">
-                <p className={cn("text-2xl font-bold", s.color)}>{s.value}</p>
-                <p className="text-xs text-slate-500 mt-1">{s.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Broadcast history */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-800">
-              <h3 className="text-sm font-semibold text-white">Broadcast History</h3>
-            </div>
-
-            {/* Col headers */}
-            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-3 px-5 py-2.5 border-b border-slate-800">
-              {["Subject", "Target", "Sent To", "Open Rate", "Status"].map((h) => (
-                <span key={h} className="text-xs font-medium text-slate-500 uppercase tracking-wide">{h}</span>
-              ))}
-            </div>
-
-            {history.map((bc) => {
-              const sc = statusConfig[bc.status];
-              return (
-                <div
-                  key={bc.id}
-                  className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-3 px-5 py-3 items-start border-b border-slate-800/60 last:border-0 hover:bg-slate-800/30 transition-colors"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm text-white font-medium truncate">{bc.subject}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{bc.sentAt}</p>
-                  </div>
-                  <span className="text-xs text-slate-400">{bc.target}</span>
-                  <span className="text-sm text-white font-medium">
-                    {bc.sentTo > 0 ? bc.sentTo.toLocaleString() : "—"}
-                  </span>
-                  <span className={cn("text-sm font-semibold", bc.openRate !== "—" ? "text-emerald-400" : "text-slate-500")}>
-                    {bc.openRate}
-                  </span>
-                  <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border w-fit", sc.color)}>
-                    <sc.icon className="h-3 w-3" />
-                    {sc.label}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-white mb-3">How Broadcasts Work</h3>
+            <ul className="space-y-2 text-sm text-slate-400">
+              <li className="flex items-start gap-2">
+                <Mail className="h-4 w-4 text-violet-400 mt-0.5 flex-shrink-0" />
+                <span><span className="text-white font-medium">Email</span> sends via your configured email provider (Resend).</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Bell className="h-4 w-4 text-violet-400 mt-0.5 flex-shrink-0" />
+                <span><span className="text-white font-medium">In-App</span> creates a notification in each user&apos;s notification center.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Megaphone className="h-4 w-4 text-violet-400 mt-0.5 flex-shrink-0" />
+                <span><span className="text-white font-medium">Both</span> sends through both channels simultaneously.</span>
+              </li>
+            </ul>
           </div>
         </div>
       </div>

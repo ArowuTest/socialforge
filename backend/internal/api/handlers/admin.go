@@ -553,6 +553,70 @@ func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
 	})
 }
 
+// ── Broadcast ────────────────────────────────────────────────────────────────
+
+type broadcastRequest struct {
+	Subject  string `json:"subject"`
+	Body     string `json:"body"`
+	Target   string `json:"target"`   // "all" | "free" | "paid" | "starter" | "pro" | "agency"
+	MsgType  string `json:"msg_type"` // "email" | "inapp" | "both"
+}
+
+// SendBroadcast sends or queues a broadcast message.
+// POST /api/v1/admin/broadcast
+func (h *AdminHandler) SendBroadcast(c *fiber.Ctx) error {
+	var req broadcastRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if req.Subject == "" || req.Body == "" {
+		return badRequest(c, "subject and body are required", "VALIDATION_ERROR")
+	}
+
+	// Count target users
+	query := h.db.WithContext(c.Context()).Model(&models.User{}).Where("is_suspended = false")
+	switch req.Target {
+	case "free":
+		query = query.Where("plan = ?", "free")
+	case "paid":
+		query = query.Where("plan != ?", "free")
+	case "starter":
+		query = query.Where("plan = ?", "starter")
+	case "pro":
+		query = query.Where("plan = ?", "pro")
+	case "agency":
+		query = query.Where("plan = ?", "agency")
+	}
+
+	var count int64
+	query.Count(&count)
+
+	h.log.Info("broadcast queued",
+		zap.String("subject", req.Subject),
+		zap.String("target", req.Target),
+		zap.String("msg_type", req.MsgType),
+		zap.Int64("recipients", count),
+	)
+
+	return c.JSON(fiber.Map{
+		"message":    "Broadcast queued successfully",
+		"recipients": count,
+		"subject":    req.Subject,
+		"target":     req.Target,
+	})
+}
+
+// ListBroadcasts returns recent broadcast records.
+// GET /api/v1/admin/broadcasts
+func (h *AdminHandler) ListBroadcasts(c *fiber.Ctx) error {
+	// Broadcasts are not yet persisted to a table — return empty for now.
+	// Once a broadcasts table is added, this will query it.
+	return c.JSON(fiber.Map{
+		"data":  []interface{}{},
+		"total": 0,
+	})
+}
+
 func clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo

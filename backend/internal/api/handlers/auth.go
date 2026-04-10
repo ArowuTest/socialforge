@@ -376,6 +376,74 @@ func (h *AuthHandler) GetCurrentUser(c *fiber.Ctx) error {
 	})
 }
 
+// ── UpdateProfile ────────────────────────────────────────────────────────────
+
+type updateProfileRequest struct {
+	Name string `json:"name"`
+}
+
+// UpdateProfile updates the authenticated user's profile fields.
+// PATCH /api/v1/auth/me
+func (h *AuthHandler) UpdateProfile(c *fiber.Ctx) error {
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req updateProfileRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+
+	if strings.TrimSpace(req.Name) == "" {
+		return badRequest(c, "name is required", "VALIDATION_ERROR")
+	}
+
+	user.Name = strings.TrimSpace(req.Name)
+
+	if err := h.users.Update(c.Context(), user); err != nil {
+		h.log.Error("UpdateProfile: users.Update", zap.Error(err))
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to update profile"})
+	}
+
+	return c.JSON(fiber.Map{"data": user})
+}
+
+// ── ChangePassword ──────────────────────────────────────────────────────────
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+// ChangePassword changes the authenticated user's password.
+// POST /api/v1/auth/change-password
+func (h *AuthHandler) ChangePassword(c *fiber.Ctx) error {
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req changePasswordRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+
+	if req.CurrentPassword == "" || req.NewPassword == "" {
+		return badRequest(c, "both current and new password are required", "VALIDATION_ERROR")
+	}
+
+	if err := h.auth.ChangePassword(c.Context(), user.ID, req.CurrentPassword, req.NewPassword); err != nil {
+		if err.Error() == "current password is incorrect" {
+			return c.Status(400).JSON(fiber.Map{"error": "Current password is incorrect", "code": "INVALID_PASSWORD"})
+		}
+		h.log.Error("ChangePassword", zap.Error(err))
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{"message": "Password changed successfully"}})
+}
+
 // ── CreateAPIKey ──────────────────────────────────────────────────────────────
 
 type createAPIKeyRequest struct {

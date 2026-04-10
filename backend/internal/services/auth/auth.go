@@ -579,3 +579,34 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, rawToken, newPasswor
 
 	return nil
 }
+
+// ── ChangePassword ───────────────────────────────────────────────────────────
+
+// ChangePassword verifies the current password and sets a new one.
+func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, currentPassword, newPassword string) error {
+	if len(newPassword) < 8 {
+		return ErrWeakPassword
+	}
+
+	var user models.User
+	if err := s.db.WithContext(ctx).First(&user, "id = ?", userID).Error; err != nil {
+		return fmt.Errorf("find user: %w", err)
+	}
+
+	if !verifyPassword(currentPassword, user.PasswordHash) {
+		return errors.New("current password is incorrect")
+	}
+
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	if err := s.db.WithContext(ctx).
+		Model(&user).
+		Update("password_hash", hash).Error; err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	return nil
+}

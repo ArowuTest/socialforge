@@ -103,6 +103,8 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	auth.Post("/password-reset/confirm", authLimiter, authH.ConfirmPasswordReset)
 	auth.Post("/accept-invite", mw.JWTAuth(), membersH.AcceptInvite)
 	auth.Get("/me", mw.JWTAuth(), authH.GetCurrentUser)
+	auth.Patch("/me", mw.JWTAuth(), authH.UpdateProfile)
+	auth.Post("/change-password", mw.JWTAuth(), authH.ChangePassword)
 	auth.Delete("/account", mw.JWTAuth(), gdprH.DeleteAccount)
 	auth.Get("/account/export", mw.JWTAuth(), gdprH.ExportData)
 	auth.Post("/api-keys", mw.JWTAuth(), authH.CreateAPIKey)
@@ -196,6 +198,8 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	admin.Get("/revenue", adminH.GetRevenueStats)
 	admin.Post("/grant-credits", adminH.GrantCredits)
 	admin.Post("/grant-plan", adminH.GrantPlanAccess)
+	admin.Post("/broadcast", adminH.SendBroadcast)
+	admin.Get("/broadcasts", adminH.ListBroadcasts)
 
 	// Cost configuration (admin-only)
 	admin.Get("/cost-config/ai-jobs",         costConfigH.GetAIJobCosts)
