@@ -798,19 +798,105 @@ Be specific — not "improve the hook" but "Replace the opening with a surprisin
 }
 
 // ─── ProcessJob ───────────────────────────────────────────────────────────────
+
+// processJobPayload is a local mirror of queue.AIGeneratePayload used to avoid
+// an import cycle (queue → ai; ai must not import queue).
+type processJobPayload struct {
+	JobID          uuid.UUID `json:"job_id"`
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+	UserID         uuid.UUID `json:"user_id"`
+	JobType        string    `json:"job_type"`
+	Prompt         string    `json:"prompt"`
+	Platform       string    `json:"platform"`
+	Tone           string    `json:"tone"`
+	TargetAudience string    `json:"target_audience"`
+	Style          string    `json:"style"`
+	Niche          string    `json:"niche"`
+	Content        string    `json:"content"`
+	SourceURL      string    `json:"source_url"`
+	Platforms      []string  `json:"platforms"`
+	Slides         int       `json:"slides"`
+	Duration       int       `json:"duration"`
+}
+
 // ProcessJob is called by the asynq AIGenerateHandler and dispatches to the
-// appropriate method based on the AIGeneratePayload.JobType.
+// appropriate typed method based on JobType. The payload is marshalled to JSON
+// and decoded into a local mirror struct to avoid an import cycle with the
+// queue package. Credits are deducted inside each Generate* method, so the
+// calling code must NOT pre-deduct credits before enqueueing.
 func (s *Service) ProcessJob(ctx context.Context, p interface{}) (map[string]interface{}, error) {
-	// We accept interface{} to satisfy the queue.AIService interface while
-	// allowing the compiler to see the concrete type via type assertion.
-	type aiPayload interface {
-		getJobType() string
+	b, err := json.Marshal(p)
+	if err != nil {
+		return nil, fmt.Errorf("ProcessJob: marshal payload: %w", err)
+	}
+	var payload processJobPayload
+	if err := json.Unmarshal(b, &payload); err != nil {
+		return nil, fmt.Errorf("ProcessJob: unmarshal payload: %w", err)
 	}
 
-	// Import the payload type from queue package via a local struct mirror
-	// to avoid an import cycle. The queue package imports models; ai should not
-	// import queue. Instead, we use a local adapter struct below.
-	return nil, fmt.Errorf("ProcessJob: use typed method dispatch via ServiceAdapter")
+	tone := payload.Tone
+	if tone == "" {
+		tone = "engaging"
+	}
+	audience := payload.TargetAudience
+	if audience == "" {
+		audience = "general audience"
+	}
+
+	switch payload.JobType {
+	case "caption":
+		result, _, err := s.GenerateCaption(ctx, payload.WorkspaceID, payload.UserID,
+			payload.Prompt, payload.Platform, tone, audience)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"caption": result.Caption, "hashtags": result.Hashtags}, nil
+
+	case "hashtags":
+		tags, _, err := s.GenerateHashtags(ctx, payload.WorkspaceID, payload.UserID,
+			payload.Content, payload.Platform, payload.Niche)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"hashtags": tags}, nil
+
+	case "image":
+		result, _, err := s.GenerateImage(ctx, payload.WorkspaceID, payload.UserID,
+			payload.Prompt, payload.Style)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"url": result.URL, "width": result.Width, "height": result.Height}, nil
+
+	case "video":
+		// Video is already asynchronous inside GenerateVideo (goroutine + job record).
+		// We just need to trigger it; the job status is polled separately.
+		job, err := s.GenerateVideo(ctx, payload.WorkspaceID, payload.UserID,
+			payload.Prompt, payload.Duration, payload.Style)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"job_id": job.ID}, nil
+
+	case "carousel":
+		slides, _, err := s.GenerateCarousel(ctx, payload.WorkspaceID, payload.UserID,
+			payload.Prompt, payload.Slides, payload.Platform)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"slides": slides}, nil
+
+	case "analyse":
+		analysis, _, err := s.AnalyseViralPotential(ctx, payload.WorkspaceID, payload.UserID,
+			payload.Content, payload.Platform)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"analysis": analysis}, nil
+
+	default:
+		return nil, fmt.Errorf("ProcessJob: unknown job_type %q", payload.JobType)
+	}
 }
 
 // ─── GetJob ───────────────────────────────────────────────────────────────────

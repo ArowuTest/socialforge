@@ -44,6 +44,32 @@ import (
 	"github.com/socialforge/backend/internal/platforms/youtube"
 )
 
+// repurposeAdapter bridges ai.Service to the queue.RepurposeService interface.
+// It translates a queue.RepurposeContentPayload into an ai.RepurposeInput and
+// returns the platform drafts as a generic map so the queue handler can persist
+// the output as a models.JSONMap without importing the ai package.
+type repurposeAdapter struct {
+	svc *ai.Service
+}
+
+func (a *repurposeAdapter) ProcessRepurpose(ctx context.Context, payload queue.RepurposeContentPayload) (map[string]interface{}, error) {
+	input := ai.RepurposeInput{
+		SourceType: string(payload.Source),
+		SourceURL:  payload.SourceURL,
+		SourceText: payload.PostContent,
+		Platforms:  payload.TargetPlatforms,
+	}
+	drafts, err := a.svc.Repurpose(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]interface{}, len(drafts))
+	for platform, draft := range drafts {
+		out[platform] = draft
+	}
+	return out, nil
+}
+
 func main() {
 	// ── Logger ────────────────────────────────────────────────────────────────
 	log := buildLogger()
@@ -133,11 +159,12 @@ func main() {
 
 	// ── Asynq server + worker deps ────────────────────────────────────────────
 	workerDeps := queue.WorkerDeps{
-		DB:             db,
-		Logger:         log,
-		Publisher:      publishService,
-		AIService:      aiService,
-		OAuthRefresher: publishService,
+		DB:               db,
+		Logger:           log,
+		Publisher:        publishService,
+		AIService:        aiService,
+		RepurposeService: &repurposeAdapter{svc: aiService},
+		OAuthRefresher:   publishService,
 	}
 	queueSrv, mux := queue.NewServer(rdb, workerDeps, queue.DefaultServerConfig())
 
