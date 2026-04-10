@@ -289,19 +289,23 @@ func main() {
 // buildLogger constructs a production or development zap logger based on APP_ENV.
 func buildLogger() *zap.Logger {
 	env := os.Getenv("APP_ENV")
-	var log *zap.Logger
+	var l *zap.Logger
 	if env == "production" || env == "staging" {
 		cfg := zap.NewProductionConfig()
 		cfg.EncoderConfig.TimeKey = "ts"
 		cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-		log, _ = cfg.Build()
+		// Write to stdout so Render (and any log aggregator) captures all output,
+		// including fatal startup errors that would otherwise go to stderr only.
+		cfg.OutputPaths = []string{"stdout"}
+		cfg.ErrorOutputPaths = []string{"stdout"}
+		l, _ = cfg.Build()
 	} else {
-		log, _ = zap.NewDevelopment()
+		l, _ = zap.NewDevelopment()
 	}
-	if log == nil {
-		log = zap.NewNop()
+	if l == nil {
+		l = zap.NewNop()
 	}
-	return log
+	return l
 }
 
 // fiberZapLogger returns a Fiber middleware that logs each request with zap.
