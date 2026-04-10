@@ -3,6 +3,7 @@
 package models
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
@@ -174,6 +175,13 @@ func (s *StringSlice) Scan(src interface{}) error {
 		return nil
 	default:
 		return fmt.Errorf("StringSlice: unsupported source type %T", src)
+	}
+	// Gracefully handle empty, null, or legacy JSON object values stored as {}.
+	// These should be treated as empty slices rather than causing a scan error.
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || string(trimmed) == "null" || (len(trimmed) > 0 && trimmed[0] == '{') {
+		*s = StringSlice{}
+		return nil
 	}
 	return json.Unmarshal(data, s)
 }
