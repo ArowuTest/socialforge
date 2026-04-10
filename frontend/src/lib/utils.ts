@@ -60,6 +60,7 @@ export function getPlatformColor(platform: Platform): string {
     [Platform.FACEBOOK]: "#1877F2",
     [Platform.PINTEREST]: "#E60023",
     [Platform.THREADS]: "#000000",
+    [Platform.BLUESKY]: "#0085FF",
   };
   return colors[platform] ?? "#6B7280";
 }
@@ -74,6 +75,7 @@ export function getPlatformBgClass(platform: Platform): string {
     [Platform.FACEBOOK]: "bg-blue-600",
     [Platform.PINTEREST]: "bg-red-600",
     [Platform.THREADS]: "bg-black",
+    [Platform.BLUESKY]: "bg-blue-500",
   };
   return classes[platform] ?? "bg-gray-500";
 }
@@ -88,6 +90,7 @@ export function getPlatformIconName(platform: Platform): string {
     [Platform.FACEBOOK]: "Facebook",
     [Platform.PINTEREST]: "Pin",
     [Platform.THREADS]: "MessageCircle",
+    [Platform.BLUESKY]: "Globe",
   };
   return icons[platform] ?? "Globe";
 }
@@ -102,6 +105,7 @@ export function getPlatformDisplayName(platform: Platform): string {
     [Platform.FACEBOOK]: "Facebook",
     [Platform.PINTEREST]: "Pinterest",
     [Platform.THREADS]: "Threads",
+    [Platform.BLUESKY]: "Bluesky",
   };
   return names[platform] ?? platform;
 }
@@ -116,6 +120,7 @@ export function getCharacterLimit(platform: Platform): number {
     [Platform.FACEBOOK]: 63206,
     [Platform.PINTEREST]: 500,
     [Platform.THREADS]: 500,
+    [Platform.BLUESKY]: 300,
   };
   return limits[platform] ?? 2200;
 }

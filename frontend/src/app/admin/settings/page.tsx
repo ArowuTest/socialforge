@@ -198,6 +198,14 @@ export default function SettingsPage() {
   const [enforce2FA, setEnforce2FA] = React.useState(false);
   const [ipAllowlist, setIpAllowlist] = React.useState("");
 
+  // Integrations state
+  const [integrations, setIntegrations] = React.useState<
+    Array<{ key: string; label: string; configured: boolean; masked: string; updated_at: string | null }>
+  >([]);
+  const [editingIntKey, setEditingIntKey] = React.useState<string | null>(null);
+  const [newKeyValue, setNewKeyValue] = React.useState("");
+  const [keySaving, setKeySaving] = React.useState(false);
+
   // Maintenance state
   const [maintenanceMode, setMaintenanceMode] = React.useState(false);
   const [confirmClearCache, setConfirmClearCache] = React.useState(false);
@@ -281,6 +289,9 @@ export default function SettingsPage() {
           bestValue: p.best_value,
         })));
       }
+    }).catch(() => {});
+    adminApi.getIntegrationStatus().then((res) => {
+      if (res?.data) setIntegrations(res.data);
     }).catch(() => {});
   }, []);
 
@@ -527,15 +538,92 @@ export default function SettingsPage() {
 
       {/* Integrations tab */}
       {activeTab === "integrations" && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-2xl">
-          <h3 className="text-sm font-semibold text-white mb-1">API Keys & Integrations</h3>
-          <p className="text-xs text-slate-500 mb-4">Manage third-party service credentials. Values are stored encrypted.</p>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-2xl space-y-6">
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-1">AI Service API Keys</h3>
+            <p className="text-xs text-slate-500 mb-4">Configure the API keys used for AI content generation. Keys are stored AES-256 encrypted. Changes take effect within 60 seconds.</p>
 
-          <MaskedField label="Stripe Secret Key" value="sk_live_••••••••••••••••••••••••••••••" status="ok" />
-          <MaskedField label="AI Provider API Key" value="sk-proj-••••••••••••••••••••••••••••••" status="ok" />
-          <MaskedField label="Fal.ai API Key" value="fal-key-••••••••••••••••••••••••••••" status="ok" />
-          <MaskedField label="Resend API Key" value="re_••••••••••••••••••••••••••••••••" status="ok" />
-          <MaskedField label="Upstash Redis URL" value="rediss://default:••••••••••••@••••.upstash.io:6379" status="ok" />
+            {integrations.length === 0 ? (
+              <p className="text-xs text-slate-500 py-4">Loading integrations...</p>
+            ) : (
+              <div className="space-y-0 divide-y divide-slate-800/60">
+                {integrations.map((int) => (
+                  <div key={int.key} className="py-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white">{int.label}</p>
+                        <p className="text-xs font-mono text-slate-500 mt-0.5">
+                          {int.configured ? int.masked : "Not configured"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {int.configured ? (
+                          <span className="flex items-center gap-1 text-xs text-emerald-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Active
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-amber-400">
+                            <AlertTriangle className="h-3.5 w-3.5" /> Not set
+                          </span>
+                        )}
+                        <button
+                          onClick={() => {
+                            setEditingIntKey(editingIntKey === int.key ? null : int.key);
+                            setNewKeyValue("");
+                          }}
+                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-white border border-slate-700 hover:border-slate-600 px-2.5 py-1 rounded-lg transition-colors"
+                        >
+                          <Edit2 className="h-3 w-3" />
+                          {editingIntKey === int.key ? "Cancel" : "Edit"}
+                        </button>
+                      </div>
+                    </div>
+                    {editingIntKey === int.key && (
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          type="password"
+                          value={newKeyValue}
+                          onChange={(e) => setNewKeyValue(e.target.value)}
+                          placeholder={`Paste your ${int.label} key...`}
+                          className={inputClass + " flex-1"}
+                          autoFocus
+                        />
+                        <button
+                          disabled={!newKeyValue || keySaving}
+                          onClick={async () => {
+                            setKeySaving(true);
+                            try {
+                              await adminApi.updatePlatformSetting(int.key, newKeyValue);
+                              toast.success(`${int.label} updated`);
+                              setEditingIntKey(null);
+                              setNewKeyValue("");
+                              // Refresh integration status
+                              const res = await adminApi.getIntegrationStatus();
+                              if (res?.data) setIntegrations(res.data);
+                            } catch {
+                              toast.error(`Failed to update ${int.label}`);
+                            } finally {
+                              setKeySaving(false);
+                            }
+                          }}
+                          className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm rounded-lg transition-colors"
+                        >
+                          {keySaving ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-white mb-1">Other Services</h3>
+            <p className="text-xs text-slate-500 mb-4">These are configured via environment variables on the server.</p>
+            <MaskedField label="Stripe" value="Configured via STRIPE_SECRET_KEY env var" status="ok" />
+            <MaskedField label="Redis" value="Configured via REDIS_URL env var" status="ok" />
+          </div>
         </div>
       )}
 

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   format,
@@ -180,6 +181,7 @@ function CalendarSkeleton() {
 }
 
 export default function CalendarPage() {
+  const router = useRouter();
   const [currentDate, setCurrentDate] = React.useState(new Date());
   const [viewMode, setViewMode] = React.useState<ViewMode>("month");
   const [selectedPlatforms, setSelectedPlatforms] = React.useState<string[]>(["all"]);
@@ -434,7 +436,7 @@ export default function CalendarPage() {
       {/* FAB */}
       <button
         className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-violet-600 hover:bg-violet-700 text-white shadow-lg hover:shadow-xl transition-all flex items-center justify-center z-20"
-        onClick={() => {}}
+        onClick={() => router.push("/compose")}
         title="Schedule new post"
       >
         <Plus className="h-6 w-6" />

@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
+import { analyticsApi, postsApi, accountsApi, billingApi } from "@/lib/api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -259,20 +260,6 @@ function StatCard({ stat }: { stat: StatCardData }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-async function fetchJSON<T = any>(url: string): Promise<T | null> {
-  try {
-    const tokensRaw = typeof window !== "undefined" ? localStorage.getItem("sf-auth") : null;
-    const accessToken = tokensRaw ? JSON.parse(tokensRaw)?.state?.tokens?.accessToken : null;
-    const res = await fetch(url, {
-      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
 function formatNumber(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
@@ -298,19 +285,23 @@ export default function DashboardPage() {
       setLoading(false);
       return;
     }
-    const wid = workspace.id;
     let cancelled = false;
 
     (async () => {
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const endDate = now.toISOString().slice(0, 10);
+      const startDate = thirtyDaysAgo.toISOString().slice(0, 10);
+
       const [analyticsRes, postsRes, accountsRes, creditsRes] = await Promise.all([
-        fetchJSON<{ data: any }>(`/api/v1/workspaces/${wid}/analytics?period=30d`),
-        fetchJSON<{ data: any[]; total?: number }>(`/api/v1/workspaces/${wid}/posts?limit=5`),
-        fetchJSON<{ data: any[] }>(`/api/v1/workspaces/${wid}/accounts`),
-        fetchJSON<{ data: any }>(`/api/v1/workspaces/${wid}/billing/credits/balance`),
+        analyticsApi.getOverview({ startDate, endDate }).catch(() => null),
+        postsApi.list({ pageSize: 5 }).catch(() => null),
+        accountsApi.list().catch(() => null),
+        billingApi.getCreditBalance().catch(() => null),
       ]);
       if (cancelled) return;
 
-      const a = analyticsRes?.data || {};
+      const a = (analyticsRes as any)?.data || {};
       const engagementByPlatform: Array<{ platform: string; engagement: number }> =
         a.engagement_by_platform || [];
       const postsByDay: Array<{ date: string; count: number }> = a.posts_by_day || [];
@@ -336,9 +327,9 @@ export default function DashboardPage() {
       const scheduledCount = (postsRes?.data || []).filter(
         (p: any) => p.status === "scheduled"
       ).length;
-      const totalScheduled = postsRes?.total ?? scheduledCount;
+      const totalScheduled = (postsRes as any)?.total ?? scheduledCount;
 
-      const credits = creditsRes?.data || {};
+      const credits = (creditsRes?.data || {}) as any;
       const creditsUsed: number = credits.used || credits.credits_used || 0;
       const creditsLimit: number = credits.limit || credits.credits_limit || 2000;
       const creditsPct = creditsLimit > 0 ? Math.round((creditsUsed / creditsLimit) * 100) : 0;

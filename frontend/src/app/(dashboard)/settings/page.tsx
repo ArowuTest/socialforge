@@ -22,7 +22,7 @@ import {
   Check,
 } from "lucide-react";
 import { toast } from "sonner";
-import { billingApi, apiKeysApi, workspaceApi, whitelabelApi } from "@/lib/api";
+import { authApi, billingApi, apiKeysApi, workspaceApi, whitelabelApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/stores/auth";
 import { PlanType } from "@/types";
 import { cn, formatRelativeTime, getInitials, slugify } from "@/lib/utils";
@@ -155,20 +155,30 @@ function ProfileTab() {
 
   const handleSaveProfile = async () => {
     setIsSaving(true);
-    await new Promise((r) => setTimeout(r, 800)); // simulate API call
-    if (user) setUser({ ...user, name });
-    toast.success("Profile updated.");
-    setIsSaving(false);
+    try {
+      const res = await authApi.updateProfile({ name });
+      if (user) setUser({ ...user, ...res.data });
+      toast.success("Profile updated.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update profile.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleChangePassword = async () => {
     if (newPw !== confirmPw) { toast.error("Passwords don't match."); return; }
     if (newPw.length < 8) { toast.error("Password must be at least 8 characters."); return; }
     setIsSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    toast.success("Password changed successfully.");
-    setCurrentPw(""); setNewPw(""); setConfirmPw("");
-    setIsSaving(false);
+    try {
+      await authApi.changePassword({ currentPassword: currentPw, newPassword: newPw });
+      toast.success("Password changed successfully.");
+      setCurrentPw(""); setNewPw(""); setConfirmPw("");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to change password.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

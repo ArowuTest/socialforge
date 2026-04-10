@@ -20,6 +20,7 @@ import {
   Pin,
   Loader2,
   ExternalLink,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { accountsApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/stores/auth";
 import { AccountStatus, Platform, SocialAccount } from "@/types";
@@ -49,6 +51,7 @@ const platformConfig = [
   { id: Platform.FACEBOOK, label: "Facebook", Icon: Facebook, gradient: "from-blue-600 to-blue-700" },
   { id: Platform.PINTEREST, label: "Pinterest", Icon: Pin, gradient: "from-red-600 to-red-700" },
   { id: Platform.THREADS, label: "Threads", Icon: MessageCircle, gradient: "from-gray-900 to-black" },
+  { id: Platform.BLUESKY, label: "Bluesky", Icon: Globe, gradient: "from-blue-500 to-blue-600" },
 ];
 
 function StatusBadge({ status }: { status: AccountStatus }) {
@@ -219,6 +222,13 @@ function AccountSkeleton() {
 export default function AccountsPage() {
   const queryClient = useQueryClient();
   const { workspace } = useAuthStore();
+  const addAccountRef = React.useRef<HTMLDivElement>(null);
+
+  // Bluesky connection dialog state
+  const [blueskyDialogOpen, setBlueskyDialogOpen] = React.useState(false);
+  const [blueskyHandle, setBlueskyHandle] = React.useState("");
+  const [blueskyAppPassword, setBlueskyAppPassword] = React.useState("");
+  const [blueskyConnecting, setBlueskyConnecting] = React.useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["accounts"],
@@ -248,11 +258,36 @@ export default function AccountsPage() {
       toast.error("No workspace found");
       return;
     }
+    // Bluesky uses app passwords instead of OAuth
+    if (platform === Platform.BLUESKY) {
+      setBlueskyDialogOpen(true);
+      return;
+    }
     try {
       const res = await accountsApi.getOAuthUrl(platform);
       window.location.href = res.data.url;
     } catch {
       toast.error(`Failed to connect ${getPlatformDisplayName(platform)}`);
+    }
+  };
+
+  const handleBlueskySubmit = async () => {
+    if (!blueskyHandle.trim() || !blueskyAppPassword.trim()) {
+      toast.error("Please fill in both fields");
+      return;
+    }
+    setBlueskyConnecting(true);
+    try {
+      await accountsApi.connectBluesky(blueskyHandle.trim(), blueskyAppPassword.trim());
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      toast.success("Bluesky account connected");
+      setBlueskyDialogOpen(false);
+      setBlueskyHandle("");
+      setBlueskyAppPassword("");
+    } catch {
+      toast.error("Failed to connect Bluesky account");
+    } finally {
+      setBlueskyConnecting(false);
     }
   };
 
@@ -269,7 +304,9 @@ export default function AccountsPage() {
         </div>
         <Button
           className="bg-violet-600 hover:bg-violet-700 text-white"
-          onClick={() => {}}
+          onClick={() => {
+            addAccountRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
         >
           <Plus className="h-4 w-4 mr-1.5" />
           Connect Account
@@ -328,7 +365,7 @@ export default function AccountsPage() {
       )}
 
       {/* Connect new section */}
-      <div>
+      <div ref={addAccountRef}>
         <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3">
           Add New Account
         </h2>
@@ -370,6 +407,65 @@ export default function AccountsPage() {
           })}
         </div>
       </div>
+
+      {/* Bluesky connection dialog */}
+      <Dialog open={blueskyDialogOpen} onOpenChange={setBlueskyDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Connect Bluesky</DialogTitle>
+            <DialogDescription>
+              Bluesky uses app passwords instead of OAuth. Generate one at{" "}
+              <a
+                href="https://bsky.app/settings/app-passwords"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-500 hover:underline inline-flex items-center gap-0.5"
+              >
+                bsky.app/settings/app-passwords
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label htmlFor="bluesky-handle" className="text-sm font-medium">
+                Handle
+              </label>
+              <Input
+                id="bluesky-handle"
+                placeholder="user.bsky.social"
+                value={blueskyHandle}
+                onChange={(e) => setBlueskyHandle(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="bluesky-password" className="text-sm font-medium">
+                App Password
+              </label>
+              <Input
+                id="bluesky-password"
+                type="password"
+                placeholder="xxxx-xxxx-xxxx-xxxx"
+                value={blueskyAppPassword}
+                onChange={(e) => setBlueskyAppPassword(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBlueskyDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-blue-500 hover:bg-blue-600 text-white"
+              onClick={handleBlueskySubmit}
+              disabled={blueskyConnecting}
+            >
+              {blueskyConnecting && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              Connect
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

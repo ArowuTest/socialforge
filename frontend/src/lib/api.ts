@@ -203,6 +203,18 @@ export const authApi = {
 
   me: () => request<ApiResponse<User>>("/api/v1/auth/me"),
 
+  updateProfile: (data: { name: string }) =>
+    request<ApiResponse<User>>("/api/v1/auth/me", {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  changePassword: (data: { currentPassword: string; newPassword: string }) =>
+    request<ApiResponse<{ message: string }>>("/api/v1/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
   requestPasswordReset: (email: string) =>
     request<ApiResponse<{ message: string }>>("/api/v1/auth/password-reset/request", {
       method: "POST",
@@ -323,6 +335,16 @@ export const accountsApi = {
     success: true,
     data: { url: oauthApi.getConnectUrl(platform) },
   }),
+
+  /** Connect a Bluesky account using handle + app password. */
+  connectBluesky: (handle: string, appPassword: string) =>
+    request<ApiResponse<SocialAccount>>(
+      `${BASE_URL}/api/v1/oauth/bluesky/connect`,
+      {
+        method: "POST",
+        body: JSON.stringify({ handle, appPassword }),
+      },
+    ),
 };
 
 // ============================================================
@@ -709,4 +731,9 @@ export const adminApi = {
       method: "PUT",
       body: JSON.stringify({ value }),
     }),
+
+  getIntegrationStatus: () =>
+    request<ApiResponse<Array<{ key: string; label: string; configured: boolean; masked: string; updated_at: string | null }>>>(
+      "/api/v1/admin/cost-config/integrations",
+    ),
 };

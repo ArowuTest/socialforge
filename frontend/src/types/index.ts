@@ -11,6 +11,7 @@ export enum Platform {
   FACEBOOK = "facebook",
   PINTEREST = "pinterest",
   THREADS = "threads",
+  BLUESKY = "bluesky",
 }
 
 export enum PostStatus {

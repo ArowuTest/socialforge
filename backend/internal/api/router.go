@@ -64,7 +64,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 		deps.Config.Storage.SecretAccessKey,
 		deps.Log)
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
-	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Log)
+	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Config.JWT.Secret, deps.Log)
 	membersH := handlers.NewMembersHandler(deps.DB, deps.RDB, repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)
 	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
 	gdprH := handlers.NewGDPRHandler(deps.DB, deps.Log)
@@ -201,6 +201,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	admin.Patch("/cost-config/packages/:id",  costConfigH.UpdateCreditPackage)
 	admin.Get("/cost-config/settings",        costConfigH.GetPlatformSettings)
 	admin.Put("/cost-config/settings/:key",   costConfigH.UpdatePlatformSetting)
+	admin.Get("/cost-config/integrations",    costConfigH.GetIntegrationStatus)
 
 	// ── Billing ───────────────────────────────────────────────────────────────
 	billing := v1.Group("/billing")

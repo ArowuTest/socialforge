@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -18,6 +19,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/google/uuid"
+	"github.com/socialforge/backend/internal/crypto"
 	"github.com/socialforge/backend/internal/models"
 )
 
@@ -135,23 +137,143 @@ var platformGuidance = map[string]string{
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 // Service provides all AI content generation capabilities.
+// API keys and credit costs are refreshed from the database every 60 seconds,
+// allowing admin to reconfigure them at runtime without restarting the server.
 type Service struct {
-	db           *gorm.DB
-	openaiClient *openai.Client
-	falAPIKey    string
-	httpClient   *http.Client
-	log          *zap.Logger
+	db         *gorm.DB
+	httpClient *http.Client
+	log        *zap.Logger
+
+	// mu protects all mutable config fields below.
+	mu               sync.RWMutex
+	encryptSecret    string
+	fallbackOpenAIKey string
+	fallbackFalKey    string
+	cachedOpenAIKey  string
+	cachedFalKey     string
+	openaiClient     *openai.Client
+	creditCosts      map[string]int
+	lastRefreshed    time.Time
 }
 
-// New creates a new AI Service.
-func New(db *gorm.DB, openaiAPIKey, falAPIKey string, log *zap.Logger) *Service {
-	return &Service{
-		db:           db,
-		openaiClient: openai.NewClient(openaiAPIKey),
-		falAPIKey:    falAPIKey,
-		httpClient:   &http.Client{Timeout: 120 * time.Second},
-		log:          log,
+// New creates a new AI Service. The encryptSecret is used to decrypt API keys
+// stored in the platform_settings table. Environment-variable keys serve as
+// fallbacks when the database has no key configured.
+func New(db *gorm.DB, openaiAPIKey, falAPIKey, encryptSecret string, log *zap.Logger) *Service {
+	s := &Service{
+		db:                db,
+		httpClient:        &http.Client{Timeout: 120 * time.Second},
+		log:               log,
+		encryptSecret:     encryptSecret,
+		fallbackOpenAIKey: openaiAPIKey,
+		fallbackFalKey:    falAPIKey,
+		cachedOpenAIKey:   openaiAPIKey,
+		cachedFalKey:      falAPIKey,
+		creditCosts:       make(map[string]int),
 	}
+	if openaiAPIKey != "" {
+		s.openaiClient = openai.NewClient(openaiAPIKey)
+	}
+	return s
+}
+
+// refreshConfig reloads API keys from platform_settings and credit costs from
+// ai_job_costs. Called under write lock.
+func (s *Service) refreshConfig() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 1. API keys from platform_settings
+	var settings []struct {
+		Key   string `gorm:"column:key"`
+		Value string `gorm:"column:value"`
+	}
+	s.db.Table("platform_settings").
+		Where("key IN ?", []string{"openai_api_key", "fal_api_key"}).
+		Find(&settings)
+
+	newOpenAI := s.fallbackOpenAIKey
+	newFal := s.fallbackFalKey
+	for _, row := range settings {
+		if row.Value == "" {
+			continue
+		}
+		decrypted, err := crypto.Decrypt(row.Value, s.encryptSecret)
+		if err != nil {
+			s.log.Warn("failed to decrypt platform setting", zap.String("key", row.Key), zap.Error(err))
+			continue
+		}
+		switch row.Key {
+		case "openai_api_key":
+			newOpenAI = decrypted
+		case "fal_api_key":
+			newFal = decrypted
+		}
+	}
+
+	if newOpenAI != s.cachedOpenAIKey && newOpenAI != "" {
+		s.openaiClient = openai.NewClient(newOpenAI)
+		s.cachedOpenAIKey = newOpenAI
+		s.log.Info("OpenAI API key updated from platform_settings")
+	}
+	if newFal != s.cachedFalKey {
+		s.cachedFalKey = newFal
+		s.log.Info("Fal.ai API key updated from platform_settings")
+	}
+
+	// 2. Credit costs from ai_job_costs
+	var costs []struct {
+		JobType string `gorm:"column:job_type"`
+		Credits int    `gorm:"column:credits"`
+	}
+	s.db.Table("ai_job_costs").Where("is_active = true").Find(&costs)
+	if len(costs) > 0 {
+		m := make(map[string]int, len(costs))
+		for _, c := range costs {
+			m[c.JobType] = c.Credits
+		}
+		s.creditCosts = m
+	}
+
+	s.lastRefreshed = time.Now()
+}
+
+// maybeRefresh triggers a config reload if the cache is older than 60 seconds.
+func (s *Service) maybeRefresh() {
+	s.mu.RLock()
+	stale := time.Since(s.lastRefreshed) > 60*time.Second
+	s.mu.RUnlock()
+	if stale {
+		s.refreshConfig()
+	}
+}
+
+// getOpenAIClient returns the current OpenAI client, refreshing config if stale.
+func (s *Service) getOpenAIClient() *openai.Client {
+	s.maybeRefresh()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.openaiClient
+}
+
+// getFalAPIKey returns the current fal.ai key, refreshing config if stale.
+func (s *Service) getFalAPIKey() string {
+	s.maybeRefresh()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cachedFalKey
+}
+
+// getCreditCost returns the DB-configured credit cost for a job type,
+// falling back to the provided default if not found.
+func (s *Service) getCreditCost(jobType string, fallback int) int {
+	s.maybeRefresh()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if v, ok := s.creditCosts[jobType]; ok {
+		return v
+	}
+	return fallback
 }
 
 // ─── DeductCredits ────────────────────────────────────────────────────────────
@@ -220,7 +342,7 @@ func (s *Service) GenerateCaption(
 	workspaceID, userID uuid.UUID,
 	prompt, platform, tone, targetAudience string,
 ) (*CaptionResult, *models.AIJob, error) {
-	if err := s.DeductCredits(ctx, workspaceID, CreditCostCaption); err != nil {
+	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("caption", CreditCostCaption)); err != nil {
 		return nil, nil, err
 	}
 
@@ -256,7 +378,7 @@ Make the caption feel like it was written by a human who genuinely cares about h
 		guidance, tone, targetAudience,
 	)
 
-	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	resp, err := s.getOpenAIClient().CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -268,7 +390,7 @@ Make the caption feel like it was written by a human who genuinely cares about h
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "caption",
 			models.JSONMap{"prompt": prompt, "platform": platform, "tone": tone},
-			nil, CreditCostCaption, err.Error())
+			nil, s.getCreditCost("caption", CreditCostCaption), err.Error())
 		return nil, job, fmt.Errorf("GenerateCaption: openai: %w", err)
 	}
 
@@ -282,7 +404,7 @@ Make the caption feel like it was written by a human who genuinely cares about h
 	job, _ := s.saveJob(ctx, workspaceID, userID, "caption",
 		models.JSONMap{"prompt": prompt, "platform": platform, "tone": tone, "target_audience": targetAudience},
 		models.JSONMap{"caption": result.Caption, "hashtags": result.Hashtags},
-		CreditCostCaption, "")
+		s.getCreditCost("caption", CreditCostCaption), "")
 
 	return &result, job, nil
 }
@@ -295,7 +417,7 @@ func (s *Service) GenerateHashtags(
 	workspaceID, userID uuid.UUID,
 	content, platform, niche string,
 ) ([]string, *models.AIJob, error) {
-	if err := s.DeductCredits(ctx, workspaceID, CreditCostHashtags); err != nil {
+	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("hashtags", CreditCostHashtags)); err != nil {
 		return nil, nil, err
 	}
 
@@ -323,7 +445,7 @@ Do NOT include the # prefix.`,
 		platform, niche,
 	)
 
-	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	resp, err := s.getOpenAIClient().CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -335,7 +457,7 @@ Do NOT include the # prefix.`,
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "hashtags",
 			models.JSONMap{"platform": platform, "niche": niche},
-			nil, CreditCostHashtags, err.Error())
+			nil, s.getCreditCost("hashtags", CreditCostHashtags), err.Error())
 		return nil, job, fmt.Errorf("GenerateHashtags: openai: %w", err)
 	}
 
@@ -347,7 +469,7 @@ Do NOT include the # prefix.`,
 	job, _ := s.saveJob(ctx, workspaceID, userID, "hashtags",
 		models.JSONMap{"platform": platform, "niche": niche, "content_preview": truncate(content, 200)},
 		models.JSONMap{"hashtags": out.Hashtags},
-		CreditCostHashtags, "")
+		s.getCreditCost("hashtags", CreditCostHashtags), "")
 
 	return out.Hashtags, job, nil
 }
@@ -368,7 +490,7 @@ func (s *Service) GenerateImage(
 	workspaceID, userID uuid.UUID,
 	prompt, style string,
 ) (*ImageResult, *models.AIJob, error) {
-	if err := s.DeductCredits(ctx, workspaceID, CreditCostImage); err != nil {
+	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("image", CreditCostImage)); err != nil {
 		return nil, nil, err
 	}
 
@@ -397,7 +519,7 @@ func (s *Service) GenerateImage(
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "image",
 			models.JSONMap{"prompt": prompt, "style": style},
-			nil, CreditCostImage, err.Error())
+			nil, s.getCreditCost("image", CreditCostImage), err.Error())
 		return nil, job, fmt.Errorf("GenerateImage: fal.ai: %w", err)
 	}
 
@@ -405,7 +527,7 @@ func (s *Service) GenerateImage(
 	job, _ := s.saveJob(ctx, workspaceID, userID, "image",
 		models.JSONMap{"prompt": prompt, "style": style},
 		models.JSONMap{"url": imageResult.URL, "width": imageResult.Width, "height": imageResult.Height},
-		CreditCostImage, "")
+		s.getCreditCost("image", CreditCostImage), "")
 
 	return imageResult, job, nil
 }
@@ -427,7 +549,7 @@ func (s *Service) GenerateVideo(
 	duration int,
 	style string,
 ) (*models.AIJob, error) {
-	if err := s.DeductCredits(ctx, workspaceID, CreditCostVideo); err != nil {
+	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("video", CreditCostVideo)); err != nil {
 		return nil, err
 	}
 
@@ -441,7 +563,7 @@ func (s *Service) GenerateVideo(
 			"duration": duration,
 			"style":    style,
 		},
-		CreditsUsed:   CreditCostVideo,
+		CreditsUsed:   s.getCreditCost("video", CreditCostVideo),
 		RequestedByID: userID,
 	}
 	if err := s.db.WithContext(ctx).Create(job).Error; err != nil {
@@ -522,7 +644,7 @@ func (s *Service) GenerateCarousel(
 	if slides > 10 {
 		slides = 10
 	}
-	if err := s.DeductCredits(ctx, workspaceID, CreditCostCarousel); err != nil {
+	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("carousel", CreditCostCarousel)); err != nil {
 		return nil, nil, err
 	}
 
@@ -565,7 +687,7 @@ Return JSON:
 		platform, slides, slides-1, slides,
 	)
 
-	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	resp, err := s.getOpenAIClient().CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -577,7 +699,7 @@ Return JSON:
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "carousel",
 			models.JSONMap{"topic": topic, "slides": slides, "platform": platform},
-			nil, CreditCostCarousel, err.Error())
+			nil, s.getCreditCost("carousel", CreditCostCarousel), err.Error())
 		return nil, job, fmt.Errorf("GenerateCarousel: openai: %w", err)
 	}
 
@@ -591,7 +713,7 @@ Return JSON:
 	job, _ := s.saveJob(ctx, workspaceID, userID, "carousel",
 		models.JSONMap{"topic": topic, "slides": slides, "platform": platform},
 		models.JSONMap{"slides": out.Slides},
-		CreditCostCarousel, "")
+		s.getCreditCost("carousel", CreditCostCarousel), "")
 
 	return out.Slides, job, nil
 }
@@ -614,7 +736,7 @@ func (s *Service) AnalyseViralPotential(
 	workspaceID, userID uuid.UUID,
 	content, platform string,
 ) (*ViralAnalysis, *models.AIJob, error) {
-	if err := s.DeductCredits(ctx, workspaceID, CreditCostAnalyse); err != nil {
+	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("analyse", CreditCostAnalyse)); err != nil {
 		return nil, nil, err
 	}
 
@@ -646,7 +768,7 @@ Be specific — not "improve the hook" but "Replace the opening with a surprisin
 		platform, platform,
 	)
 
-	resp, err := s.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	resp, err := s.getOpenAIClient().CreateChatCompletion(ctx, openai.ChatCompletionRequest{
 		Model: "gpt-4o",
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
@@ -658,7 +780,7 @@ Be specific — not "improve the hook" but "Replace the opening with a surprisin
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "analyse",
 			models.JSONMap{"platform": platform, "content_preview": truncate(content, 200)},
-			nil, CreditCostAnalyse, err.Error())
+			nil, s.getCreditCost("analyse", CreditCostAnalyse), err.Error())
 		return nil, job, fmt.Errorf("AnalyseViralPotential: openai: %w", err)
 	}
 
@@ -670,7 +792,7 @@ Be specific — not "improve the hook" but "Replace the opening with a surprisin
 	job, _ := s.saveJob(ctx, workspaceID, userID, "analyse",
 		models.JSONMap{"platform": platform, "content_preview": truncate(content, 200)},
 		models.JSONMap{"score": analysis.Score, "grade": analysis.Grade},
-		CreditCostAnalyse, "")
+		s.getCreditCost("analyse", CreditCostAnalyse), "")
 
 	return &analysis, job, nil
 }
@@ -731,7 +853,7 @@ func (s *Service) falRequest(ctx context.Context, model string, body map[string]
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Key "+s.falAPIKey)
+	req.Header.Set("Authorization", "Key "+s.getFalAPIKey())
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.httpClient.Do(req)
@@ -790,11 +912,11 @@ type RepurposeInput struct {
 func (s *Service) Repurpose(ctx context.Context, input RepurposeInput) (map[string]PlatformDraft, error) {
 	switch input.SourceType {
 	case "url", "tiktok":
-		return RepurposeFromURL(ctx, input.SourceURL, input.Platforms, s.openaiClient)
+		return RepurposeFromURL(ctx, input.SourceURL, input.Platforms, s.getOpenAIClient())
 	case "youtube":
-		return RepurposeFromYouTube(ctx, input.SourceURL, input.Platforms, input.YoutubeAPIKey, s.openaiClient)
+		return RepurposeFromYouTube(ctx, input.SourceURL, input.Platforms, input.YoutubeAPIKey, s.getOpenAIClient())
 	default: // "text" or anything else
-		return RepurposeFromText(ctx, input.SourceText, input.SourceType, input.Platforms, s.openaiClient)
+		return RepurposeFromText(ctx, input.SourceText, input.SourceType, input.Platforms, s.getOpenAIClient())
 	}
 }
 

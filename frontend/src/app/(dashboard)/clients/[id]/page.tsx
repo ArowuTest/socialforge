@@ -107,6 +107,7 @@ const PLATFORM_ICONS: Record<Platform, React.ElementType> = {
   [Platform.FACEBOOK]: Facebook,
   [Platform.PINTEREST]: Pin,
   [Platform.THREADS]: MessageCircle,
+  [Platform.BLUESKY]: Globe,
 }
 
 function PlatformIcon({ platform, size = 'sm' }: { platform: Platform; size?: 'sm' | 'md' }) {

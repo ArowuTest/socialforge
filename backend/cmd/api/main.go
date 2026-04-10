@@ -88,7 +88,7 @@ func main() {
 	repos := repository.NewContainer(db)
 
 	authService := authsvc.New(db, rdb, cfg, log)
-	aiService := ai.New(db, cfg.OpenAI.APIKey, cfg.FalAI.APIKey, log)
+	aiService := ai.New(db, cfg.OpenAI.APIKey, cfg.FalAI.APIKey, encryptionSecret, log)
 	scheduleService := scheduling.New(db, log)
 	analyticsService := analyticssvc.NewService(repos.Analytics, log)
 	billingService := billingsvc.NewService(cfg, repos, db, log, rdb)

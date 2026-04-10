@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -9,6 +10,8 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
+	"github.com/socialforge/backend/internal/crypto"
 )
 
 // ── DB row types (not GORM models — simple structs for raw queries) ──────────
@@ -50,15 +53,23 @@ func (PlatformSettingRow) TableName() string { return "platform_settings" }
 
 // ── Handler ──────────────────────────────────────────────────────────────────
 
+// sensitiveSettingKeys lists platform_settings keys whose values must be
+// encrypted at rest and masked when returned to the client.
+var sensitiveSettingKeys = map[string]bool{
+	"openai_api_key": true,
+	"fal_api_key":    true,
+}
+
 // CostConfigHandler manages runtime AI cost and pricing configuration.
 type CostConfigHandler struct {
-	db  *gorm.DB
-	log *zap.Logger
+	db            *gorm.DB
+	log           *zap.Logger
+	encryptSecret string
 }
 
 // NewCostConfigHandler constructs a CostConfigHandler.
-func NewCostConfigHandler(db *gorm.DB, log *zap.Logger) *CostConfigHandler {
-	return &CostConfigHandler{db: db, log: log}
+func NewCostConfigHandler(db *gorm.DB, encryptSecret string, log *zap.Logger) *CostConfigHandler {
+	return &CostConfigHandler{db: db, encryptSecret: encryptSecret, log: log}
 }
 
 // GetAIJobCosts returns all AI job cost rows.
@@ -253,7 +264,7 @@ func (h *CostConfigHandler) UpdateCreditPackage(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": updated})
 }
 
-// GetPlatformSettings returns all platform settings.
+// GetPlatformSettings returns all platform settings, masking sensitive values.
 //
 // GET /api/v1/admin/cost-config/settings
 func (h *CostConfigHandler) GetPlatformSettings(c *fiber.Ctx) error {
@@ -261,10 +272,23 @@ func (h *CostConfigHandler) GetPlatformSettings(c *fiber.Ctx) error {
 	if err := h.db.WithContext(c.Context()).Order("key").Find(&rows).Error; err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load settings")
 	}
+
+	// Mask sensitive keys — never return plaintext API keys.
+	for i, row := range rows {
+		if sensitiveSettingKeys[row.Key] && row.Value != "" {
+			plain, err := crypto.Decrypt(row.Value, h.encryptSecret)
+			if err != nil || len(plain) < 8 {
+				rows[i].Value = "••••••••"
+			} else {
+				rows[i].Value = plain[:4] + "••••" + plain[len(plain)-4:]
+			}
+		}
+	}
 	return c.JSON(fiber.Map{"data": rows})
 }
 
 // UpdatePlatformSetting upserts a platform setting by key.
+// Sensitive keys (API keys) are encrypted before storage.
 //
 // PUT /api/v1/admin/cost-config/settings/:key
 func (h *CostConfigHandler) UpdatePlatformSetting(c *fiber.Ctx) error {
@@ -281,12 +305,22 @@ func (h *CostConfigHandler) UpdatePlatformSetting(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "value required")
 	}
 
+	storeValue := req.Value
+	if sensitiveSettingKeys[key] {
+		encrypted, err := crypto.Encrypt(req.Value, h.encryptSecret)
+		if err != nil {
+			h.log.Error("encrypt platform setting", zap.String("key", key), zap.Error(err))
+			return fiber.NewError(fiber.StatusInternalServerError, "encryption failed")
+		}
+		storeValue = encrypted
+	}
+
 	updaterID, _ := c.Locals("userID").(uuid.UUID)
 	res := h.db.WithContext(c.Context()).
 		Model(&PlatformSettingRow{}).
 		Where("key = ?", key).
 		Updates(map[string]interface{}{
-			"value":      req.Value,
+			"value":      storeValue,
 			"updated_at": time.Now(),
 			"updated_by": updaterID,
 		})
@@ -294,8 +328,74 @@ func (h *CostConfigHandler) UpdatePlatformSetting(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "update failed")
 	}
 	if res.RowsAffected == 0 {
-		return fiber.NewError(fiber.StatusNotFound, "setting key not found")
+		// Key doesn't exist yet — create it.
+		row := PlatformSettingRow{
+			Key:       key,
+			Value:     storeValue,
+			UpdatedAt: time.Now(),
+		}
+		if err := h.db.WithContext(c.Context()).Create(&row).Error; err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "create failed")
+		}
 	}
 
-	return c.JSON(fiber.Map{"key": key, "value": req.Value})
+	// Return masked value for sensitive keys.
+	displayValue := req.Value
+	if sensitiveSettingKeys[key] {
+		displayValue = maskKey(req.Value)
+	}
+	return c.JSON(fiber.Map{"key": key, "value": displayValue})
+}
+
+// GetIntegrationStatus returns the configuration status of external API keys.
+//
+// GET /api/v1/admin/cost-config/integrations
+func (h *CostConfigHandler) GetIntegrationStatus(c *fiber.Ctx) error {
+	keys := make([]string, 0, len(sensitiveSettingKeys))
+	for k := range sensitiveSettingKeys {
+		keys = append(keys, k)
+	}
+
+	var rows []PlatformSettingRow
+	h.db.WithContext(c.Context()).Where("key IN ?", keys).Find(&rows)
+
+	result := make([]fiber.Map, 0, len(sensitiveSettingKeys))
+	found := make(map[string]PlatformSettingRow)
+	for _, row := range rows {
+		found[row.Key] = row
+	}
+
+	labels := map[string]string{
+		"openai_api_key": "OpenAI (GPT-4o)",
+		"fal_api_key":    "Fal.ai (Images & Video)",
+	}
+
+	for k, label := range labels {
+		entry := fiber.Map{
+			"key":        k,
+			"label":      label,
+			"configured": false,
+			"masked":     "",
+			"updated_at": nil,
+		}
+		if row, ok := found[k]; ok && row.Value != "" {
+			plain, err := crypto.Decrypt(row.Value, h.encryptSecret)
+			if err == nil && len(plain) >= 8 {
+				entry["configured"] = true
+				entry["masked"] = maskKey(plain)
+				entry["updated_at"] = row.UpdatedAt
+			}
+		}
+		result = append(result, entry)
+	}
+
+	return c.JSON(fiber.Map{"data": result})
+}
+
+func maskKey(key string) string {
+	key = strings.TrimSpace(key)
+	if len(key) < 8 {
+		return "••••••••"
+	}
+	return key[:4] + "••••" + key[len(key)-4:]
 }
