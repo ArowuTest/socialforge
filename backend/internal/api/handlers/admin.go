@@ -504,12 +504,13 @@ func (h *AdminHandler) GrantCredits(c *fiber.Ctx) error {
 // ── GrantPlanAccess ───────────────────────────────────────────────────────────
 
 type grantPlanRequest struct {
-	UserID string `json:"user_id"`
-	Plan   string `json:"plan"`
+	UserID    string `json:"user_id"`
+	Plan      string `json:"plan"`
+	TrialDays int    `json:"trial_days"` // 0 = permanent grant, >0 = trial for N days
 }
 
-// GrantPlanAccess lets a super-admin change a user's plan (free tier override).
-// Accepts user_id as either a UUID or an email address.
+// GrantPlanAccess lets a super-admin change a user's plan (free tier override)
+// or grant a timed trial. Accepts user_id as either a UUID or an email address.
 // POST /api/v1/admin/grant-plan
 func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
 	var req grantPlanRequest
@@ -542,13 +543,24 @@ func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
 		uid = user.ID
 	}
 
+	updates := map[string]interface{}{
+		"plan": models.PlanType(req.Plan),
+	}
+
+	isTrial := req.TrialDays > 0
+	if isTrial {
+		trialEnd := time.Now().UTC().AddDate(0, 0, req.TrialDays)
+		updates["subscription_status"] = "trialing"
+		updates["trial_ends_at"] = trialEnd
+	} else {
+		updates["subscription_status"] = "active"
+		updates["trial_ends_at"] = nil
+	}
+
 	result := h.db.WithContext(c.Context()).
 		Model(&models.User{}).
 		Where("id = ?", uid).
-		Updates(map[string]interface{}{
-			"plan":                models.PlanType(req.Plan),
-			"subscription_status": "active",
-		})
+		Updates(updates)
 	if result.Error != nil {
 		return internalError(c, "failed to update plan")
 	}
@@ -562,10 +574,16 @@ func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
 		Where("owner_id = ?", uid).
 		Update("plan", req.Plan)
 
+	msg := "plan updated successfully"
+	if isTrial {
+		msg = "trial access granted successfully"
+	}
 	return c.JSON(fiber.Map{
-		"message": "plan updated successfully",
-		"user_id": uid.String(),
-		"plan":    req.Plan,
+		"message":    msg,
+		"user_id":    uid.String(),
+		"plan":       req.Plan,
+		"trial_days": req.TrialDays,
+		"is_trial":   isTrial,
 	})
 }
 

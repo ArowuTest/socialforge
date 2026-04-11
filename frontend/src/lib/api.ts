@@ -723,10 +723,10 @@ export const adminApi = {
       body: JSON.stringify(data),
     }),
 
-  grantPlan: (data: { userId: string; planType: string; expiresAt?: string }) =>
+  grantPlan: (data: { userId: string; planType: string; trialDays?: number; expiresAt?: string }) =>
     request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/grant-plan", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ user_id: data.userId, plan: data.planType, trial_days: data.trialDays ?? 0 }),
     }),
 
   // ── Cost Configuration ───────────────────────────────────────
