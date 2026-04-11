@@ -99,14 +99,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // Guard: must be logged in AND have the super-admin flag.
   React.useEffect(() => {
     if (!isAuthenticated) {
-      router.replace("/login?next=/admin");
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
       return;
     }
     if (user && !user.is_super_admin) {
       // Authenticated but not a platform admin — send to their dashboard.
       router.replace("/dashboard");
     }
-  }, [isAuthenticated, user, router]);
+  }, [isAuthenticated, user, router, pathname]);
 
   // Render nothing while redirecting.
   if (!isAuthenticated || (user && !user.is_super_admin)) {

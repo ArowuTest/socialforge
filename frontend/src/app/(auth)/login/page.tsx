@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -23,8 +23,9 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login } = useAuthStore();
   const [showPassword, setShowPassword] = React.useState(false);
 
@@ -53,7 +54,8 @@ export default function LoginPage() {
         rememberMe: data.rememberMe,
       });
       toast.success("Welcome back!");
-      router.push("/calendar");
+      const next = searchParams.get("next") || "/calendar";
+      router.push(next);
     } catch (error) {
       const message =
         error instanceof Error
@@ -185,5 +187,13 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <LoginForm />
+    </React.Suspense>
   );
 }
