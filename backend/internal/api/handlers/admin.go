@@ -174,7 +174,7 @@ func (h *AdminHandler) GetUser(c *fiber.Ctx) error {
 
 // ── SuspendUser ───────────────────────────────────────────────────────────────
 
-// SuspendUser sets a user's subscription_status to 'canceled'.
+// SuspendUser toggles a user's is_suspended flag (suspend ↔ unsuspend).
 // POST /api/v1/admin/users/:id/suspend
 func (h *AdminHandler) SuspendUser(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
@@ -191,13 +191,21 @@ func (h *AdminHandler) SuspendUser(c *fiber.Ctx) error {
 		return internalError(c, "failed to get user")
 	}
 
-	user.SubscriptionStatus = models.SubscriptionStatusCanceled
+	// Toggle suspended state.
+	user.IsSuspended = !user.IsSuspended
+	if user.IsSuspended {
+		user.SubscriptionStatus = models.SubscriptionStatusCanceled
+	}
 	if err := h.repos.Users.Update(c.Context(), user); err != nil {
 		h.log.Error("SuspendUser: Update", zap.Error(err))
-		return internalError(c, "failed to suspend user")
+		return internalError(c, "failed to update user status")
 	}
 
-	return c.JSON(fiber.Map{"message": "user suspended successfully"})
+	action := "suspended"
+	if !user.IsSuspended {
+		action = "unsuspended"
+	}
+	return c.JSON(fiber.Map{"message": "user " + action + " successfully", "is_suspended": user.IsSuspended})
 }
 
 // ── ListAllWorkspaces ─────────────────────────────────────────────────────────
