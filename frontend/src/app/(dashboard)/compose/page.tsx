@@ -24,6 +24,7 @@ import {
   Twitter,
   MessageCircle,
   Pin,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,7 @@ const platforms = [
   { id: Platform.FACEBOOK, label: "Facebook", Icon: Facebook, color: "from-blue-600 to-blue-700" },
   { id: Platform.PINTEREST, label: "Pinterest", Icon: Pin, color: "from-red-600 to-red-700" },
   { id: Platform.THREADS, label: "Threads", Icon: MessageCircle, color: "from-gray-900 to-black" },
+  { id: Platform.BLUESKY, label: "Bluesky", Icon: Globe, color: "from-sky-400 to-cyan-500" },
 ];
 
 const postTypes = [

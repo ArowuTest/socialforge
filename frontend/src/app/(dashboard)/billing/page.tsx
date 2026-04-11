@@ -53,74 +53,12 @@ import {
 
 // ── Constants & mock data ────────────────────────────────────────────────────
 
-const MOCK_BALANCE: CreditBalance = {
-  credit_balance: 350,
-  plan_credits_used: 127,
-  plan_credits_limit: 500,
-  monthly_usd_cost: 1.87,
+const ZERO_BALANCE: CreditBalance = {
+  credit_balance: 0,
+  plan_credits_used: 0,
+  plan_credits_limit: 0,
+  monthly_usd_cost: 0,
 };
-
-const MOCK_LEDGER: CreditLedgerEntry[] = [
-  {
-    id: "le1",
-    entry_type: "monthly_grant",
-    credits: 500,
-    balance_after: 500,
-    usd_amount: 0,
-    currency: "USD",
-    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
-  },
-  {
-    id: "le2",
-    entry_type: "top_up",
-    credits: 200,
-    balance_after: 700,
-    usd_amount: 9.99,
-    currency: "USD",
-    provider: "stripe",
-    provider_ref: "pi_3OqA1B2eZvKYlo2C0nMPqFe7",
-    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
-  },
-  {
-    id: "le3",
-    entry_type: "ai_debit",
-    credits: -75,
-    balance_after: 625,
-    currency: "USD",
-    ai_job_id: "job_abc123",
-    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 6).toISOString(),
-  },
-  {
-    id: "le4",
-    entry_type: "ai_debit",
-    credits: -52,
-    balance_after: 573,
-    currency: "USD",
-    ai_job_id: "job_def456",
-    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(),
-  },
-  {
-    id: "le5",
-    entry_type: "top_up",
-    credits: 100,
-    balance_after: 450,
-    usd_amount: 4.99,
-    currency: "USD",
-    provider: "paystack",
-    provider_ref: "ps_ACME_987654",
-    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 14).toISOString(),
-  },
-  {
-    id: "le6",
-    entry_type: "refund",
-    credits: 25,
-    balance_after: 375,
-    usd_amount: 1.25,
-    currency: "USD",
-    provider: "stripe",
-    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 20).toISOString(),
-  },
-];
 
 const USD_PACKAGES: CreditPackage[] = [
   { id: "pkg_100_usd", credits: 100, price_usd: 4.99, display_price: "$4.99", currency: "USD" },
@@ -724,7 +662,7 @@ export default function BillingPage() {
   const [packagesLoading, setPackagesLoading] = React.useState(true);
 
   // Balance state (fetched from API, fallback to zeros)
-  const [balance, setBalance] = React.useState<CreditBalance>(MOCK_BALANCE);
+  const [balance, setBalance] = React.useState<CreditBalance>(ZERO_BALANCE);
   const [balanceLoading, setBalanceLoading] = React.useState(true);
 
   // Ledger state (fetched from API)
