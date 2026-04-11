@@ -1,4 +1,4 @@
-// Package main is the entry point for the SocialForge API server.
+// Package main is the entry point for the ChiselPost API server.
 package main
 
 import (
@@ -196,7 +196,7 @@ func main() {
 
 	// ── Fiber app ─────────────────────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
-		AppName:               "SocialForge API",
+		AppName:               "ChiselPost API",
 		ServerHeader:          "",
 		DisableStartupMessage: cfg.IsProduction(),
 		ErrorHandler:          globalErrorHandler(log),

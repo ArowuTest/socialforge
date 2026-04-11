@@ -9,8 +9,8 @@ import "fmt"
 // email clients that strip <style> tags.
 //
 // Parameters:
-//   - appName:   the application name shown in the header (e.g. "SocialForge")
-//   - appURL:    the canonical app URL shown in the footer (e.g. "https://socialforge.io")
+//   - appName:   the application name shown in the header (e.g. "ChiselPost")
+//   - appURL:    the canonical app URL shown in the footer (e.g. "https://chiselpost.com")
 //   - title:     used in <title> and as the main heading in the email header
 //   - preheader: short preview text hidden from the email body
 //   - bodyHTML:  the main body content (paragraphs, lists, etc.)

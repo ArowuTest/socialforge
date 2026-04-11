@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -77,7 +77,7 @@ export default function LoginPage() {
             Welcome back
           </CardTitle>
           <CardDescription className="text-center text-base">
-            Sign in to your SocialForge account
+            Sign in to your ChiselPost account
           </CardDescription>
         </CardHeader>
 

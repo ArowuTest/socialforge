@@ -669,7 +669,7 @@ func (s *Service) createStripeTopUpSession(ctx context.Context, topup *models.Cr
 					Currency: stripe.String("usd"),
 					ProductData: &stripe.CheckoutSessionLineItemPriceDataProductDataParams{
 						Name:        stripe.String(fmt.Sprintf("%d AI Credits", pkg.Credits)),
-						Description: stripe.String("SocialForge AI credit top-up"),
+						Description: stripe.String("ChiselPost AI credit top-up"),
 					},
 					UnitAmount: stripe.Int64(int64(pkg.PriceUSD * 100)),
 				},

@@ -1,9 +1,9 @@
-/**
- * HeroDemo — 7-second looping product demo for SocialForge landing page.
+﻿/**
+ * HeroDemo — 7-second looping product demo for ChiselPost landing page.
  *
- * 0-25f    Dark bg, "SocialForge AI Studio" label + violet orb pulses
+ * 0-25f    Dark bg, "ChiselPost AI Studio" label + violet orb pulses
  * 25-60f   Text editor card slides up, cursor blinks, text types out
- * 60-80f   "Generating with SocialForge AI…" spinner (3 violet dots)
+ * 60-80f   "Generating with ChiselPost AI…" spinner (3 violet dots)
  * 80-110f  "✓ Generated!" + 8 platform icons spring in with stagger
  * 110-150f "Scheduling…" calendar view + progress bar fills
  * 150-185f "All posted! 🎉" success screen with stat counters
@@ -106,7 +106,7 @@ function IntroScene({ frame }: { frame: number }) {
             letterSpacing: -0.3,
           }}
         >
-          SocialForge AI Studio
+          ChiselPost AI Studio
         </span>
       </div>
 
@@ -162,7 +162,7 @@ function EditorCard({ frame }: { frame: number }) {
   const showCursor = frame >= 35 && frame < 80 && Math.floor(frame / 7) % 2 === 0;
 
   // Typewriter output text (frame 40-75 range)
-  const outputText = "🚀 Big news! SocialForge just launched...";
+  const outputText = "🚀 Big news! ChiselPost just launched...";
   const outputCharCount = Math.floor(ci(frame, 45, 78, 0, outputText.length));
   const visibleOutput = outputText.slice(0, outputCharCount);
   const outputOpacity = ci(frame, 44, 50, 0, 1);
@@ -355,7 +355,7 @@ function GeneratingSpinner({ frame }: { frame: number }) {
         })}
       </div>
       <span style={{ color: C.violetLight, fontSize: 13, fontWeight: 600 }}>
-        Generating with SocialForge AI...
+        Generating with ChiselPost AI...
       </span>
     </div>
   );

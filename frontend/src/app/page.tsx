@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
@@ -109,7 +109,7 @@ function Navbar() {
             >
               <Zap size={18} className="text-white" fill="white" />
             </div>
-            <span className="text-white font-bold text-xl tracking-tight">SocialForge</span>
+            <span className="text-white font-bold text-xl tracking-tight">ChiselPost</span>
           </Link>
 
           {/* Center nav */}
@@ -468,7 +468,7 @@ function Features() {
             </div>
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold text-violet-300" style={{ background: "rgba(124,58,237,0.15)", border: "1px solid rgba(124,58,237,0.25)" }}>
               <Cpu size={12} />
-              Powered by SocialForge AI
+              Powered by ChiselPost AI
             </div>
           </div>
 
@@ -642,7 +642,7 @@ function RepurposeSpotlight() {
               Zero extra work.
             </h2>
             <p className="text-slate-400 leading-relaxed mb-8">
-              SocialForge&apos;s Repurpose Engine takes any piece of content — a video, an article, a tweet — and
+              ChiselPost&apos;s Repurpose Engine takes any piece of content — a video, an article, a tweet — and
               intelligently transforms it into platform-native posts. No copy-pasting. No reformatting. Just paste and go.
             </p>
             <ul className="space-y-3 mb-8">
@@ -818,9 +818,9 @@ function Pricing() {
 
 /* ─── TESTIMONIALS ─── */
 const TESTIMONIALS = [
-  { name: "Amara O.", flag: "🇳🇬", role: "Content Creator, Lagos", text: "SocialForge cut our content production time by 70%. The AI understands Nigerian slang and culture — it's not generic like other tools." },
+  { name: "Amara O.", flag: "🇳🇬", role: "Content Creator, Lagos", text: "ChiselPost cut our content production time by 70%. The AI understands Nigerian slang and culture — it's not generic like other tools." },
   { name: "David K.", flag: "🇬🇭", role: "Digital Agency Owner", text: "Finally a tool that understands African creators. The local pricing is genuinely game-changing for our market." },
-  { name: "Sarah M.", flag: "🇬🇧", role: "Social Media Manager", text: "We manage 23 client accounts from one dashboard. The white-label feature means our clients see our brand, not SocialForge." },
+  { name: "Sarah M.", flag: "🇬🇧", role: "Social Media Manager", text: "We manage 23 client accounts from one dashboard. The white-label feature means our clients see our brand, not ChiselPost." },
   { name: "Taiwo A.", flag: "🇳🇬", role: "E-commerce Founder", text: "The Paystack integration changed everything for us. No more painful FX conversions. We pay in Naira, post everywhere." },
   { name: "Marcus T.", flag: "🇺🇸", role: "Marketing Consultant", text: "Best Buffer alternative I've tried. The AI is genuinely impressive — it sounds human, not robotic." },
   { name: "Fatima B.", flag: "🇲🇦", role: "Agency Director", text: "Arabic content support + 8 platforms = game changer for our agency. We've 3x'd our client roster since switching." },
@@ -917,7 +917,7 @@ const FAQS = [
   { q: "How does Paystack work?", a: "We detect your location automatically. Nigerian users are offered Paystack at NGN prices. International users pay via Stripe in USD. Both experiences are seamless." },
   { q: "Which platforms do you support?", a: "Instagram, TikTok, YouTube, LinkedIn, Twitter/X, Facebook, Pinterest, and Threads — all 8 from one dashboard." },
   { q: "How do AI credits work?", a: "Each AI generation (caption, post, image, thread) uses 1 credit. Credits refresh monthly. Unused credits don't roll over, but we offer generous limits at every tier." },
-  { q: "Can I white-label for clients?", a: "Yes — available on the Agency plan. You can replace the SocialForge branding with your own logo, domain, and colours. Clients see your product, not ours." },
+  { q: "Can I white-label for clients?", a: "Yes — available on the Agency plan. You can replace the ChiselPost branding with your own logo, domain, and colours. Clients see your product, not ours." },
   { q: "Is my data secure?", a: "We are SOC2 compliant. All social account tokens are encrypted at rest with AES-256. We never post without your explicit approval, and you can revoke access at any time." },
 ];
 
@@ -979,7 +979,7 @@ function FinalCTA() {
           Stop managing social media manually.
         </h2>
         <h2 className="text-5xl md:text-6xl font-black leading-tight mb-6 text-gradient-emerald">
-          Start growing with SocialForge.
+          Start growing with ChiselPost.
         </h2>
         <p className="text-violet-200 text-lg mb-10">
           Join 500+ teams who&apos;ve already made the switch.
@@ -1017,7 +1017,7 @@ function Footer() {
               <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, #7c3aed, #4f46e5)" }}>
                 <Zap size={18} className="text-white" fill="white" />
               </div>
-              <span className="text-white font-bold text-xl">SocialForge</span>
+              <span className="text-white font-bold text-xl">ChiselPost</span>
             </div>
             <p className="text-slate-500 text-sm leading-relaxed max-w-xs">
               The AI-powered social media platform for creators and agencies worldwide.
@@ -1054,7 +1054,7 @@ function Footer() {
         </div>
 
         <div className="border-t border-white/5 pt-8 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-slate-600 text-sm">© 2026 SocialForge. All rights reserved.</p>
+          <p className="text-slate-600 text-sm">© 2026 ChiselPost. All rights reserved.</p>
           <p className="text-slate-600 text-sm">Made with ❤️ for creators everywhere 🌍</p>
         </div>
       </div>

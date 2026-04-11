@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -111,7 +111,7 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
             <Zap className="h-4 w-4 text-white fill-white" />
           </div>
           <span className="font-bold text-base text-gray-900 dark:text-white">
-            SocialForge
+            ChiselPost
           </span>
         </Link>
 

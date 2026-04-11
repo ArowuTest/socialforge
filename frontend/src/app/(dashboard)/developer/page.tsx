@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
@@ -51,7 +51,7 @@ const webhookDeliveries: WebhookDelivery[] = [
 
 const codeExamples: Record<CodeTab, string> = {
   curl: `# Authenticate with your API key
-curl -X POST https://api.socialforge.io/v1/workspaces/ws_abc123/posts \\
+curl -X POST https://api.ChiselPost.io/v1/workspaces/ws_abc123/posts \\
   -H "Authorization: Bearer sf_live_a8f3..." \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -69,9 +69,9 @@ curl -X POST https://api.socialforge.io/v1/workspaces/ws_abc123/posts \\
   "scheduled_at": "2025-04-10T09:00:00Z",
   "created_at": "2025-04-06T14:30:00Z"
 }`,
-  nodejs: `import SocialForge from '@socialforge/node';
+  nodejs: `import ChiselPost from '@ChiselPost/node';
 
-const client = new SocialForge({
+const client = new ChiselPost({
   apiKey: process.env.SF_API_KEY,
   workspaceId: 'ws_abc123',
 });
@@ -90,10 +90,10 @@ console.log('Post scheduled:', post.id);
 client.webhooks.on('post.published', (event) => {
   console.log('Post published:', event.postId);
 });`,
-  python: `from socialforge import SocialForge
+  python: `from ChiselPost import ChiselPost
 import os
 
-client = SocialForge(
+client = ChiselPost(
     api_key=os.environ["SF_API_KEY"],
     workspace_id="ws_abc123"
 )
@@ -116,7 +116,7 @@ print(f"Engagement rate: {analytics.engagement_rate}%")`,
 const integrations = [
   {
     name: "n8n",
-    description: "Official node available — automate workflows with SocialForge triggers and actions.",
+    description: "Official node available — automate workflows with ChiselPost triggers and actions.",
     badge: "Official node available",
     badgeColor: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
     iconBg: "bg-orange-100 dark:bg-orange-900/20",
@@ -136,7 +136,7 @@ const integrations = [
   },
   {
     name: "Zapier",
-    description: "Connect SocialForge with 5,000+ apps. Coming soon to Zapier's marketplace.",
+    description: "Connect ChiselPost with 5,000+ apps. Coming soon to Zapier's marketplace.",
     badge: "Coming soon",
     badgeColor: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
     iconBg: "bg-orange-100 dark:bg-orange-900/20",
@@ -221,7 +221,7 @@ export default function DeveloperPage() {
   const [newKeyName, setNewKeyName] = React.useState("");
   const [newKeyPerms, setNewKeyPerms] = React.useState<string[]>(["Read posts", "Write posts"]);
   const [createdKey, setCreatedKey] = React.useState<string | null>(null);
-  const [webhookUrl, setWebhookUrl] = React.useState("https://myapp.com/webhooks/socialforge");
+  const [webhookUrl, setWebhookUrl] = React.useState("https://myapp.com/webhooks/ChiselPost");
   const [secretVisible, setSecretVisible] = React.useState(false);
   const [webhookEvents, setWebhookEvents] = React.useState<string[]>(["post.published", "post.failed"]);
   const [webhookTestResult, setWebhookTestResult] = React.useState<"idle" | "success" | "fail">("idle");

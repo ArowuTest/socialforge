@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -119,7 +119,7 @@ function SignupContent() {
           toast.warning(`Account created, but ${msg}`);
         }
       } else {
-        toast.success("Account created! Welcome to SocialForge.");
+        toast.success("Account created! Welcome to ChiselPost.");
       }
       router.push("/calendar");
     } catch (error) {

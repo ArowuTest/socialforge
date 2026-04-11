@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { Search, Download, Filter, Shield } from "lucide-react";
@@ -27,7 +27,7 @@ const logs: LogEntry[] = [
   { id: "log_001", timestamp: "Today 09:47:12", user: { email: "sarah@acme.com", initials: "SA" }, action: "post.published", resourceType: "Post", resourceId: "post_xk92mN3p", ip: "104.21.34.12", userAgent: "Mozilla/5.0 (Mac; Chrome/124)" },
   { id: "log_002", timestamp: "Today 09:44:03", user: { email: "james@startupxyz.io", initials: "JX" }, action: "account.connected", resourceType: "SocialAccount", resourceId: "acc_ig_3pqrLm", ip: "185.60.22.9", userAgent: "Mozilla/5.0 (Win; Chrome/124)" },
   { id: "log_003", timestamp: "Today 09:41:55", user: { email: "priya@brandco.com", initials: "PB" }, action: "api_key.created", resourceType: "ApiKey", resourceId: "key_v2_9Xmk7", ip: "88.198.45.7", userAgent: "PostmanRuntime/7.37" },
-  { id: "log_004", timestamp: "Today 09:38:20", user: { email: "admin@socialforge.io", initials: "AD" }, action: "billing.upgraded", resourceType: "Subscription", resourceId: "sub_pro_mL4q", ip: "198.41.128.1", userAgent: "Mozilla/5.0 (Mac; Safari/17)" },
+  { id: "log_004", timestamp: "Today 09:38:20", user: { email: "admin@ChiselPost.io", initials: "AD" }, action: "billing.upgraded", resourceType: "Subscription", resourceId: "sub_pro_mL4q", ip: "198.41.128.1", userAgent: "Mozilla/5.0 (Mac; Safari/17)" },
   { id: "log_005", timestamp: "Today 09:35:14", user: { email: "tom@creativeagency.net", initials: "TC" }, action: "post.created", resourceType: "Post", resourceId: "post_mN8qRt2x", ip: "77.111.45.99", userAgent: "Mozilla/5.0 (Win; Firefox/125)" },
   { id: "log_006", timestamp: "Today 09:31:08", user: { email: "lisa@fashionbrand.co", initials: "LF" }, action: "user.login", resourceType: "User", resourceId: "user_lF9x3wQ", ip: "213.180.202.4", userAgent: "Mozilla/5.0 (iPhone; Safari/17)" },
   { id: "log_007", timestamp: "Today 09:28:45", user: { email: "dev@techstartup.io", initials: "DT" }, action: "workspace.created", resourceType: "Workspace", resourceId: "ws_tK3pNm7q", ip: "54.23.111.20", userAgent: "Mozilla/5.0 (Linux; Chrome/124)" },
@@ -37,7 +37,7 @@ const logs: LogEntry[] = [
   { id: "log_011", timestamp: "Today 09:11:34", user: { email: "james@startupxyz.io", initials: "JX" }, action: "api_key.deleted", resourceType: "ApiKey", resourceId: "key_v1_oldK2", ip: "185.60.22.9", userAgent: "Mozilla/5.0 (Win; Chrome/124)" },
   { id: "log_012", timestamp: "Today 09:08:02", user: { email: "tom@creativeagency.net", initials: "TC" }, action: "user.login", resourceType: "User", resourceId: "user_tC7nMx4", ip: "77.111.45.99", userAgent: "Mozilla/5.0 (Win; Firefox/125)" },
   { id: "log_013", timestamp: "Today 08:59:44", user: { email: "lisa@fashionbrand.co", initials: "LF" }, action: "post.published", resourceType: "Post", resourceId: "post_pUb8mNq3", ip: "213.180.202.4", userAgent: "Mozilla/5.0 (iPhone; Safari/17)" },
-  { id: "log_014", timestamp: "Today 08:52:19", user: { email: "admin@socialforge.io", initials: "AD" }, action: "workspace.created", resourceType: "Workspace", resourceId: "ws_nW5pKq2r", ip: "198.41.128.1", userAgent: "Mozilla/5.0 (Mac; Safari/17)" },
+  { id: "log_014", timestamp: "Today 08:52:19", user: { email: "admin@ChiselPost.io", initials: "AD" }, action: "workspace.created", resourceType: "Workspace", resourceId: "ws_nW5pKq2r", ip: "198.41.128.1", userAgent: "Mozilla/5.0 (Mac; Safari/17)" },
   { id: "log_015", timestamp: "Today 08:47:05", user: { email: "dev@techstartup.io", initials: "DT" }, action: "account.connected", resourceType: "SocialAccount", resourceId: "acc_yt_9xNmP", ip: "54.23.111.20", userAgent: "Mozilla/5.0 (Linux; Chrome/124)" },
   { id: "log_016", timestamp: "Today 08:41:33", user: { email: "marketing@megacorp.com", initials: "MM" }, action: "billing.upgraded", resourceType: "Subscription", resourceId: "sub_agt_newX", ip: "162.158.92.14", userAgent: "Mozilla/5.0 (Win; Chrome/123)" },
   { id: "log_017", timestamp: "Today 08:35:21", user: { email: "sarah@acme.com", initials: "SA" }, action: "user.logout", resourceType: "User", resourceId: "user_sA4kNp1", ip: "104.21.34.12", userAgent: "Mozilla/5.0 (Mac; Chrome/124)" },

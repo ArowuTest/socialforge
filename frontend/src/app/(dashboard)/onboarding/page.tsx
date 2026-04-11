@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
@@ -251,7 +251,7 @@ export default function OnboardingPage() {
               <div className="text-center">
                 <div className="text-4xl mb-3">🎉</div>
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                  Welcome to SocialForge
+                  Welcome to ChiselPost
                 </h1>
                 <p className="text-gray-500 dark:text-gray-400 text-sm">
                   Let&apos;s get your workspace set up in just a few steps.

@@ -1,5 +1,5 @@
-/**
- * RepurposeExplainer — 8-second looping demo of the SocialForge repurpose engine.
+﻿/**
+ * RepurposeExplainer — 8-second looping demo of the ChiselPost repurpose engine.
  *
  * 0-20f    "Repurpose Engine" title fades in with violet glow
  * 20-50f   URL input types in, button pulses

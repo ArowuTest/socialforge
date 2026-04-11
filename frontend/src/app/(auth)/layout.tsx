@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { Zap } from "lucide-react";
 
 export default function AuthLayout({
@@ -15,7 +15,7 @@ export default function AuthLayout({
             <Zap className="h-4 w-4 text-white fill-white" />
           </div>
           <span className="font-bold text-lg text-gray-900 dark:text-white group-hover:text-violet-700 dark:group-hover:text-violet-400 transition-colors">
-            SocialForge
+            ChiselPost
           </span>
         </Link>
       </header>
@@ -34,7 +34,7 @@ export default function AuthLayout({
 
       {/* Footer */}
       <footer className="text-center p-4 text-xs text-gray-400 dark:text-gray-600 relative z-10">
-        &copy; {new Date().getFullYear()} SocialForge. All rights reserved.
+        &copy; {new Date().getFullYear()} ChiselPost. All rights reserved.
       </footer>
     </div>
   );

@@ -1,5 +1,5 @@
-/**
- * StatsAnimation — 4-second one-shot stats showcase for SocialForge.
+﻿/**
+ * StatsAnimation — 4-second one-shot stats showcase for ChiselPost.
  *
  * Background: dark with subtle SVG grid pattern
  * 4 stat blocks spring in staggered by 15 frames:

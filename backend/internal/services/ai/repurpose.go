@@ -212,7 +212,7 @@ func extractTextFromURL(ctx context.Context, rawURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("build HTTP request: %w", err)
 	}
-	req.Header.Set("User-Agent", "SocialForge-Repurpose/1.0")
+	req.Header.Set("User-Agent", "ChiselPost-Repurpose/1.0")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

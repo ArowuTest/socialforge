@@ -69,7 +69,7 @@ func (ms *MediaService) DownloadMedia(ctx context.Context, mediaURL string) (str
 	if err != nil {
 		return "", fmt.Errorf("DownloadMedia: build request: %w", err)
 	}
-	req.Header.Set("User-Agent", "SocialForge/1.0")
+	req.Header.Set("User-Agent", "ChiselPost/1.0")
 
 	resp, err := ms.httpClient.Do(req)
 	if err != nil {

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import {
   AbsoluteFill,
   interpolate,
@@ -359,7 +359,7 @@ function HeroDemoComposition() {
             }}
           />
           <div>
-            <div style={{ fontSize: 12, color: "#f1f5f9", fontWeight: 700 }}>@socialforge</div>
+            <div style={{ fontSize: 12, color: "#f1f5f9", fontWeight: 700 }}>@ChiselPost</div>
             <div style={{ fontSize: 11, color: "#475569" }}>Just now</div>
           </div>
           <div style={{ marginLeft: "auto", fontSize: 11, color: EMERALD, fontWeight: 700 }}>● Live</div>

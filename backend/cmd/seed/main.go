@@ -2,7 +2,7 @@
 //
 // Creates a known set of fixtures useful for local development and testing:
 //
-//   - 1 admin user       (admin@socialforge.io / admin123)
+//   - 1 admin user       (admin@chiselpost.com / admin123)
 //   - 1 workspace        "Demo Agency"
 //   - Schedule slots     Instagram + LinkedIn, Mon–Fri at 09:00 / 12:00 / 17:00
 //   - 10 sample posts    spread across draft, scheduled, published, failed
@@ -85,7 +85,7 @@ func seed(db *sql.DB) error {
 // ----------------------------------------------------------------------------
 
 func upsertAdminUser(db *sql.DB) (uuid.UUID, error) {
-	const email = "admin@socialforge.io"
+	const email = "admin@chiselpost.com"
 	const password = "admin123"
 
 	// Check if already exists
@@ -281,7 +281,7 @@ func seedPosts(db *sql.DB, workspaceID, userID uuid.UUID) error {
 		},
 		{
 			title:   "Feature spotlight: Scheduling",
-			caption: "Did you know you can schedule posts to 8+ platforms from one dashboard? Learn more at socialforge.io 📅",
+			caption: "Did you know you can schedule posts to 8+ platforms from one dashboard? Learn more at chiselpost.com 📅",
 			status:  "published",
 			scheduledAt: past(3 * 24 * time.Hour),
 			publishedAt: past(3*24*time.Hour - 2*time.Second),

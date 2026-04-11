@@ -696,7 +696,7 @@ function SettingsTab({ workspace }: { workspace: Workspace }) {
                   White-label Branding
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Hide SocialForge branding for this client workspace.
+                  Hide ChiselPost branding for this client workspace.
                 </p>
               </div>
               <Switch

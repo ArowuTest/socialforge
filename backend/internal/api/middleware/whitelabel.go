@@ -13,11 +13,11 @@ import (
 
 const (
 	LocalsWhitelabelWorkspace = "whitelabel_workspace"
-	socialforgeBaseDomain     = "socialforge.io"
+	socialforgeBaseDomain     = "chiselpost.com"
 )
 
 // WhitelabelResolver is a middleware that inspects the Host header.
-// If it matches a workspace's custom_domain OR the pattern <slug>.socialforge.io,
+// If it matches a workspace's custom_domain OR the pattern <slug>.chiselpost.com,
 // it loads that workspace and stores it in fiber context locals.
 // Requests to the main app domain pass through without a workspace set.
 func (m *MiddlewareGroup) WhitelabelResolver() fiber.Handler {
@@ -34,7 +34,7 @@ func (m *MiddlewareGroup) WhitelabelResolver() fiber.Handler {
 		var workspace models.Workspace
 		var found bool
 
-		// Check slug subdomain pattern: <slug>.socialforge.io
+		// Check slug subdomain pattern: <slug>.chiselpost.com
 		if strings.HasSuffix(host, "."+socialforgeBaseDomain) {
 			slug := strings.TrimSuffix(host, "."+socialforgeBaseDomain)
 			if slug != "" && slug != "www" && slug != "api" {

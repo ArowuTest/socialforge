@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * HeroDemoVideo — wraps the Remotion Player for use on the landing page.
@@ -51,7 +51,7 @@ function DemoPlaceholder() {
           </svg>
         </div>
         <p style={{ color: "#a78bfa", fontSize: 14, fontWeight: 600, margin: 0 }}>
-          SocialForge Demo
+          ChiselPost Demo
         </p>
         <p style={{ color: "#475569", fontSize: 12, margin: "4px 0 0" }}>
           Loading animation...

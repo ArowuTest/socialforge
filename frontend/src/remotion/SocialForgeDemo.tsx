@@ -1,5 +1,5 @@
-/**
- * SocialForgeDemo — Remotion composition for the hero section.
+﻿/**
+ * ChiselPostDemo — Remotion composition for the hero section.
  *
  * Shows a slick 5-second looping product demo:
  *   0–20f   Logo + headline fade in
@@ -85,7 +85,7 @@ function Logo({ frame }: { frame: number }) {
         </svg>
       </div>
       <span style={{ color: C.text, fontWeight: 700, fontSize: 20, letterSpacing: -0.5 }}>
-        SocialForge
+        ChiselPost
       </span>
     </div>
   );
@@ -422,7 +422,7 @@ function SuccessBanner({ frame }: { frame: number }) {
 
 // ─── Main composition ─────────────────────────────────────────────────────────
 
-export const SocialForgeDemo: React.FC = () => {
+export const ChiselPostDemo: React.FC = () => {
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
 

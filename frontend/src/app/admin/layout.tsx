@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -43,7 +43,7 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
             <Zap className="h-4 w-4 text-white fill-white" />
           </div>
           <div>
-            <p className="font-bold text-white text-sm leading-tight">SocialForge</p>
+            <p className="font-bold text-white text-sm leading-tight">ChiselPost</p>
             <div className="flex items-center gap-1 mt-0.5">
               <Shield className="h-3 w-3 text-violet-400" />
               <span className="text-xs text-violet-400 font-medium">Admin Portal</span>

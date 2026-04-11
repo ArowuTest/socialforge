@@ -396,7 +396,7 @@ func generateJWT(user *models.User, secret string, expiry time.Duration) (string
 			Subject:   user.ID.String(),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			Issuer:    "socialforge",
+			Issuer:    "ChiselPost",
 		},
 	}
 

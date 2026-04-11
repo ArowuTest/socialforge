@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * HeroDemoVideoPlayer — client-only Remotion Player component.
@@ -6,7 +6,7 @@
  */
 import React from "react";
 import { Player } from "@remotion/player";
-import { SocialForgeDemo } from "@/remotion/SocialForgeDemo";
+import { ChiselPostDemo } from "@/remotion/ChiselPostDemo";
 
 export default function HeroDemoVideoPlayer() {
   return (
@@ -19,7 +19,7 @@ export default function HeroDemoVideoPlayer() {
       }}
     >
       <Player
-        component={SocialForgeDemo}
+        component={ChiselPostDemo}
         durationInFrames={150}
         fps={30}
         compositionWidth={1200}

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -176,7 +176,7 @@ function AccountCard({
             <DialogTitle>Disconnect Account</DialogTitle>
             <DialogDescription>
               Are you sure you want to disconnect{" "}
-              <strong>@{account.handle}</strong> from SocialForge? You can
+              <strong>@{account.handle}</strong> from ChiselPost? You can
               reconnect at any time.
             </DialogDescription>
           </DialogHeader>

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -452,7 +452,7 @@ function WorkspaceTab() {
               placeholder="my-agency"
             />
             <p className="text-xs text-muted-foreground font-mono">
-              app.socialforge.io/<span className="text-violet-600 dark:text-violet-400">{slug || "my-agency"}</span>
+              app.ChiselPost.io/<span className="text-violet-600 dark:text-violet-400">{slug || "my-agency"}</span>
             </p>
           </div>
 
@@ -895,7 +895,7 @@ function ApiKeysTab() {
             <div>
               <p className="text-sm font-medium text-blue-900 dark:text-blue-200">API Keys</p>
               <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5">
-                Use API keys to integrate SocialForge with your tools. Keep keys secret — treat them like passwords.
+                Use API keys to integrate ChiselPost with your tools. Keep keys secret — treat them like passwords.
               </p>
             </div>
           </div>
@@ -1059,7 +1059,7 @@ function WhitelabelTab() {
   const [enabled, setEnabled] = React.useState(false);
   const [logoPreview, setLogoPreview] = React.useState<string | null>(null);
   const [primaryColor, setPrimaryColor] = React.useState("#7C3AED");
-  const [appName, setAppName] = React.useState("SocialForge");
+  const [appName, setAppName] = React.useState("ChiselPost");
   const [customDomain, setCustomDomain] = React.useState("");
   const [isSaving, setIsSaving] = React.useState(false);
   const [dnsOpen, setDnsOpen] = React.useState(false);
@@ -1132,7 +1132,7 @@ function WhitelabelTab() {
                     <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p className="text-xs max-w-48">Customize SocialForge branding for your clients</p>
+                    <p className="text-xs max-w-48">Customize ChiselPost branding for your clients</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -1219,7 +1219,7 @@ function WhitelabelTab() {
                   <div className="space-y-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-xs font-mono">
                     <div><span className="text-muted-foreground">Type:</span> CNAME</div>
                     <div><span className="text-muted-foreground">Name:</span> {customDomain || "clients"}</div>
-                    <div><span className="text-muted-foreground">Value:</span> proxy.socialforge.io</div>
+                    <div><span className="text-muted-foreground">Value:</span> proxy.ChiselPost.io</div>
                     <div><span className="text-muted-foreground">TTL:</span> 300</div>
                   </div>
                   <Button
@@ -1242,12 +1242,12 @@ function WhitelabelTab() {
             <Label htmlFor="wl-appname">App Name</Label>
             <Input
               id="wl-appname"
-              placeholder="SocialForge"
+              placeholder="ChiselPost"
               value={appName}
               onChange={(e) => setAppName(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              What clients see instead of &quot;SocialForge&quot;
+              What clients see instead of &quot;ChiselPost&quot;
             </p>
           </div>
 

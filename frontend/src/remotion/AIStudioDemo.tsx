@@ -1,5 +1,5 @@
-/**
- * AIStudioDemo — 6-second looping AI image generation demo for SocialForge.
+﻿/**
+ * AIStudioDemo — 6-second looping AI image generation demo for ChiselPost.
  *
  * 0-20f    "AI Media Studio" label appears
  * 20-50f   Prompt input types: "A professional woman using her phone in Lagos..."

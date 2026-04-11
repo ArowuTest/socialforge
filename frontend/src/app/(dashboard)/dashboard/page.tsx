@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -98,7 +98,7 @@ const setupSteps = [
   {
     id: "ai-image",
     title: "Generate images & captions with AI",
-    description: "Describe what you want and SocialForge AI will create professional images and captions instantly.",
+    description: "Describe what you want and ChiselPost AI will create professional images and captions instantly.",
     href: "/ai",
     cta: "Open AI Studio",
     icon: ImageIcon,
@@ -148,7 +148,7 @@ function GettingStartedGuide() {
             <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" />
           </div>
           <div>
-            <p className="font-semibold text-gray-900 dark:text-white text-sm">Get started with SocialForge</p>
+            <p className="font-semibold text-gray-900 dark:text-white text-sm">Get started with ChiselPost</p>
             <p className="text-xs text-gray-500 dark:text-gray-400">Follow these steps to set up your workspace</p>
           </div>
         </div>

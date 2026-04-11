@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
@@ -553,7 +553,7 @@ export default function TemplatesPage() {
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="h-4 w-4 text-violet-500" />
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Curated by SocialForge — copy any template to your library and customize it.
+              Curated by ChiselPost — copy any template to your library and customize it.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

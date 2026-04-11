@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import {
@@ -137,8 +137,8 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = React.useState<TabId>("general");
 
   // General state
-  const [appName, setAppName] = React.useState("SocialForge");
-  const [supportEmail, setSupportEmail] = React.useState("support@socialforge.io");
+  const [appName, setAppName] = React.useState("ChiselPost");
+  const [supportEmail, setSupportEmail] = React.useState("support@ChiselPost.io");
   const [defaultPlan, setDefaultPlan] = React.useState("free");
   const [maxAccountsFree, setMaxAccountsFree] = React.useState("2");
   const [maxAccountsStarter, setMaxAccountsStarter] = React.useState("5");

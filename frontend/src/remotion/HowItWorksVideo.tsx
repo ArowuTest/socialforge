@@ -1,5 +1,5 @@
-/**
- * HowItWorksVideo — 9-second looping 3-step explainer for SocialForge.
+﻿/**
+ * HowItWorksVideo — 9-second looping 3-step explainer for ChiselPost.
  *
  * Scene 1 (0-90f):   "Connect your socials" — platform cards slide in, phone mockup
  * Scene 2 (90-180f): "Create or Generate" — split screen, typing + AI output
@@ -574,7 +574,7 @@ function Scene2({ frame }: { frame: number }) {
                 fontWeight: 700,
               }}
             >
-              SocialForge AI
+              ChiselPost AI
             </span>
           </div>
           <span style={{ color: C.muted, fontSize: 11 }}>

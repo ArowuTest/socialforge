@@ -200,8 +200,8 @@ func Load() (*Config, error) {
 
 	// ── Notifications / Resend ──────────────────────────────────────────────────
 	cfg.Notifications.Resend.APIKey = getEnvOrDefault("RESEND_API_KEY", "")
-	cfg.Notifications.Resend.FromEmail = getEnvOrDefault("RESEND_FROM_EMAIL", "noreply@socialforge.io")
-	cfg.Notifications.AppName = getEnvOrDefault("APP_NAME", "SocialForge")
+	cfg.Notifications.Resend.FromEmail = getEnvOrDefault("RESEND_FROM_EMAIL", "noreply@chiselpost.com")
+	cfg.Notifications.AppName = getEnvOrDefault("APP_NAME", "ChiselPost")
 	cfg.Notifications.AppURL = getEnvOrDefault("APP_FRONTEND_URL", cfg.App.BaseURL)
 
 	// ── OAuth – Instagram / Facebook ────────────────────────────────────────────

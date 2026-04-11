@@ -1,4 +1,4 @@
-// Package handlers contains all HTTP request handlers for the SocialForge API.
+// Package handlers contains all HTTP request handlers for the ChiselPost API.
 package handlers
 
 import (

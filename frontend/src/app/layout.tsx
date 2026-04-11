@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "next-themes";
@@ -13,24 +13,24 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "SocialForge",
-    template: "%s | SocialForge",
+    default: "ChiselPost",
+    template: "%s | ChiselPost",
   },
   description:
     "Schedule, create, and analyse your social media content across every platform — powered by AI.",
   keywords: ["social media", "scheduling", "content creation", "AI", "analytics"],
-  authors: [{ name: "SocialForge" }],
-  creator: "SocialForge",
+  authors: [{ name: "ChiselPost" }],
+  creator: "ChiselPost",
   openGraph: {
     type: "website",
     locale: "en_US",
-    title: "SocialForge",
+    title: "ChiselPost",
     description: "Schedule, create, and analyse your social media content",
-    siteName: "SocialForge",
+    siteName: "ChiselPost",
   },
   twitter: {
     card: "summary_large_image",
-    title: "SocialForge",
+    title: "ChiselPost",
     description: "Schedule, create, and analyse your social media content",
   },
 };

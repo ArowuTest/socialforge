@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -293,7 +293,7 @@ function WhitelabelPanel() {
     enabled: false,
     logoPreview: null,
     primaryColor: "#7C3AED",
-    appName: "SocialForge",
+    appName: "ChiselPost",
     customDomain: "",
   });
   const [isSaving, setIsSaving] = React.useState(false);
@@ -357,7 +357,7 @@ function WhitelabelPanel() {
                   <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p className="text-xs max-w-48">Customize SocialForge for your clients</p>
+                  <p className="text-xs max-w-48">Customize ChiselPost for your clients</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -449,7 +449,7 @@ function WhitelabelPanel() {
                 <div className="space-y-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-xs font-mono">
                   <div><span className="text-muted-foreground">Type:</span> CNAME</div>
                   <div><span className="text-muted-foreground">Name:</span> {state.customDomain || "clients"}</div>
-                  <div><span className="text-muted-foreground">Value:</span> proxy.socialforge.io</div>
+                  <div><span className="text-muted-foreground">Value:</span> proxy.ChiselPost.io</div>
                   <div><span className="text-muted-foreground">TTL:</span> 300</div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-3">
@@ -476,12 +476,12 @@ function WhitelabelPanel() {
           <Label htmlFor="app-name">App Name</Label>
           <Input
             id="app-name"
-            placeholder="SocialForge"
+            placeholder="ChiselPost"
             value={state.appName}
             onChange={(e) => setState((s) => ({ ...s, appName: e.target.value }))}
           />
           <p className="text-xs text-muted-foreground">
-            What clients see instead of &quot;SocialForge&quot;
+            What clients see instead of &quot;ChiselPost&quot;
           </p>
         </div>
 
