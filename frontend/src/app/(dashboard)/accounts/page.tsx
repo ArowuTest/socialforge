@@ -291,7 +291,9 @@ export default function AccountsPage() {
     }
   };
 
-  const accounts = data?.data ?? [];
+  // accountsApi.list() returns { data: { platform: SocialAccount[] } } grouped by platform
+  const accountsGrouped = (data?.data ?? {}) as Record<string, SocialAccount[]>;
+  const accounts: SocialAccount[] = Object.values(accountsGrouped).flat();
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
