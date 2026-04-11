@@ -221,17 +221,17 @@ export default function AdminUsersPage() {
   const fetchUsers = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await adminApi.listUsers({ page, pageSize });
-      if (res?.data) {
-        setUsers(res.data as unknown as UserRow[]);
-        setTotal((res as unknown as { total?: number }).total || res.data.length);
+      const res = await adminApi.listUsers({ page, pageSize, search: search || undefined, plan: planFilter !== "all" ? planFilter : undefined });
+      if (res?.users) {
+        setUsers(res.users as unknown as UserRow[]);
+        setTotal(res.total ?? res.users.length);
       }
     } catch {
       toast.error("Failed to load users");
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, search, planFilter]);
 
   React.useEffect(() => {
     fetchUsers();

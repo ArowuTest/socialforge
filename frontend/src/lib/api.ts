@@ -693,8 +693,12 @@ export const adminApi = {
       ai_credits_today: number;
     }>("/api/v1/admin/stats"),
 
-  listUsers: (params?: { page?: number; pageSize?: number }) =>
-    request<PaginatedResponse<User>>(`/api/v1/admin/users${qs(params)}`),
+  listUsers: (params?: { page?: number; pageSize?: number; search?: string; plan?: string }) => {
+    // Backend uses `limit` not `pageSize`
+    const { pageSize, ...rest } = params ?? {};
+    const p = pageSize ? { ...rest, limit: pageSize } : rest;
+    return request<{ users: User[]; total: number; page: number; limit: number }>(`/api/v1/admin/users${qs(p)}`);
+  },
 
   getUser: (id: string) => request<ApiResponse<User>>(`/api/v1/admin/users/${id}`),
 
