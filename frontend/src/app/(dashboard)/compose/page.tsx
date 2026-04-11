@@ -601,22 +601,22 @@ export default function ComposePage() {
    * no backing File object) are silently skipped.
    */
   const uploadPendingMedia = async (): Promise<string[]> => {
-    const keys: string[] = [];
+    const publicUrls: string[] = [];
     for (const m of media) {
       if (!m.file) continue; // already-uploaded or URL-only entry — skip
       const presignRes = await mediaApi.presign({
         filename: m.file.name,
         contentType: m.file.type,
       });
-      const { uploadUrl, key } = presignRes.data;
-      await fetch(uploadUrl, {
+      const { upload_url, public_url } = presignRes.data;
+      await fetch(upload_url, {
         method: "PUT",
         body: m.file,
         headers: { "Content-Type": m.file.type },
       });
-      keys.push(key);
+      publicUrls.push(public_url);
     }
-    return keys;
+    return publicUrls;
   };
 
   const handlePublishNow = async () => {
@@ -630,12 +630,12 @@ export default function ComposePage() {
     }
     setIsPublishing(true);
     try {
-      const mediaIds = await uploadPendingMedia();
+      const mediaUrls = await uploadPendingMedia();
       await postsApi.create({
         caption,
         platforms: selectedPlatforms as Platform[],
         postType,
-        ...(mediaIds.length > 0 && { mediaIds }),
+        ...(mediaUrls.length > 0 && { mediaUrls }),
       });
       toast.success("Post published successfully!");
       reset();
@@ -661,13 +661,14 @@ export default function ComposePage() {
     }
     setIsPublishing(true);
     try {
-      const mediaIds = await uploadPendingMedia();
+      const mediaUrls = await uploadPendingMedia();
       await postsApi.create({
         caption,
         platforms: selectedPlatforms as Platform[],
         postType,
         scheduledAt: scheduledAt ?? undefined,
-        ...(mediaIds.length > 0 && { mediaIds }),
+        useNextSlot,
+        ...(mediaUrls.length > 0 && { mediaUrls }),
       });
       toast.success("Post scheduled successfully!");
       reset();
@@ -684,12 +685,12 @@ export default function ComposePage() {
       return;
     }
     try {
-      const mediaIds = await uploadPendingMedia();
+      const mediaUrls = await uploadPendingMedia();
       await postsApi.create({
         caption,
         platforms: selectedPlatforms as Platform[],
         postType,
-        ...(mediaIds.length > 0 && { mediaIds }),
+        ...(mediaUrls.length > 0 && { mediaUrls }),
       });
       toast.success("Draft saved!");
     } catch {

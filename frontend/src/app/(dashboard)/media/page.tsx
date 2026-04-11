@@ -153,9 +153,9 @@ export default function MediaPage() {
           filename: file.name,
           contentType: file.type || "application/octet-stream",
         });
-        const { uploadUrl } = presignRes.data;
+        const { upload_url } = presignRes.data;
 
-        await fetch(uploadUrl, {
+        await fetch(upload_url, {
           method: "PUT",
           headers: { "Content-Type": file.type || "application/octet-stream" },
           body: file,

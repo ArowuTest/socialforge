@@ -363,8 +363,9 @@ export const accountsApi = {
 interface PostCreatePayload {
   caption: string;
   platforms: Platform[];
-  mediaIds?: string[];
+  mediaUrls?: string[];   // public URLs from presigned upload
   scheduledAt?: string;
+  useNextSlot?: boolean;
   postType: PostType;
   tags?: string[];
 }
@@ -384,7 +385,15 @@ export const postsApi = {
   create: (data: PostCreatePayload) =>
     request<ApiResponse<Post>>(`${ws()}/posts`, {
       method: "POST",
-      body: JSON.stringify(data),
+      // Remap camelCase frontend fields to snake_case backend fields
+      body: JSON.stringify({
+        content: data.caption,
+        platforms: data.platforms,
+        post_type: data.postType,
+        ...(data.scheduledAt && { scheduled_at: data.scheduledAt }),
+        ...(data.useNextSlot && { use_next_free_slot: true }),
+        ...(data.mediaUrls?.length && { media_urls: data.mediaUrls }),
+      }),
     }),
 
   update: (id: string, data: Partial<Post>) =>
@@ -501,7 +510,11 @@ export const aiApi = {
   repurpose: (data: RepurposeRequest) =>
     request<ApiResponse<AIJob>>(`${ws()}/repurpose`, {
       method: "POST",
-      body: JSON.stringify(data),
+      // Backend expects snake_case `target_platforms`
+      body: JSON.stringify({
+        content: data.content,
+        target_platforms: data.targetPlatforms,
+      }),
     }),
 
   analyse: (data: { postId?: string; content?: string; platform: Platform }) =>
@@ -617,7 +630,7 @@ export const billingApi = {
 
 export const mediaApi = {
   presign: (data: { filename: string; contentType: string }) =>
-    request<ApiResponse<{ uploadUrl: string; key: string }>>(
+    request<ApiResponse<{ upload_url: string; key: string; public_url: string }>>(
       `${ws()}/media/presign`,
       { method: "POST", body: JSON.stringify(data) },
     ),
