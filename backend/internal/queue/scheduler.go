@@ -39,11 +39,15 @@ func NewScheduler(redisClient *redis.Client, db *gorm.DB, log *zap.Logger) (*Sch
 		// Log scheduler-level errors via zap.
 		PostEnqueueFunc: func(info *asynq.TaskInfo, err error) {
 			if err != nil {
+				taskType := ""
+				if info != nil {
+					taskType = info.Type
+				}
 				log.Error("scheduler: failed to enqueue task",
-					zap.String("type", info.Type),
+					zap.String("type", taskType),
 					zap.Error(err),
 				)
-			} else {
+			} else if info != nil {
 				log.Debug("scheduler: task enqueued",
 					zap.String("type", info.Type),
 					zap.String("id", info.ID),
