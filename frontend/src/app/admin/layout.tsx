@@ -92,12 +92,19 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  // `mounted` prevents the guard from firing before Zustand persist has
+  // rehydrated from localStorage (Next.js SSR starts with default state).
+  const [mounted, setMounted] = React.useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const { user, isAuthenticated } = useAuthStore();
 
+  React.useEffect(() => { setMounted(true); }, []);
+
   // Guard: must be logged in AND have the super-admin flag.
+  // Only runs after mount so the persisted auth state is available.
   React.useEffect(() => {
+    if (!mounted) return;
     if (!isAuthenticated) {
       router.replace(`/login?next=${encodeURIComponent(pathname)}`);
       return;
@@ -106,7 +113,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       // Authenticated but not a platform admin — send to their dashboard.
       router.replace("/dashboard");
     }
-  }, [isAuthenticated, user, router, pathname]);
+  }, [mounted, isAuthenticated, user, router, pathname]);
+
+  // Show a blank dark shell while hydrating to avoid flash.
+  if (!mounted) return <div className="flex h-screen bg-slate-950" />;
 
   // Render nothing while redirecting.
   if (!isAuthenticated || (user && !user.is_super_admin)) {
