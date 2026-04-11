@@ -77,7 +77,7 @@ export default function AdminOverviewPage() {
         ]);
         if (!cancelled) {
           setStats(statsRes);
-          setRecentUsers(usersRes.data ?? []);
+          setRecentUsers(usersRes.users ?? []);
         }
       } catch (err) {
         if (!cancelled) {
