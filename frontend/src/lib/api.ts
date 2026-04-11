@@ -467,19 +467,35 @@ export const aiApi = {
   generateCaption: (data: GenerateCaptionRequest) =>
     request<ApiResponse<AIJob>>(`${ws()}/ai/generate-caption`, {
       method: "POST",
-      body: JSON.stringify(data),
+      // Backend expects `prompt` (not `topic`) and snake_case `target_audience`
+      body: JSON.stringify({
+        prompt: data.topic,
+        platform: data.platform,
+        tone: data.tone,
+        target_audience: data.targetAudience,
+      }),
     }),
 
   generateImage: (data: GenerateImageRequest) =>
     request<ApiResponse<AIJob>>(`${ws()}/ai/generate-image`, {
       method: "POST",
-      body: JSON.stringify(data),
+      // Backend expects snake_case `aspect_ratio`
+      body: JSON.stringify({
+        prompt: data.prompt,
+        style: data.style,
+        aspect_ratio: data.aspectRatio,
+      }),
     }),
 
   generateVideo: (data: { concept: string; duration: 15 | 30 | 60; style: string }) =>
     request<ApiResponse<AIJob>>(`${ws()}/ai/generate-video`, {
       method: "POST",
-      body: JSON.stringify(data),
+      // Backend expects `prompt` (not `concept`)
+      body: JSON.stringify({
+        prompt: data.concept,
+        duration: data.duration,
+        style: data.style,
+      }),
     }),
 
   repurpose: (data: RepurposeRequest) =>
