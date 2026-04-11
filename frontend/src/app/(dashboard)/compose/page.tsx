@@ -185,6 +185,132 @@ function TikTokPreview({ caption }: { caption: string }) {
   );
 }
 
+// AI Generate Image Dialog
+function AIImageDialog({
+  open,
+  onClose,
+  onGenerated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onGenerated: (imageUrl: string) => void;
+}) {
+  const [prompt, setPrompt] = React.useState("");
+  const [style, setStyle] = React.useState<"photorealistic" | "cartoon" | "minimalist" | "3d">("photorealistic");
+  const [aspectRatio, setAspectRatio] = React.useState<"1:1" | "4:5" | "9:16" | "16:9" | "1.91:1">("1:1");
+  const [isGenerating, setIsGenerating] = React.useState(false);
+
+  const handleGenerate = async () => {
+    if (!prompt.trim()) {
+      toast.error("Please describe the image you want");
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const res = await aiApi.generateImage({ prompt, style, aspectRatio });
+      let attempts = 0;
+      const poll = async () => {
+        if (attempts > 40) throw new Error("Image generation timed out");
+        attempts++;
+        const jobRes = await aiApi.getJobStatus(res.data.id);
+        const result = jobRes.data.result as Record<string, unknown> | undefined;
+        if (jobRes.data.status === "completed" && result?.imageUrl) {
+          onGenerated(result.imageUrl as string);
+          onClose();
+          toast.success("Image generated!");
+        } else if (jobRes.data.status === "failed") {
+          throw new Error(jobRes.data.error || "Image generation failed");
+        } else {
+          await new Promise((r) => setTimeout(r, 2000));
+          await poll();
+        }
+      };
+      await poll();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to generate image");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Image className="h-5 w-5 text-blue-500" />
+            AI Image Generator
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="space-y-2">
+            <Label>Image Description</Label>
+            <Textarea
+              placeholder="A vibrant flat-lay of coffee and pastries on a wooden table, morning light..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              className="h-24 resize-none"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Style</Label>
+              <Select value={style} onValueChange={(v) => setStyle(v as typeof style)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="photorealistic">Photorealistic</SelectItem>
+                  <SelectItem value="cartoon">Cartoon</SelectItem>
+                  <SelectItem value="minimalist">Minimalist</SelectItem>
+                  <SelectItem value="3d">3D Render</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Aspect Ratio</Label>
+              <Select value={aspectRatio} onValueChange={(v) => setAspectRatio(v as typeof aspectRatio)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1:1">1:1 (Square)</SelectItem>
+                  <SelectItem value="4:5">4:5 (Portrait)</SelectItem>
+                  <SelectItem value="9:16">9:16 (Story)</SelectItem>
+                  <SelectItem value="16:9">16:9 (Landscape)</SelectItem>
+                  <SelectItem value="1.91:1">1.91:1 (Banner)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <Button
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            onClick={handleGenerate}
+            disabled={isGenerating || !prompt.trim()}
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Generating image…
+              </>
+            ) : (
+              <>
+                <Image className="h-4 w-4 mr-2" />
+                Generate Image
+              </>
+            )}
+          </Button>
+          {isGenerating && (
+            <p className="text-xs text-center text-muted-foreground">
+              Image generation takes 10–30 seconds. Please wait…
+            </p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // AI Generate Caption Dialog
 function AICaptionDialog({
   open,
@@ -329,6 +455,7 @@ export default function ComposePage() {
 
   const [activePreviewTab, setActivePreviewTab] = React.useState<string>("");
   const [showAIDialog, setShowAIDialog] = React.useState(false);
+  const [showImageDialog, setShowImageDialog] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
@@ -673,6 +800,15 @@ export default function ComposePage() {
               <Button
                 variant="outline"
                 size="sm"
+                className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400"
+                onClick={() => setShowImageDialog(true)}
+              >
+                <Image className="h-3.5 w-3.5 mr-1.5" />
+                Generate Image
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleAddHashtags}
                 disabled={!caption.trim()}
               >
@@ -896,13 +1032,28 @@ export default function ComposePage() {
         </div>
       </div>
 
-      {/* AI Dialog */}
+      {/* AI Caption Dialog */}
       <AICaptionDialog
         open={showAIDialog}
         onClose={() => setShowAIDialog(false)}
         onGenerated={(c) => {
           setCaption(c);
           toast.success("Caption applied!");
+        }}
+      />
+
+      {/* AI Image Dialog */}
+      <AIImageDialog
+        open={showImageDialog}
+        onClose={() => setShowImageDialog(false)}
+        onGenerated={(imageUrl) => {
+          // Add the generated image as a media item
+          useComposeStore.getState().addMedia({
+            id: Math.random().toString(36).slice(2),
+            url: imageUrl,
+            type: "image",
+          });
+          toast.success("Image added to your post!");
         }}
       />
     </div>

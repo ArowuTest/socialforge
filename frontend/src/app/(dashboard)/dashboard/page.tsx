@@ -38,13 +38,49 @@ type RecentPost = {
 type PlatformDatum = { name: string; posts: number; engagement: number };
 
 const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const scheduleDots: Record<number, { color: string }[]> = {
-  0: [{ color: "bg-violet-500" }, { color: "bg-blue-500" }],
-  2: [{ color: "bg-violet-500" }],
-  3: [{ color: "bg-emerald-500" }, { color: "bg-violet-500" }, { color: "bg-amber-500" }],
-  5: [{ color: "bg-blue-500" }],
-  6: [{ color: "bg-violet-500" }, { color: "bg-emerald-500" }],
-};
+
+/** Returns Monday of the current week as a Date at UTC midnight. */
+function getWeekMonday(): Date {
+  const today = new Date();
+  const day = today.getDay(); // 0=Sun,1=Mon,...,6=Sat
+  const daysBack = day === 0 ? 6 : day - 1; // distance to most recent Monday
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - daysBack);
+  monday.setHours(0, 0, 0, 0);
+  return monday;
+}
+
+/** Maps a post date to the 0-based week-index where 0=Mon, 6=Sun. Returns -1 if outside current week. */
+function weekDayIndex(dateStr: string): number {
+  const monday = getWeekMonday();
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  sunday.setHours(23, 59, 59, 999);
+  const d = new Date(dateStr);
+  if (d < monday || d > sunday) return -1;
+  const day = d.getDay();
+  return day === 0 ? 6 : day - 1;
+}
+
+function buildScheduleDots(posts: Array<{ scheduled_at?: string; created_at?: string; status?: string }>): Record<number, { color: string }[]> {
+  const dots: Record<number, { color: string }[]> = {};
+  const statusColor = (status: string) => {
+    if (status === "published") return "bg-emerald-500";
+    if (status === "failed") return "bg-red-500";
+    return "bg-violet-500"; // scheduled / draft / publishing
+  };
+  for (const post of posts) {
+    const dateStr = post.scheduled_at || post.created_at;
+    if (!dateStr) continue;
+    const idx = weekDayIndex(dateStr);
+    if (idx < 0) continue;
+    if (!dots[idx]) dots[idx] = [];
+    if (dots[idx].length < 3) {
+      dots[idx].push({ color: statusColor(post.status ?? "scheduled") });
+    }
+  }
+  return dots;
+}
 
 const platformIcons: Record<string, React.ElementType> = {
   instagram: Instagram, youtube: Youtube, linkedin: Linkedin, twitter: Twitter, facebook: Facebook,
@@ -279,6 +315,7 @@ export default function DashboardPage() {
   const [stats, setStats] = React.useState<StatCardData[]>([]);
   const [recentPosts, setRecentPosts] = React.useState<RecentPost[]>([]);
   const [platformData, setPlatformData] = React.useState<PlatformDatum[]>([]);
+  const [scheduleDots, setScheduleDots] = React.useState<Record<number, { color: string }[]>>({});
 
   React.useEffect(() => {
     if (!workspace?.id) {
@@ -293,11 +330,19 @@ export default function DashboardPage() {
       const endDate = now.toISOString().slice(0, 10);
       const startDate = thirtyDaysAgo.toISOString().slice(0, 10);
 
-      const [analyticsRes, postsRes, accountsRes, creditsRes] = await Promise.all([
+      // Compute this week's date range for the schedule strip
+      const weekMonday = getWeekMonday();
+      const weekSunday = new Date(weekMonday);
+      weekSunday.setDate(weekMonday.getDate() + 6);
+      const weekStart = weekMonday.toISOString().slice(0, 10);
+      const weekEnd = weekSunday.toISOString().slice(0, 10);
+
+      const [analyticsRes, postsRes, accountsRes, creditsRes, weekPostsRes] = await Promise.all([
         analyticsApi.getOverview({ startDate, endDate }).catch(() => null),
         postsApi.list({ pageSize: 5 }).catch(() => null),
         accountsApi.list().catch(() => null),
         billingApi.getCreditBalance().catch(() => null),
+        postsApi.list({ startDate: weekStart, endDate: weekEnd, pageSize: 100 }).catch(() => null),
       ]);
       if (cancelled) return;
 
@@ -380,6 +425,10 @@ export default function DashboardPage() {
       ]);
 
       setPlatformData(chart);
+
+      // Build real schedule dots from this week's posts
+      const weekPosts = (weekPostsRes?.data || []) as Array<{ scheduled_at?: string; created_at?: string; status?: string }>;
+      setScheduleDots(buildScheduleDots(weekPosts));
 
       setRecentPosts(
         (postsRes?.data || []).slice(0, 5).map((p: any) => ({
