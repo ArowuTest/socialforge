@@ -212,8 +212,10 @@ func (h *AdminHandler) SuspendUser(c *fiber.Ctx) error {
 
 type workspaceAdminRow struct {
 	models.Workspace
-	MemberCount       int64 `json:"member_count"`
-	SocialAccountCount int64 `json:"social_account_count"`
+	OwnerEmail         string `json:"owner_email"`
+	OwnerName          string `json:"owner_name"`
+	MemberCount        int64  `json:"member_count"`
+	SocialAccountCount int64  `json:"social_account_count"`
 }
 
 // ListAllWorkspaces returns a paginated list of all workspaces with counts.
@@ -236,14 +238,20 @@ func (h *AdminHandler) ListAllWorkspaces(c *fiber.Ctx) error {
 	}
 
 	var workspaces []models.Workspace
-	if err := baseQ.Session(&gorm.Session{}).Offset(offset).Limit(limit).Order("created_at DESC").Find(&workspaces).Error; err != nil {
+	if err := baseQ.Session(&gorm.Session{}).
+		Preload("Owner").
+		Offset(offset).Limit(limit).Order("created_at DESC").Find(&workspaces).Error; err != nil {
 		h.log.Error("ListAllWorkspaces: find", zap.Error(err))
 		return internalError(c, "failed to list workspaces")
 	}
 
 	rows := make([]workspaceAdminRow, 0, len(workspaces))
 	for _, ws := range workspaces {
-		row := workspaceAdminRow{Workspace: ws}
+		row := workspaceAdminRow{
+			Workspace:  ws,
+			OwnerEmail: ws.Owner.Email,
+			OwnerName:  ws.Owner.Name,
+		}
 		h.db.WithContext(c.Context()).Model(&models.WorkspaceMember{}).Where("workspace_id = ?", ws.ID).Count(&row.MemberCount)
 		h.db.WithContext(c.Context()).Model(&models.SocialAccount{}).Where("workspace_id = ?", ws.ID).Count(&row.SocialAccountCount)
 		rows = append(rows, row)
@@ -330,7 +338,13 @@ func (h *AdminHandler) ListAllAIJobs(c *fiber.Ctx) error {
 
 // ── ListAuditLogs ─────────────────────────────────────────────────────────────
 
-// ListAuditLogs returns a paginated list of audit log entries.
+type auditLogAdminRow struct {
+	models.AuditLog
+	UserEmail string `json:"user_email,omitempty"`
+	UserName  string `json:"user_name,omitempty"`
+}
+
+// ListAuditLogs returns a paginated list of audit log entries with user info.
 // GET /api/v1/admin/audit-logs?page=1&limit=50&action=&user_id=
 func (h *AdminHandler) ListAuditLogs(c *fiber.Ctx) error {
 	page := max(1, c.QueryInt("page", 1))
@@ -339,6 +353,7 @@ func (h *AdminHandler) ListAuditLogs(c *fiber.Ctx) error {
 	userIDStr := c.Query("user_id")
 	offset := (page - 1) * limit
 
+	// Count query (simple model query for efficiency)
 	baseQ := h.db.WithContext(c.Context()).Model(&models.AuditLog{})
 	if action != "" {
 		baseQ = baseQ.Where("action = ?", action)
@@ -357,14 +372,42 @@ func (h *AdminHandler) ListAuditLogs(c *fiber.Ctx) error {
 		return internalError(c, "failed to list audit logs")
 	}
 
-	var logs []models.AuditLog
-	if err := baseQ.Session(&gorm.Session{}).Order("created_at DESC").Offset(offset).Limit(limit).Find(&logs).Error; err != nil {
-		h.log.Error("ListAuditLogs: find", zap.Error(err))
+	// Fetch with user JOIN for email/name
+	type logWithUser struct {
+		models.AuditLog
+		UserEmail string `gorm:"column:user_email"`
+		UserName  string `gorm:"column:user_name"`
+	}
+
+	q2 := h.db.WithContext(c.Context()).
+		Table("audit_logs").
+		Select("audit_logs.*, users.email AS user_email, users.name AS user_name").
+		Joins("LEFT JOIN users ON users.id = audit_logs.user_id")
+	if action != "" {
+		q2 = q2.Where("audit_logs.action = ?", action)
+	}
+	if userIDStr != "" {
+		uid, _ := uuid.Parse(userIDStr)
+		q2 = q2.Where("audit_logs.user_id = ?", uid)
+	}
+
+	var results []logWithUser
+	if err := q2.Order("audit_logs.created_at DESC").Offset(offset).Limit(limit).Scan(&results).Error; err != nil {
+		h.log.Error("ListAuditLogs: query", zap.Error(err))
 		return internalError(c, "failed to list audit logs")
 	}
 
+	rows := make([]auditLogAdminRow, 0, len(results))
+	for _, r := range results {
+		rows = append(rows, auditLogAdminRow{
+			AuditLog:  r.AuditLog,
+			UserEmail: r.UserEmail,
+			UserName:  r.UserName,
+		})
+	}
+
 	return c.JSON(fiber.Map{
-		"logs":  logs,
+		"logs":  rows,
 		"total": total,
 		"page":  page,
 		"limit": limit,
@@ -656,6 +699,45 @@ func (h *AdminHandler) ListBroadcasts(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"data":  []interface{}{},
 		"total": 0,
+	})
+}
+
+// ── GetPlatformStats ──────────────────────────────────────────────────────────
+
+type platformStat struct {
+	Platform string `json:"platform" gorm:"column:platform"`
+	Count    int64  `json:"count"    gorm:"column:count"`
+}
+
+// GetPlatformStats returns per-platform social account counts and system metrics.
+// GET /api/v1/admin/platforms
+func (h *AdminHandler) GetPlatformStats(c *fiber.Ctx) error {
+	var stats []platformStat
+	if err := h.db.WithContext(c.Context()).
+		Model(&models.SocialAccount{}).
+		Select("platform, COUNT(*) as count").
+		Where("is_active = true").
+		Group("platform").
+		Order("count DESC").
+		Scan(&stats).Error; err != nil {
+		h.log.Error("GetPlatformStats: query", zap.Error(err))
+		return internalError(c, "failed to load platform stats")
+	}
+
+	var totalAccounts int64
+	h.db.WithContext(c.Context()).Model(&models.SocialAccount{}).Where("is_active = true").Count(&totalAccounts)
+
+	// Count posts that failed in the last 24 hours.
+	yesterday := time.Now().UTC().Add(-24 * time.Hour)
+	var failedPostsToday int64
+	h.db.WithContext(c.Context()).Model(&models.Post{}).
+		Where("status = ? AND updated_at >= ?", models.PostStatusFailed, yesterday).
+		Count(&failedPostsToday)
+
+	return c.JSON(fiber.Map{
+		"platforms":          stats,
+		"total_accounts":     totalAccounts,
+		"failed_posts_today": failedPostsToday,
 	})
 }
 

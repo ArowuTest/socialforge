@@ -797,4 +797,11 @@ export const adminApi = {
 
   listBroadcasts: () =>
     request<ApiResponse<Array<Record<string, unknown>>>>("/api/v1/admin/broadcasts"),
+
+  getPlatformStats: () =>
+    request<{
+      platforms: Array<{ platform: string; count: number }>;
+      total_accounts: number;
+      failed_posts_today: number;
+    }>("/api/v1/admin/platforms"),
 };

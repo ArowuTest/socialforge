@@ -200,6 +200,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	admin.Get("/ai-jobs", adminH.ListAllAIJobs)
 	admin.Get("/audit-logs", adminH.ListAuditLogs)
 	admin.Get("/revenue", adminH.GetRevenueStats)
+	admin.Get("/platforms", adminH.GetPlatformStats)
 	admin.Post("/grant-credits", adminH.GrantCredits)
 	admin.Post("/grant-plan", adminH.GrantPlanAccess)
 	admin.Post("/broadcast", adminH.SendBroadcast)

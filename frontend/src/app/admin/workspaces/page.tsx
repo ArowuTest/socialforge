@@ -1,46 +1,96 @@
 "use client";
 
 import * as React from "react";
-import { Search, Eye, Settings, Trash2 } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { adminApi } from "@/lib/api";
 
-const workspaces = [
-  { id: "1", name: "BrandLift Agency", owner: "Alice Johnson", plan: "Pro", members: 8, accounts: 24, created: "Jan 12, 2026", status: "active" },
-  { id: "2", name: "MediaFlow Studio", owner: "Marcus Chen", plan: "Agency", members: 15, accounts: 48, created: "Feb 3, 2026", status: "active" },
-  { id: "3", name: "ContentX Creative", owner: "Priya Mehta", plan: "Starter", members: 3, accounts: 10, created: "Mar 1, 2026", status: "active" },
-  { id: "4", name: "ViralCo", owner: "Jordan Williams", plan: "Free", members: 1, accounts: 2, created: "Apr 4, 2026", status: "active" },
-  { id: "5", name: "Agency Pro Paris", owner: "Sophie Laurent", plan: "Pro", members: 6, accounts: 18, created: "Mar 15, 2026", status: "active" },
-  { id: "6", name: "GrowthStack Labs", owner: "David Kim", plan: "Pro", members: 4, accounts: 12, created: "Feb 20, 2026", status: "suspended" },
-  { id: "7", name: "MediaPlus Co", owner: "Emma Torres", plan: "Starter", members: 2, accounts: 6, created: "Mar 25, 2026", status: "active" },
-  { id: "8", name: "ContentLabs Dev", owner: "Ryan Park", plan: "Agency", members: 22, accounts: 64, created: "Jan 8, 2026", status: "active" },
-];
+interface WorkspaceRow {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  subscription_status: string;
+  owner_email: string;
+  owner_name: string;
+  member_count: number;
+  social_account_count: number;
+  created_at: string;
+  credit_balance: number;
+}
 
 const planColors: Record<string, string> = {
-  Free: "bg-slate-800 text-slate-300",
-  Starter: "bg-blue-900/50 text-blue-300",
-  Pro: "bg-violet-900/50 text-violet-300",
-  Agency: "bg-amber-900/50 text-amber-300",
+  free: "bg-slate-800 text-slate-300",
+  starter: "bg-blue-900/50 text-blue-300",
+  pro: "bg-violet-900/50 text-violet-300",
+  agency: "bg-amber-900/50 text-amber-300",
 };
 
-const statusColors: Record<string, string> = {
-  active: "bg-emerald-900/40 text-emerald-400",
-  suspended: "bg-red-900/40 text-red-400",
-};
+function RowSkeleton() {
+  return (
+    <div className="grid grid-cols-12 items-center px-5 py-3.5 border-b border-slate-800/60 animate-pulse">
+      {[4, 2, 2, 2, 2].map((span, i) => (
+        <div key={i} className={`col-span-${span} h-4 bg-slate-800 rounded`} />
+      ))}
+    </div>
+  );
+}
 
 export default function AdminWorkspacesPage() {
+  const [workspaces, setWorkspaces] = React.useState<WorkspaceRow[]>([]);
+  const [total, setTotal] = React.useState(0);
+  const [page, setPage] = React.useState(1);
   const [search, setSearch] = React.useState("");
+  const [debouncedSearch, setDebouncedSearch] = React.useState("");
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const filtered = workspaces.filter((w) =>
-    w.name.toLowerCase().includes(search.toLowerCase()) ||
-    w.owner.toLowerCase().includes(search.toLowerCase())
-  );
+  const PAGE_SIZE = 20;
+
+  // Debounce search
+  React.useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    adminApi.listWorkspaces({ page, pageSize: PAGE_SIZE })
+      .then((res) => {
+        if (!cancelled) {
+          const raw = res as unknown as { workspaces: WorkspaceRow[]; total: number };
+          setWorkspaces(raw.workspaces ?? []);
+          setTotal(raw.total ?? 0);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load workspaces");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [page, debouncedSearch]);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  // Client-side search filter when debounced search is active
+  const filtered = debouncedSearch
+    ? workspaces.filter((w) =>
+        w.name.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+        w.owner_email.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+        (w.owner_name ?? "").toLowerCase().includes(debouncedSearch.toLowerCase())
+      )
+    : workspaces;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         <div>
           <h2 className="text-lg font-bold text-white">Workspaces</h2>
-          <p className="text-sm text-slate-400">{workspaces.length} total workspaces</p>
+          <p className="text-sm text-slate-400">{total.toLocaleString()} total workspaces</p>
         </div>
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
@@ -52,52 +102,75 @@ export default function AdminWorkspacesPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="mb-4 bg-red-900/20 border border-red-800/40 text-red-300 text-sm rounded-xl px-4 py-3">{error}</div>
+      )}
+
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
         <div className="grid grid-cols-12 px-5 py-3 border-b border-slate-800 text-xs font-medium text-slate-500 uppercase tracking-wide">
           <div className="col-span-4">Workspace</div>
           <div className="col-span-2 hidden sm:block">Plan</div>
           <div className="col-span-2 hidden md:block">Members</div>
           <div className="col-span-2 hidden lg:block">Accounts</div>
-          <div className="col-span-2 hidden lg:block">Status</div>
-          <div className="col-span-2">Actions</div>
+          <div className="col-span-2 hidden xl:block">Created</div>
         </div>
 
         <div className="divide-y divide-slate-800">
-          {filtered.map((w) => (
-            <div key={w.id} className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
-              <div className="col-span-6 sm:col-span-4 flex items-center gap-3 min-w-0">
-                <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  {w.name[0]}
+          {loading
+            ? Array.from({ length: 8 }).map((_, i) => <RowSkeleton key={i} />)
+            : filtered.length === 0
+            ? (
+              <div className="px-5 py-12 text-center">
+                <Building2 className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+                <p className="text-sm text-slate-500">No workspaces found</p>
+              </div>
+            )
+            : filtered.map((w) => (
+              <div key={w.id} className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
+                <div className="col-span-8 sm:col-span-4 flex items-center gap-3 min-w-0">
+                  <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-violet-600 to-purple-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {w.name[0]?.toUpperCase() ?? "?"}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{w.name}</p>
+                    <p className="text-xs text-slate-400 truncate">{w.owner_name || w.owner_email}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{w.name}</p>
-                  <p className="text-xs text-slate-400">{w.owner}</p>
+                <div className="col-span-2 hidden sm:block">
+                  <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full capitalize", planColors[w.plan] ?? "bg-slate-800 text-slate-300")}>
+                    {w.plan}
+                  </span>
+                </div>
+                <div className="col-span-2 hidden md:block text-sm text-slate-400">{w.member_count} member{w.member_count !== 1 ? "s" : ""}</div>
+                <div className="col-span-2 hidden lg:block text-sm text-slate-400">{w.social_account_count} account{w.social_account_count !== 1 ? "s" : ""}</div>
+                <div className="col-span-2 hidden xl:block text-xs text-slate-500">
+                  {new Date(w.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                 </div>
               </div>
-              <div className="col-span-2 hidden sm:block">
-                <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full", planColors[w.plan])}>{w.plan}</span>
-              </div>
-              <div className="col-span-2 hidden md:block text-sm text-slate-400">{w.members} members</div>
-              <div className="col-span-2 hidden lg:block text-sm text-slate-400">{w.accounts} accounts</div>
-              <div className="col-span-2 hidden lg:block">
-                <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full capitalize", statusColors[w.status])}>{w.status}</span>
-              </div>
-              <div className="col-span-6 sm:col-span-2 flex items-center justify-end gap-1">
-                <button className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"><Eye className="h-4 w-4" /></button>
-                <button className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-violet-400 transition-colors"><Settings className="h-4 w-4" /></button>
-                <button className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-red-400 transition-colors"><Trash2 className="h-4 w-4" /></button>
-              </div>
-            </div>
-          ))}
+            ))}
         </div>
 
         <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between">
-          <p className="text-xs text-slate-500">Showing {filtered.length} of {workspaces.length}</p>
-          <div className="flex items-center gap-2">
-            <button className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">Previous</button>
-            <button className="text-xs text-white bg-violet-600 px-3 py-1.5 rounded-lg">1</button>
-            <button className="text-xs text-slate-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">Next</button>
-          </div>
+          <p className="text-xs text-slate-500">Showing {filtered.length} of {total}</p>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="text-xs text-slate-400 px-1">{page} / {totalPages}</span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
