@@ -21,12 +21,16 @@ function setAdminTokens(tokens: AuthTokens) {
   if (typeof window === "undefined") return;
   localStorage.setItem(ADMIN_ACCESS_KEY, tokens.accessToken);
   if (tokens.refreshToken) localStorage.setItem(ADMIN_REFRESH_KEY, tokens.refreshToken);
+  // Set a presence flag cookie readable by Next.js middleware (no sensitive data)
+  document.cookie = "sf_admin_logged_in=1; path=/; SameSite=Lax";
 }
 
 function clearAdminTokens() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(ADMIN_ACCESS_KEY);
   localStorage.removeItem(ADMIN_REFRESH_KEY);
+  // Clear the middleware presence cookie
+  document.cookie = "sf_admin_logged_in=; path=/; max-age=0; SameSite=Lax";
 }
 
 function getAdminToken(): string | null {

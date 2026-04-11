@@ -3,17 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * Route protection middleware.
  *
- * Dashboard and admin routes require the user to be authenticated.
- * Authentication is signalled by the `sf_logged_in` cookie which is set by
- * `setTokens()` in api.ts and cleared by `clearTokens()` / `doRefreshToken()`
- * on session expiry.
+ * Regular dashboard routes are guarded by the `sf_logged_in` cookie.
+ * Admin routes are guarded by a separate `sf_admin_logged_in` cookie so that
+ * admin and user sessions never interfere with each other.
  *
- * NOTE: The cookie carries no sensitive data — it is purely a presence flag so
- * that middleware (which runs on the edge and cannot access localStorage) knows
+ * NOTE: These cookies carry no sensitive data — they are purely presence flags
+ * so that middleware (which runs on the edge and cannot read localStorage) knows
  * whether to allow or redirect the request.
  */
 
-const PROTECTED_PREFIXES = [
+const USER_PROTECTED_PREFIXES = [
   "/calendar",
   "/compose",
   "/accounts",
@@ -28,26 +27,39 @@ const PROTECTED_PREFIXES = [
   "/developer",
   "/onboarding",
   "/dashboard",
-  "/admin",
 ];
 
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/admin/login",  // Admin login is always public
+];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Skip purely public paths — no check needed.
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
     return NextResponse.next();
   }
 
-  const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
+  // Admin routes: require sf_admin_logged_in cookie
+  if (pathname.startsWith("/admin")) {
+    const isAdminLoggedIn = request.cookies.has("sf_admin_logged_in");
+    if (!isAdminLoggedIn) {
+      return NextResponse.redirect(new URL("/admin/login", request.url));
+    }
+    return NextResponse.next();
+  }
 
-  if (isProtected) {
+  // Regular dashboard routes: require sf_logged_in cookie
+  const isUserProtected = USER_PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
+  if (isUserProtected) {
     const isLoggedIn = request.cookies.has("sf_logged_in");
     if (!isLoggedIn) {
       const loginUrl = new URL("/login", request.url);
-      // Preserve the intended destination so the login page can redirect back.
       loginUrl.searchParams.set("redirect", pathname);
       return NextResponse.redirect(loginUrl);
     }
