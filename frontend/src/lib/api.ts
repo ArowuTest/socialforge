@@ -375,8 +375,8 @@ export const postsApi = {
     platform?: Platform;
     page?: number;
     pageSize?: number;
-    startDate?: string;
-    endDate?: string;
+    from?: string;
+    to?: string;
   }) => request<PaginatedResponse<Post>>(`${ws()}/posts${qs(params)}`),
 
   get: (id: string) => request<ApiResponse<Post>>(`${ws()}/posts/${id}`),
@@ -413,10 +413,10 @@ export const postsApi = {
     const [year, month] = monthKey.split("-").map((n) => parseInt(n, 10));
     const start = new Date(Date.UTC(year, month - 1, 1));
     const end = new Date(Date.UTC(year, month, 0, 23, 59, 59));
-    const startDate = start.toISOString().slice(0, 10);
-    const endDate = end.toISOString().slice(0, 10);
+    const from = start.toISOString().slice(0, 10);
+    const to = end.toISOString().slice(0, 10);
     return request<ApiResponse<CalendarEntry[]>>(
-      `${ws()}/schedule/calendar?startDate=${startDate}&endDate=${endDate}`,
+      `${ws()}/schedule/calendar?from=${from}&to=${to}`,
     );
   },
 };
@@ -453,9 +453,9 @@ export const scheduleApi = {
       `${ws()}/schedule/next-slot${qs({ platform })}`,
     ),
 
-  getCalendar: (startDate: string, endDate: string) =>
+  getCalendar: (from: string, to: string) =>
     request<ApiResponse<CalendarEntry[]>>(
-      `${ws()}/schedule/calendar?startDate=${startDate}&endDate=${endDate}`,
+      `${ws()}/schedule/calendar?from=${from}&to=${to}`,
     ),
 };
 
@@ -681,9 +681,33 @@ export const repurposeApi = {
 // Admin (super-admin only)
 // ============================================================
 
+/**
+ * Request helper for admin endpoints. Uses the separate admin token
+ * (sf_admin_access_token) so admin auth is isolated from regular user auth.
+ */
+async function adminReq<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token =
+    typeof window !== "undefined"
+      ? localStorage.getItem("sf_admin_access_token")
+      : null;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string>),
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: "Request failed" }));
+    throw new Error(err.message ?? `HTTP ${res.status}`);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
 export const adminApi = {
   getStats: () =>
-    request<{
+    adminReq<{
       total_users: number;
       total_workspaces: number;
       active_subscriptions: number;
@@ -697,50 +721,50 @@ export const adminApi = {
     // Backend uses `limit` not `pageSize`
     const { pageSize, ...rest } = params ?? {};
     const p = pageSize ? { ...rest, limit: pageSize } : rest;
-    return request<{ users: User[]; total: number; page: number; limit: number }>(`/api/v1/admin/users${qs(p)}`);
+    return adminReq<{ users: User[]; total: number; page: number; limit: number }>(`/api/v1/admin/users${qs(p)}`);
   },
 
-  getUser: (id: string) => request<ApiResponse<User>>(`/api/v1/admin/users/${id}`),
+  getUser: (id: string) => adminReq<ApiResponse<User>>(`/api/v1/admin/users/${id}`),
 
   suspendUser: (id: string) =>
-    request<ApiResponse<User>>(`/api/v1/admin/users/${id}/suspend`, {
+    adminReq<ApiResponse<User>>(`/api/v1/admin/users/${id}/suspend`, {
       method: "POST",
     }),
 
   listWorkspaces: (params?: { page?: number; pageSize?: number }) =>
-    request<PaginatedResponse<Workspace>>(`/api/v1/admin/workspaces${qs(params)}`),
+    adminReq<PaginatedResponse<Workspace>>(`/api/v1/admin/workspaces${qs(params)}`),
 
   listAiJobs: (params?: { page?: number; pageSize?: number }) =>
-    request<PaginatedResponse<AIJob>>(`/api/v1/admin/ai-jobs${qs(params)}`),
+    adminReq<PaginatedResponse<AIJob>>(`/api/v1/admin/ai-jobs${qs(params)}`),
 
   getAuditLogs: (params?: { page?: number; pageSize?: number }) =>
-    request<PaginatedResponse<Record<string, unknown>>>(
+    adminReq<PaginatedResponse<Record<string, unknown>>>(
       `/api/v1/admin/audit-logs${qs(params)}`,
     ),
 
   getRevenue: () =>
-    request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/revenue"),
+    adminReq<ApiResponse<Record<string, unknown>>>("/api/v1/admin/revenue"),
 
   grantCredits: (data: { userId: string; amount: number; reason?: string }) =>
-    request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/grant-credits", {
+    adminReq<ApiResponse<Record<string, unknown>>>("/api/v1/admin/grant-credits", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
   grantPlan: (data: { userId: string; planType: string; trialDays?: number; expiresAt?: string }) =>
-    request<ApiResponse<Record<string, unknown>>>("/api/v1/admin/grant-plan", {
+    adminReq<ApiResponse<Record<string, unknown>>>("/api/v1/admin/grant-plan", {
       method: "POST",
       body: JSON.stringify({ user_id: data.userId, plan: data.planType, trial_days: data.trialDays ?? 0 }),
     }),
 
   // ── Cost Configuration ───────────────────────────────────────
   getAiJobCosts: () =>
-    request<ApiResponse<Array<{ job_type: string; credits: number; usd_cost: number; description: string }>>>(
+    adminReq<ApiResponse<Array<{ job_type: string; credits: number; usd_cost: number; description: string }>>>(
       "/api/v1/admin/cost-config/ai-jobs",
     ),
 
   updateAiJobCost: (jobType: string, data: { credits: number; usd_cost: number }) =>
-    request<ApiResponse<unknown>>(
+    adminReq<ApiResponse<unknown>>(
       `/api/v1/admin/cost-config/ai-jobs/${jobType}`,
       { method: "PATCH", body: JSON.stringify(data) },
     ),
@@ -748,13 +772,13 @@ export const adminApi = {
   bulkUpdateAiJobCosts: (
     costs: Array<{ job_type: string; credits: number; usd_cost: number }>,
   ) =>
-    request<ApiResponse<unknown>>("/api/v1/admin/cost-config/ai-jobs", {
+    adminReq<ApiResponse<unknown>>("/api/v1/admin/cost-config/ai-jobs", {
       method: "PUT",
       body: JSON.stringify(costs),
     }),
 
   getCreditPackages: () =>
-    request<ApiResponse<Array<{ id: string; label: string; credits: number; usd_price: number; ngn_price: number; best_value: boolean }>>>(
+    adminReq<ApiResponse<Array<{ id: string; label: string; credits: number; usd_price: number; ngn_price: number; best_value: boolean }>>>(
       "/api/v1/admin/cost-config/packages",
     ),
 
@@ -762,13 +786,13 @@ export const adminApi = {
     id: string,
     data: { credits?: number; usd_price?: number; ngn_price?: number; best_value?: boolean },
   ) =>
-    request<ApiResponse<unknown>>(
+    adminReq<ApiResponse<unknown>>(
       `/api/v1/admin/cost-config/packages/${id}`,
       { method: "PATCH", body: JSON.stringify(data) },
     ),
 
   getPlatformSettings: async (): Promise<ApiResponse<Record<string, string>>> => {
-    const res = await request<ApiResponse<Array<{ key: string; value: string }>>>(
+    const res = await adminReq<ApiResponse<Array<{ key: string; value: string }>>>(
       "/api/v1/admin/cost-config/settings",
     );
     const record: Record<string, string> = {};
@@ -779,27 +803,27 @@ export const adminApi = {
   },
 
   updatePlatformSetting: (key: string, value: string) =>
-    request<ApiResponse<unknown>>(`/api/v1/admin/cost-config/settings/${key}`, {
+    adminReq<ApiResponse<unknown>>(`/api/v1/admin/cost-config/settings/${key}`, {
       method: "PUT",
       body: JSON.stringify({ value }),
     }),
 
   getIntegrationStatus: () =>
-    request<ApiResponse<Array<{ key: string; label: string; configured: boolean; masked: string; updated_at: string | null }>>>(
+    adminReq<ApiResponse<Array<{ key: string; label: string; configured: boolean; masked: string; updated_at: string | null }>>>(
       "/api/v1/admin/cost-config/integrations",
     ),
 
   sendBroadcast: (data: { subject: string; body: string; target: string; msg_type: string }) =>
-    request<ApiResponse<{ message: string; recipients: number }>>("/api/v1/admin/broadcast", {
+    adminReq<ApiResponse<{ message: string; recipients: number }>>("/api/v1/admin/broadcast", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
   listBroadcasts: () =>
-    request<ApiResponse<Array<Record<string, unknown>>>>("/api/v1/admin/broadcasts"),
+    adminReq<ApiResponse<Array<Record<string, unknown>>>>("/api/v1/admin/broadcasts"),
 
   getPlatformStats: () =>
-    request<{
+    adminReq<{
       platforms: Array<{ platform: string; count: number }>;
       total_accounts: number;
       failed_posts_today: number;

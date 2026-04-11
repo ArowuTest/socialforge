@@ -9,7 +9,7 @@ import {
   TrendingUp, Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/lib/stores/auth";
+import { useAdminAuthStore } from "@/lib/stores/admin-auth";
 
 const adminNav = [
   { href: "/admin", icon: LayoutDashboard, label: "Overview" },
@@ -27,11 +27,11 @@ const adminNav = [
 function AdminSidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout } = useAuthStore();
+  const { logout } = useAdminAuthStore();
 
-  const handleLogout = async () => {
-    await logout();
-    router.push("/login");
+  const handleLogout = () => {
+    logout();
+    router.push("/admin/login");
   };
 
   return (
@@ -97,23 +97,28 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [mounted, setMounted] = React.useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const { user, isAuthenticated } = useAuthStore();
+  const { user, isAuthenticated } = useAdminAuthStore();
 
   React.useEffect(() => { setMounted(true); }, []);
 
   // Guard: must be logged in AND have the super-admin flag.
   // Only runs after mount so the persisted auth state is available.
+  const isLoginPage = pathname === "/admin/login";
+
   React.useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || isLoginPage) return;
     if (!isAuthenticated) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      router.replace("/admin/login");
       return;
     }
     if (user && !user.is_super_admin) {
-      // Authenticated but not a platform admin — send to their dashboard.
-      router.replace("/dashboard");
+      // Token belongs to a non-admin account — clear and send to admin login.
+      router.replace("/admin/login");
     }
-  }, [mounted, isAuthenticated, user, router, pathname]);
+  }, [mounted, isAuthenticated, user, router, pathname, isLoginPage]);
+
+  // On the login page, render children directly (no sidebar shell)
+  if (isLoginPage) return <>{children}</>;
 
   // Show a blank dark shell while hydrating to avoid flash.
   if (!mounted) return <div className="flex h-screen bg-slate-950" />;

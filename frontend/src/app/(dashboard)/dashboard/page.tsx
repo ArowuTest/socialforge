@@ -342,7 +342,7 @@ export default function DashboardPage() {
         postsApi.list({ pageSize: 5 }).catch(() => null),
         accountsApi.list().catch(() => null),
         billingApi.getCreditBalance().catch(() => null),
-        postsApi.list({ startDate: weekStart, endDate: weekEnd, pageSize: 100 }).catch(() => null),
+        postsApi.list({ from: weekStart, to: weekEnd, pageSize: 100 }).catch(() => null),
       ]);
       if (cancelled) return;
 
@@ -365,8 +365,10 @@ export default function DashboardPage() {
         engagement: Math.round((e.engagement || 0) * 10) / 10,
       }));
 
-      const accounts = accountsRes?.data || [];
-      const connectedPlatforms = new Set(accounts.map((acc: any) => acc.platform));
+      // accountsApi.list() returns data grouped by platform as an object { platform: accounts[] }
+      const accountsGrouped = (accountsRes?.data || {}) as Record<string, any[]>;
+      const accounts = Object.values(accountsGrouped).flat();
+      const connectedPlatforms = new Set(Object.keys(accountsGrouped));
 
       const totalPosts: number = a.total_posts || 0;
       const scheduledCount = (postsRes?.data || []).filter(
