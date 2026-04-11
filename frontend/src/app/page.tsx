@@ -1002,10 +1002,10 @@ function FinalCTA() {
 /* ─── FOOTER ─── */
 function Footer() {
   const cols = [
-    { title: "Product", links: ["Features", "Pricing", "Changelog", "Roadmap"] },
-    { title: "Company", links: ["About", "Blog", "Careers", "Press"] },
-    { title: "Resources", links: ["Docs", "API", "Templates", "Community"] },
-    { title: "Legal", links: ["Privacy", "Terms", "Cookies", "Security"] },
+    { title: "Product", links: [{ label: "Features", href: "#features" }, { label: "Pricing", href: "#pricing" }, { label: "Changelog", href: "#" }, { label: "Roadmap", href: "#" }] },
+    { title: "Company", links: [{ label: "About", href: "#" }, { label: "Blog", href: "#" }, { label: "Careers", href: "#" }, { label: "Press", href: "#" }] },
+    { title: "Resources", links: [{ label: "Docs", href: "#" }, { label: "API", href: "#" }, { label: "Templates", href: "#" }, { label: "Community", href: "#" }] },
+    { title: "Legal", links: [{ label: "Privacy", href: "/privacy" }, { label: "Terms", href: "/terms" }, { label: "Cookies", href: "/cookies" }, { label: "Security", href: "/security" }] },
   ];
   return (
     <footer className="border-t border-white/5" style={{ background: "#020617" }}>
@@ -1044,8 +1044,8 @@ function Footer() {
               <div className="text-white text-sm font-semibold mb-4">{col.title}</div>
               <ul className="space-y-2.5">
                 {col.links.map((l) => (
-                  <li key={l}>
-                    <a href="#" className="text-slate-500 hover:text-slate-300 text-sm transition-colors">{l}</a>
+                  <li key={l.label}>
+                    <a href={l.href} className="text-slate-500 hover:text-slate-300 text-sm transition-colors">{l.label}</a>
                   </li>
                 ))}
               </ul>
