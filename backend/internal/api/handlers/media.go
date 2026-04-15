@@ -169,8 +169,33 @@ func (h *MediaHandler) ListMedia(c *fiber.Ctx) error {
 		return internalError(c, "failed to list media")
 	}
 
+	// Shape each item into the fields the frontend expects.
+	type mediaDTO struct {
+		ID          string `json:"id"`
+		Key         string `json:"key"`        // storage_key
+		URL         string `json:"url"`        // public_url
+		Filename    string `json:"filename"`
+		ContentType string `json:"contentType"`
+		MediaType   string `json:"mediaType"`
+		Size        int64  `json:"size"`       // size_bytes
+		CreatedAt   string `json:"createdAt"`
+	}
+	dtos := make([]mediaDTO, len(items))
+	for i, it := range items {
+		dtos[i] = mediaDTO{
+			ID:          it.ID.String(),
+			Key:         it.StorageKey,
+			URL:         it.PublicURL,
+			Filename:    it.Filename,
+			ContentType: it.ContentType,
+			MediaType:   it.MediaType,
+			Size:        it.SizeBytes,
+			CreatedAt:   it.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		}
+	}
+
 	return c.JSON(fiber.Map{
-		"items": items,
+		"data":  dtos,
 		"total": total,
 		"page":  page,
 		"limit": limit,

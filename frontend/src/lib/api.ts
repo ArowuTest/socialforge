@@ -637,7 +637,7 @@ export const mediaApi = {
 
   list: () =>
     request<
-      ApiResponse<Array<{ key: string; url: string; size: number; createdAt: string }>>
+      ApiResponse<Array<{ id: string; key: string; url: string; filename: string; contentType: string; mediaType: string; size: number; createdAt: string }>>
     >(`${ws()}/media`),
 
   delete: (key: string) =>
