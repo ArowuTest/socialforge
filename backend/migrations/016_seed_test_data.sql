@@ -231,133 +231,135 @@ BEGIN
     END IF;
 
     -- ── 4c. Posts ───────────────────────────────────────────────────────────
-    -- platforms & hashtags are stored as TEXT (JSON string) per migration 009.
-    -- media_urls is still TEXT[] per migration 001; use PostgreSQL array literal.
+    -- created_by: original NOT NULL column (migration 009 added author_id alongside).
+    -- media_type: original NOT NULL DEFAULT 'none' column.
+    -- platforms & hashtags: TEXT columns (JSON string), added by migration 009.
+    -- media_urls: TEXT[] (original column).
     IF (SELECT COUNT(*) FROM posts
         WHERE workspace_id = v_ws AND deleted_at IS NULL) = 0 THEN
 
       INSERT INTO posts
-        (id, workspace_id, author_id, title, content, type, status,
-         platforms, hashtags, media_urls, ai_generated,
+        (id, workspace_id, created_by, author_id, title, content, type, status,
+         media_type, platforms, hashtags, media_urls, ai_generated,
          scheduled_at, published_at, retry_count, attempts, created_at, updated_at)
       VALUES
         -- DRAFTS
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Behind the Scenes: Our AI Content Pipeline',
-         E'Ever wondered how we generate hundreds of captions in seconds? Deep dive into our AI pipeline. We use GPT-4o for text and Flux for images. \U0001f916\n\nThread below \U0001f447',
-         'thread','draft',
+         'Ever wondered how we generate hundreds of captions in seconds? Deep dive into our AI pipeline.',
+         'thread','draft','none',
          '["twitter"]','["AI","ContentMarketing","SocialMedia","BuildInPublic"]',ARRAY[]::text[],FALSE,
          NULL,NULL,0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Product Launch Teaser',
-         E'Something big is coming next week. We''ve been working on this for 3 months. Stay tuned! \U0001f525',
-         'text','draft',
+         'Something big is coming next week. We''ve been working on this for 3 months. Stay tuned!',
+         'text','draft','none',
          '["twitter","linkedin","instagram"]','["ProductLaunch","ComingSoon","Startup"]',ARRAY[]::text[],FALSE,
          NULL,NULL,0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Why Most Social Media Strategies Fail',
-         E'After auditing 200+ brand accounts, we found 3 patterns that kill social media ROI:\n\n1. Posting without a content calendar\n2. Ignoring platform-native formats\n3. No A/B testing on captions\n\nHere''s how to fix each one \U0001f447',
-         'text','draft',
+         'After auditing 200+ brand accounts, we found 3 patterns that kill social media ROI.',
+         'text','draft','none',
          '["linkedin"]','["MarketingStrategy","SocialMediaMarketing","ContentStrategy"]',ARRAY[]::text[],FALSE,
          NULL,NULL,0,0,v_now,v_now),
 
         -- SCHEDULED
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Monday Morning Motivation',
-         E'Start your week with a clear content strategy. Our 5-step framework that helped 500+ brands increase engagement by 3x:\n\n\u2705 Define your ICP\n\u2705 Map content to buyer journey\n\u2705 Schedule 3x per day\n\u2705 Analyse weekly\n\u2705 Double down on winners',
-         'text','scheduled',
+         'Start your week with a clear content strategy. Our 5-step framework helped 500+ brands increase engagement by 3x.',
+         'text','scheduled','none',
          '["twitter","linkedin"]','["MondayMotivation","ContentMarketing","MarketingTips"]',ARRAY[]::text[],FALSE,
          v_now + INTERVAL '2 hours',NULL,0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'AI-Generated Image Showcase',
-         E'We generated this stunning visual in under 30 seconds using our AI Image tool. Zero design skills needed. \u2728\n\nTry it free at chiselpost.com',
-         'image','scheduled',
+         'We generated this stunning visual in under 30 seconds using our AI Image tool. Zero design skills needed.',
+         'image','scheduled','image',
          '["instagram","twitter"]','["AIArt","DigitalMarketing","ContentCreation"]',
          ARRAY['https://images.unsplash.com/photo-1677442135703-1787eea5ce01?w=1080&q=80']::text[],TRUE,
          v_now + INTERVAL '6 hours',NULL,0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Mid-Week Engagement Tips',
-         E'3 ways to increase your Instagram engagement this week:\n\n1. Use carousel posts (3x more reach)\n2. Post at 8am and 6pm local time\n3. Reply to every comment in the first hour\n\nSave this post \U0001f4cc',
-         'carousel','scheduled',
+         '3 ways to increase your Instagram engagement: carousel posts, optimal posting times, quick replies.',
+         'carousel','scheduled','carousel',
          '["instagram"]','["InstagramTips","SocialMediaTips","EngagementHacks"]',
          ARRAY['https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=1080&q=80']::text[],FALSE,
          v_now + INTERVAL '26 hours',NULL,0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'LinkedIn Thought Leadership Post',
-         E'The biggest mistake brands make on LinkedIn:\n\nThey treat it like Twitter.\n\nLinkedIn rewards long-form value. Here''s what actually works:\n\u2192 Share specific data and results\n\u2192 Tell personal stories with business lessons\n\u2192 Engage with comments for 60 minutes after posting\n\u2192 Avoid link posts (they kill reach)',
-         'text','scheduled',
+         'The biggest mistake brands make on LinkedIn: they treat it like Twitter. LinkedIn rewards long-form value.',
+         'text','scheduled','none',
          '["linkedin"]','["LinkedIn","B2BMarketing","ThoughtLeadership"]',ARRAY[]::text[],FALSE,
          v_now + INTERVAL '50 hours',NULL,0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Platform Feature: Auto-Scheduling',
-         E'Did you know ChiselPost''s auto-scheduler picks the BEST time to post based on your audience''s activity patterns?\n\nNo more guessing. Just results. \U0001f4c5\n\nSet it up in 2 minutes at chiselpost.com',
-         'text','scheduled',
+         'ChiselPost''s auto-scheduler picks the BEST time to post based on your audience''s activity patterns.',
+         'text','scheduled','none',
          '["twitter","instagram","linkedin"]','["SocialMediaScheduling","MarketingAutomation","ContentPlanning"]',ARRAY[]::text[],FALSE,
          v_now + INTERVAL '72 hours',NULL,0,0,v_now,v_now),
 
         -- PUBLISHED
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Feature Spotlight: AI Caption Generator',
-         E'Generate platform-perfect captions in one click. Our AI knows the difference between a LinkedIn thought piece and an Instagram carousel caption.\n\nTest it free \u2014 no credit card needed. \U0001f680',
-         'text','published',
+         'Generate platform-perfect captions in one click. Test it free - no credit card needed.',
+         'text','published','none',
          '["twitter","linkedin"]','["AI","SocialMediaTools","ContentCreation"]',ARRAY[]::text[],TRUE,
          v_now - INTERVAL '3 days',v_now - INTERVAL '3 days' + INTERVAL '30 seconds',0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Customer Success Story',
-         E'How @acmebrand grew their Instagram following by 47% in 90 days using ChiselPost.\n\nKey tactics:\n\u2022 Posted 2x daily consistently\n\u2022 Used AI captions for every post\n\u2022 A/B tested 3 caption styles per week\n\nFull case study in bio \U0001f4ca',
-         'image','published',
+         'How @acmebrand grew their Instagram following by 47% in 90 days using ChiselPost.',
+         'image','published','image',
          '["instagram","twitter"]','["CaseStudy","SocialMediaGrowth","CustomerSuccess"]',
          ARRAY['https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1080&q=80']::text[],FALSE,
          v_now - INTERVAL '5 days',v_now - INTERVAL '5 days' + INTERVAL '45 seconds',0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Weekend Engagement Post',
-         E'What''s one piece of content you created this week that you''re proud of? Share below \U0001f447\n\nThe best posts get featured in our weekly newsletter \U0001f4e7',
-         'text','published',
+         'What''s one piece of content you created this week that you''re proud of? Share below.',
+         'text','published','none',
          '["twitter","instagram","linkedin"]','["ContentCreators","CommunityPost","ShareYourWork"]',ARRAY[]::text[],FALSE,
          v_now - INTERVAL '8 days',v_now - INTERVAL '8 days' + INTERVAL '1 minute',0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Platform Update: Bluesky Support',
-         E'We''ve added Bluesky to ChiselPost! \U0001f98b\n\nYou can now schedule and publish to all major platforms from one dashboard.\n\nConnect your accounts at chiselpost.com/accounts',
-         'text','published',
+         'We''ve added Bluesky to ChiselPost! Schedule and publish to all major platforms from one dashboard.',
+         'text','published','none',
          '["twitter","linkedin","bluesky"]','["Bluesky","SocialMedia","ProductUpdate","ChiselPost"]',ARRAY[]::text[],FALSE,
          v_now - INTERVAL '12 days',v_now - INTERVAL '12 days' + INTERVAL '20 seconds',0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'The Content Calendar System',
-         E'After working with 500+ brands, here''s the content calendar system that consistently outperforms:\n\n\U0001f4c5 Monday: Educational\n\U0001f525 Wednesday: Engagement\n\U0001f4e3 Friday: Promotional\n\U0001f31f Sunday: Behind-the-scenes\n\nSave & try it this week!',
-         'image','published',
+         'After working with 500+ brands, here is the content calendar system that consistently outperforms.',
+         'image','published','image',
          '["instagram","linkedin"]','["ContentCalendar","SocialMediaStrategy","MarketingPlanning"]',
          ARRAY['https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=1080&q=80']::text[],FALSE,
          v_now - INTERVAL '15 days',v_now - INTERVAL '15 days' + INTERVAL '30 seconds',0,0,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Viral Video Tips Thread',
-         E'7 secrets to making short-form videos that actually go viral:\n\n1. Hook in first 0.5 seconds\n2. No filler intro\n3. Pattern interrupts every 3-5 seconds\n4. Add text overlays (70% watch with no sound)\n5. End with clear CTA\n6. Reply to every comment in 1st hour\n7. Post 3-5x per week minimum',
-         'video','published',
+         '7 secrets to making short-form videos that go viral. Hook fast, no filler, clear CTA.',
+         'video','published','video',
          '["instagram","twitter"]','["VideoMarketing","ShortFormContent","ViralTips"]',ARRAY[]::text[],TRUE,
          v_now - INTERVAL '20 days',v_now - INTERVAL '20 days' + INTERVAL '10 seconds',0,0,v_now,v_now),
 
         -- FAILED
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Twitter Rate Limited Post',
-         E'Exciting announcement coming very soon! Can''t share details yet but this one''s going to be big \U0001f64a',
-         'text','failed',
+         'Exciting announcement coming very soon! Can''t share details yet.',
+         'text','failed','none',
          '["twitter"]','["ComingSoon"]',ARRAY[]::text[],FALSE,
          v_now - INTERVAL '1 day',NULL,1,1,v_now,v_now),
 
-        (gen_random_uuid(), v_ws, v_uid,
+        (gen_random_uuid(), v_ws, v_uid, v_uid,
          'Instagram Token Expired',
-         E'New blog post: ''10 Strategies for Growing Your Social Following in 2026'' \u2014 link in bio! \U0001f4d6',
-         'text','failed',
+         '10 Strategies for Growing Your Social Following in 2026 - link in bio!',
+         'text','failed','none',
          '["instagram"]','["ContentMarketing"]',ARRAY[]::text[],FALSE,
          v_now - INTERVAL '2 days',NULL,1,1,v_now,v_now);
 
