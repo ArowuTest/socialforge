@@ -210,14 +210,18 @@ function AIImageDialog({
     setIsGenerating(true);
     try {
       const res = await aiApi.generateImage({ prompt, style, aspectRatio });
+      // Backend returns {"data": {"job_id": "..."}}
+      const jobId = (res.data as unknown as { job_id?: string }).job_id;
+      if (!jobId) throw new Error("No job ID returned");
       let attempts = 0;
       const poll = async () => {
         if (attempts > 40) throw new Error("Image generation timed out");
         attempts++;
-        const jobRes = await aiApi.getJobStatus(res.data.id);
-        const result = jobRes.data.result as Record<string, unknown> | undefined;
-        if (jobRes.data.status === "completed" && result?.imageUrl) {
-          onGenerated(result.imageUrl as string);
+        const jobRes = await aiApi.getJobStatus(jobId);
+        // Backend stores image URL in output_data.url
+        const outputData = jobRes.data.output_data as Record<string, unknown> | undefined;
+        if (jobRes.data.status === "completed" && outputData?.url) {
+          onGenerated(outputData.url as string);
           onClose();
           toast.success("Image generated!");
         } else if (jobRes.data.status === "failed") {
@@ -340,24 +344,15 @@ function AICaptionDialog({
         topic,
         tone: tone as "professional" | "casual" | "funny" | "inspirational",
       });
-      // Poll for job result
-      let attempts = 0;
-      const poll = async () => {
-        if (attempts > 20) throw new Error("Generation timed out");
-        attempts++;
-        const jobRes = await aiApi.getJobStatus(res.data.id);
-        if (jobRes.data.status === "completed" && jobRes.data.result?.caption) {
-          onGenerated(jobRes.data.result.caption);
-          onClose();
-          toast.success("Caption generated!");
-        } else if (jobRes.data.status === "failed") {
-          throw new Error(jobRes.data.error || "Generation failed");
-        } else {
-          await new Promise((r) => setTimeout(r, 1500));
-          await poll();
-        }
-      };
-      await poll();
+      // Backend returns caption synchronously in res.data.caption
+      const caption = (res.data as unknown as { caption?: string }).caption;
+      if (caption) {
+        onGenerated(caption);
+        onClose();
+        toast.success("Caption generated!");
+      } else {
+        throw new Error("No caption returned");
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to generate caption");
     } finally {
@@ -519,23 +514,13 @@ export default function ComposePage() {
           .map((p) => p.id as Platform)
           .filter((p) => !selectedPlatforms.includes(p)),
       });
-      // Poll for result
-      let attempts = 0;
-      const poll = async () => {
-        if (attempts > 30) throw new Error("Repurpose timed out");
-        attempts++;
-        const jobRes = await aiApi.getJobStatus(res.data.id);
-        if (jobRes.data.status === "completed") {
-          toast.success("Content repurposed! Check the Repurpose page for results.");
-        } else if (jobRes.data.status === "failed") {
-          throw new Error(jobRes.data.error || "Repurpose failed");
-        } else {
-          await new Promise((r) => setTimeout(r, 2000));
-          await poll();
-        }
-      };
-      toast.info("Repurposing content across platforms...");
-      await poll();
+      // Backend returns results synchronously in res.data.results
+      const data = res.data as unknown as { results?: Record<string, unknown> };
+      if (data.results) {
+        toast.success("Content repurposed! Check the Repurpose page for results.");
+      } else {
+        throw new Error("Repurpose returned no results");
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to repurpose content");
     }
@@ -555,27 +540,13 @@ export default function ComposePage() {
         content: caption,
         platform: selectedPlatforms[0] as Platform,
       });
-      let attempts = 0;
-      const poll = async () => {
-        if (attempts > 20) throw new Error("Analysis timed out");
-        attempts++;
-        const jobRes = await aiApi.getJobStatus(res.data.id);
-        if (jobRes.data.status === "completed" && jobRes.data.result) {
-          const r = jobRes.data.result as Record<string, unknown>;
-          const score = r.score ?? r.viral_score ?? "N/A";
-          toast.success(`Viral potential score: ${score}/100`, {
-            description: (r.feedback || r.suggestions || "Analysis complete") as string,
-            duration: 8000,
-          });
-        } else if (jobRes.data.status === "failed") {
-          throw new Error(jobRes.data.error || "Analysis failed");
-        } else {
-          await new Promise((r) => setTimeout(r, 1500));
-          await poll();
-        }
-      };
-      toast.info("Analysing viral potential...");
-      await poll();
+      // Backend returns analysis synchronously
+      const r = res.data as unknown as Record<string, unknown>;
+      const score = r.score ?? r.viral_score ?? "N/A";
+      toast.success(`Viral potential score: ${score}/100`, {
+        description: (r.feedback || r.suggestions || "Analysis complete") as string,
+        duration: 8000,
+      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to analyse content");
     }

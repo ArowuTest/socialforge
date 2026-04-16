@@ -171,11 +171,21 @@ export interface AIJob {
   type: "caption" | "image" | "video" | "repurpose";
   status: AIJobStatus;
   prompt?: string;
+  /** Legacy frontend-only shape (not returned by backend) */
   result?: {
     caption?: string;
     imageUrl?: string;
     videoUrl?: string;
     repurposed?: Record<Platform, string>;
+  };
+  /** Actual backend field: matches output_data JSON column */
+  output_data?: {
+    caption?: string;
+    url?: string;           // image/video URL
+    width?: number;
+    height?: number;
+    hashtags?: string[];
+    repurposed?: Record<string, string>;
   };
   error?: string;
   creditsUsed: number;

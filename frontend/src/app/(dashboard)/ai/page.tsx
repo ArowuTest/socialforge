@@ -180,9 +180,26 @@ function GenerateCaptionTab() {
         tone: tone as "professional" | "casual" | "funny" | "inspirational",
         targetAudience: audience || undefined,
       });
-      setJobId(res.data.id);
+      // Backend returns caption synchronously in res.data.caption (not a job)
+      const data = res.data as unknown as { caption?: string; hashtags?: string[] };
+      if (data.caption) {
+        const syntheticJob: AIJob = {
+          id: crypto.randomUUID(),
+          workspaceId: "",
+          type: "caption",
+          status: AIJobStatus.COMPLETED,
+          output_data: { caption: data.caption, hashtags: data.hashtags },
+          creditsUsed: 0,
+          createdAt: new Date().toISOString(),
+        };
+        setResult(syntheticJob);
+        setHistory((prev) => [syntheticJob, ...prev].slice(0, 5));
+      } else {
+        throw new Error("No caption returned");
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to start generation");
+    } finally {
       setIsGenerating(false);
     }
   };
@@ -277,7 +294,7 @@ function GenerateCaptionTab() {
           </Card>
         )}
 
-        {result?.result?.caption && (
+        {result?.output_data?.caption && (
           <Card className="border-violet-200 dark:border-violet-800">
             <CardHeader className="pb-2 pt-4 px-4">
               <div className="flex items-center justify-between">
@@ -286,19 +303,19 @@ function GenerateCaptionTab() {
                   Generated Caption
                 </CardTitle>
                 <span className="text-xs text-muted-foreground">
-                  {result.result.caption.length} chars
+                  {result.output_data.caption.length} chars
                 </span>
               </div>
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-3">
-                {result.result.caption}
+                {result.output_data.caption}
               </p>
               <div className="flex items-center gap-2">
-                <CopyButton text={result.result.caption} />
+                <CopyButton text={result.output_data.caption} />
                 <Button
                   size="sm"
-                  onClick={() => handleUseInComposer(result.result!.caption!)}
+                  onClick={() => handleUseInComposer(result.output_data!.caption!)}
                   className="bg-violet-600 hover:bg-violet-700 text-white"
                 >
                   <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
@@ -317,16 +334,16 @@ function GenerateCaptionTab() {
             </h3>
             <div className="space-y-2">
               {history.slice(0, 5).map((job) =>
-                job.result?.caption ? (
+                job.output_data?.caption ? (
                   <div
                     key={job.id}
                     className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800"
                   >
                     <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-1.5">
-                      {job.result.caption}
+                      {job.output_data.caption}
                     </p>
                     <div className="flex gap-1.5">
-                      <CopyButton text={job.result.caption} />
+                      <CopyButton text={job.output_data.caption} />
                     </div>
                   </div>
                 ) : null
@@ -379,7 +396,9 @@ function GenerateImageTab() {
         style: style as "photorealistic" | "cartoon" | "minimalist" | "3d",
         aspectRatio,
       });
-      setJobId(res.data.id);
+      // Backend returns {"data": {"job_id": "..."}}
+      const jobId = (res.data as unknown as { job_id?: string }).job_id;
+      setJobId(jobId ?? null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to start generation");
       setIsGenerating(false);
@@ -469,11 +488,11 @@ function GenerateImageTab() {
           </Card>
         )}
 
-        {result?.result?.imageUrl && (
+        {result?.output_data?.url && (
           <Card className="border-violet-200 dark:border-violet-800">
             <CardContent className="p-4">
               <img
-                src={result.result.imageUrl}
+                src={result.output_data.url}
                 alt="AI generated"
                 className="w-full rounded-lg mb-3"
               />
@@ -484,7 +503,7 @@ function GenerateImageTab() {
                   className="flex-1"
                   onClick={() => {
                     const a = document.createElement("a");
-                    a.href = result.result!.imageUrl!;
+                    a.href = result.output_data!.url!;
                     a.download = "ai-image.png";
                     a.click();
                   }}
@@ -556,7 +575,8 @@ function GenerateVideoTab() {
     setResult(null);
     try {
       const res = await aiApi.generateVideo({ concept, duration, style });
-      setJobId(res.data.id);
+      const jobId = (res.data as unknown as { job_id?: string }).job_id;
+      setJobId(jobId ?? null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to start video generation");
       setIsGenerating(false);
@@ -701,8 +721,8 @@ function RepurposeTab() {
   const [results, setResults] = React.useState<Record<string, string> | null>(null);
 
   useJobPoller(jobId, (job) => {
-    if (job.result?.repurposed) {
-      setResults(job.result.repurposed as Record<string, string>);
+    if (job.output_data?.repurposed) {
+      setResults(job.output_data.repurposed as Record<string, string>);
     }
     setJobId(null);
     setIsRepurposing(false);
@@ -725,7 +745,8 @@ function RepurposeTab() {
         content: source,
         targetPlatforms,
       });
-      setJobId(res.data.id);
+      const jobId = (res.data as unknown as { job_id?: string }).job_id;
+      setJobId(jobId ?? null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to repurpose content");
       setIsRepurposing(false);
