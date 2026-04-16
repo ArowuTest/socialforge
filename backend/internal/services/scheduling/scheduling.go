@@ -118,11 +118,16 @@ func (s *Service) GetNextFreeSlot(workspaceID uuid.UUID, platform string) (time.
 		window := 10 * time.Minute
 		var count int64
 		if err := s.db.Model(&models.Post{}).
-			Where(`workspace_id = ? AND platform = ?
+			Where(`workspace_id = ?
 				AND scheduled_at >= ? AND scheduled_at < ?
-				AND status IN ('scheduled','publishing','published')`,
-				workspaceID, platform,
+				AND status IN ('scheduled','publishing','published')
+				AND EXISTS (
+					SELECT 1 FROM post_platforms pp
+					WHERE pp.post_id = posts.id AND pp.platform = ?
+				)`,
+				workspaceID,
 				candidate.Add(-window), candidate.Add(window),
+				platform,
 			).Count(&count).Error; err != nil {
 			return time.Time{}, fmt.Errorf("GetNextFreeSlot: count posts: %w", err)
 		}
