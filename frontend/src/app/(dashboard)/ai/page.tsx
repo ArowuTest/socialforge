@@ -37,7 +37,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, getPlatformDisplayName } from "@/lib/utils";
-import { aiApi } from "@/lib/api";
+import { aiApi, repurposeApi } from "@/lib/api";
 import { AIJob, AIJobStatus, Platform } from "@/types";
 import { useComposeStore } from "@/lib/stores/compose";
 
@@ -711,23 +711,15 @@ function GenerateVideoTab() {
   );
 }
 
+type PlatformDraft = { content: string; hashtags: string[]; char_count: number; media_prompt?: string };
+
 // ==================== Repurpose Tab ====================
 function RepurposeTab() {
   const [sourceMode, setSourceMode] = React.useState<"url" | "text">("text");
   const [source, setSource] = React.useState("");
   const [targetPlatforms, setTargetPlatforms] = React.useState<Platform[]>([]);
-  const [jobId, setJobId] = React.useState<string | null>(null);
   const [isRepurposing, setIsRepurposing] = React.useState(false);
-  const [results, setResults] = React.useState<Record<string, string> | null>(null);
-
-  useJobPoller(jobId, (job) => {
-    if (job.output_data?.repurposed) {
-      setResults(job.output_data.repurposed as Record<string, string>);
-    }
-    setJobId(null);
-    setIsRepurposing(false);
-    toast.success("Content repurposed!");
-  });
+  const [results, setResults] = React.useState<Record<string, PlatformDraft> | null>(null);
 
   const togglePlatform = (p: Platform) => {
     setTargetPlatforms((prev) =>
@@ -741,14 +733,17 @@ function RepurposeTab() {
     setIsRepurposing(true);
     setResults(null);
     try {
-      const res = await aiApi.repurpose({
-        content: source,
-        targetPlatforms,
+      const res = await repurposeApi.repurposeContent({
+        source_type: sourceMode === "url" ? "url" : "text",
+        source_url: sourceMode === "url" ? source : undefined,
+        source_text: sourceMode === "text" ? source : undefined,
+        platforms: targetPlatforms as unknown as string[],
       });
-      const jobId = (res.data as unknown as { job_id?: string }).job_id;
-      setJobId(jobId ?? null);
+      setResults(res.platforms ?? {});
+      toast.success("Content repurposed!");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to repurpose content");
+    } finally {
       setIsRepurposing(false);
     }
   };
@@ -860,24 +855,32 @@ function RepurposeTab() {
 
       {results && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {Object.entries(results).map(([platform, content]) => (
+          {Object.entries(results).map(([platform, draft]) => (
             <Card key={platform} className="border-violet-100 dark:border-violet-900">
               <CardHeader className="pb-2 pt-3 px-4">
-                <CardTitle className="text-sm">
-                  {getPlatformDisplayName(platform as Platform)}
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">
+                    {getPlatformDisplayName(platform as Platform)}
+                  </CardTitle>
+                  <span className="text-xs text-muted-foreground">{draft.char_count} chars</span>
+                </div>
               </CardHeader>
               <CardContent className="px-4 pb-4">
                 <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-4 mb-3 leading-relaxed">
-                  {content}
+                  {draft.content}
                 </p>
+                {draft.hashtags.length > 0 && (
+                  <p className="text-xs text-violet-600 dark:text-violet-400 mb-3">
+                    {draft.hashtags.map((h) => `#${h}`).join(" ")}
+                  </p>
+                )}
                 <div className="flex gap-2">
-                  <CopyButton text={content} />
+                  <CopyButton text={draft.content} />
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      useComposeStore.getState().setCaption(content);
+                      useComposeStore.getState().setCaption(draft.content);
                       toast.success(`${getPlatformDisplayName(platform as Platform)} caption added to composer!`);
                     }}
                   >
