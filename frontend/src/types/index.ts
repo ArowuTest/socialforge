@@ -86,17 +86,30 @@ export interface Workspace {
 
 export interface SocialAccount {
   id: string;
-  workspaceId: string;
+  workspace_id: string;
   platform: Platform;
-  platformAccountId: string;
-  handle: string;
-  displayName: string;
+  /** Legacy camelCase aliases (may be undefined for backend responses) */
+  workspaceId?: string;
+  platformAccountId?: string;
+  handle?: string;
+  displayName?: string;
   avatar?: string;
-  followerCount: number;
-  status: AccountStatus;
-  connectedAt: string;
+  followerCount?: number;
+  status?: AccountStatus;
+  connectedAt?: string;
   expiresAt?: string;
   metadata?: Record<string, unknown>;
+  /** Actual backend snake_case fields */
+  account_id?: string;
+  account_name?: string;
+  account_handle?: string;
+  account_type?: string;
+  is_active?: boolean;
+  follower_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  token_expired?: boolean;
+  token_expiring_soon?: boolean;
 }
 
 export interface PostMedia {

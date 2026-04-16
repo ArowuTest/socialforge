@@ -571,14 +571,14 @@ function AccountsTab({ accounts }: { accounts: SocialAccount[] }) {
                     </p>
                   </div>
                 </div>
-                <AccountStatusBadge status={account.status} />
+                <AccountStatusBadge status={account.status ?? AccountStatus.ACTIVE} />
               </div>
-              {account.followerCount > 0 && (
+              {(account.followerCount ?? 0) > 0 && (
                 <>
                   <Separator className="my-3" />
                   <p className="text-xs text-muted-foreground">
                     <span className="font-semibold text-gray-900 dark:text-white">
-                      {account.followerCount.toLocaleString()}
+                      {(account.followerCount ?? 0).toLocaleString()}
                     </span>{' '}
                     followers
                   </p>

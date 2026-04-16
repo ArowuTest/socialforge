@@ -98,9 +98,22 @@ function AccountCard({
   const [showConfirm, setShowConfirm] = React.useState(false);
   const platform = platformConfig.find((p) => p.id === account.platform);
 
-  const daysSinceConnected = Math.floor(
-    (Date.now() - new Date(account.connectedAt).getTime()) / (1000 * 60 * 60 * 24)
-  );
+  // Support both camelCase (legacy) and snake_case (backend) field names
+  const displayName = account.displayName ?? account.account_name ?? "Unknown";
+  const handle = account.handle ?? account.account_handle ?? "";
+  const followerCount = account.followerCount ?? account.follower_count ?? 0;
+  const connectedAtRaw = account.connectedAt ?? account.created_at;
+  const daysSinceConnected = connectedAtRaw
+    ? Math.floor((Date.now() - new Date(connectedAtRaw).getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+  // Derive status from flags when status field is absent
+  const derivedStatus: AccountStatus =
+    account.status ??
+    (account.token_expired
+      ? AccountStatus.EXPIRED
+      : account.is_active === false
+      ? AccountStatus.DISCONNECTED
+      : AccountStatus.ACTIVE);
 
   return (
     <>
@@ -121,31 +134,31 @@ function AccountCard({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                 <p className="font-semibold text-sm text-gray-900 dark:text-white truncate">
-                  {account.displayName}
+                  {displayName}
                 </p>
-                <StatusBadge status={account.status} />
+                <StatusBadge status={derivedStatus} />
               </div>
               <p className="text-xs text-muted-foreground">
-                @{account.handle} • {getPlatformDisplayName(account.platform)}
+                @{handle} • {getPlatformDisplayName(account.platform)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {formatNumber(account.followerCount)} followers •{" "}
+                {formatNumber(followerCount)} followers •{" "}
                 Connected {daysSinceConnected} days ago
               </p>
             </div>
 
             {/* Avatar */}
             <Avatar className="h-9 w-9 flex-shrink-0">
-              <AvatarImage src={account.avatar} alt={account.displayName} />
+              <AvatarImage src={account.avatar} alt={displayName} />
               <AvatarFallback className="text-xs font-semibold">
-                {account.displayName.charAt(0).toUpperCase()}
+                {displayName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
           </div>
 
           {/* Actions */}
           <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-            {account.status !== AccountStatus.ACTIVE && (
+            {derivedStatus !== AccountStatus.ACTIVE && (
               <Button
                 variant="outline"
                 size="sm"
@@ -176,7 +189,7 @@ function AccountCard({
             <DialogTitle>Disconnect Account</DialogTitle>
             <DialogDescription>
               Are you sure you want to disconnect{" "}
-              <strong>@{account.handle}</strong> from ChiselPost? You can
+              <strong>@{handle}</strong> from ChiselPost? You can
               reconnect at any time.
             </DialogDescription>
           </DialogHeader>
