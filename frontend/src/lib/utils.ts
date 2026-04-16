@@ -36,10 +36,12 @@ export function truncateText(text: string, maxLength: number): string {
   return text.slice(0, maxLength - 3) + "...";
 }
 
-export function formatNumber(num: number): string {
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}k`;
-  return num.toString();
+export function formatNumber(num: number | undefined | null): string {
+  const n = Number(num);
+  if (!Number.isFinite(n)) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return n.toString();
 }
 
 export function formatCurrency(amount: number, currency = "USD"): string {
@@ -95,8 +97,9 @@ export function getPlatformIconName(platform: Platform): string {
   return icons[platform] ?? "Globe";
 }
 
-export function getPlatformDisplayName(platform: Platform): string {
-  const names: Record<Platform, string> = {
+export function getPlatformDisplayName(platform: Platform | string | undefined | null): string {
+  if (!platform) return "Unknown";
+  const names: Record<string, string> = {
     [Platform.INSTAGRAM]: "Instagram",
     [Platform.TIKTOK]: "TikTok",
     [Platform.YOUTUBE]: "YouTube",
@@ -107,7 +110,7 @@ export function getPlatformDisplayName(platform: Platform): string {
     [Platform.THREADS]: "Threads",
     [Platform.BLUESKY]: "Bluesky",
   };
-  return names[platform] ?? platform;
+  return names[platform] ?? String(platform);
 }
 
 export function getCharacterLimit(platform: Platform): number {
