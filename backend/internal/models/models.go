@@ -549,6 +549,7 @@ type ApiKey struct {
 	Base
 	WorkspaceID uuid.UUID  `gorm:"type:uuid;not null;index" json:"workspace_id"`
 	UserID      uuid.UUID  `gorm:"type:uuid;not null;index" json:"user_id"`
+	CreatedBy   uuid.UUID  `gorm:"type:uuid;not null"       json:"created_by"`
 	Name        string     `gorm:"not null;size:255"        json:"name"`
 	KeyHash     string     `gorm:"not null;uniqueIndex"     json:"-"`
 	KeyPrefix   string     `gorm:"not null;size:16"         json:"key_prefix"` // first chars shown in UI

@@ -5,6 +5,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/models"
@@ -15,15 +16,17 @@ import (
 type BillingHandler struct {
 	billing *billingsvc.Service
 	svc     *billingsvc.Service
+	db      *gorm.DB
 	rdb     *redis.Client
 	log     *zap.Logger
 }
 
 // NewBillingHandler creates a new BillingHandler backed by the billing service.
-func NewBillingHandler(billing *billingsvc.Service, log *zap.Logger, rdb *redis.Client) *BillingHandler {
+func NewBillingHandler(billing *billingsvc.Service, log *zap.Logger, rdb *redis.Client, db *gorm.DB) *BillingHandler {
 	return &BillingHandler{
 		billing: billing,
 		svc:     billing,
+		db:      db,
 		rdb:     rdb,
 		log:     log.Named("billing_handler"),
 	}
@@ -179,6 +182,30 @@ func (h *BillingHandler) CreateSubscription(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": fiber.Map{"checkout_url": checkoutURL}})
 }
 
+// resolveWorkspaceID returns the workspace ID from the route param if present,
+// otherwise looks up the authenticated user's first owned workspace.
+func (h *BillingHandler) resolveWorkspaceID(c *fiber.Ctx, userID uuid.UUID) (uuid.UUID, error) {
+	// Prefer explicit workspace context set by WorkspaceAuth middleware.
+	if ws, ok := c.Locals(middleware.LocalsWorkspace).(*models.Workspace); ok && ws != nil {
+		return ws.ID, nil
+	}
+	// Then try the URL param.
+	if wid := c.Params("workspaceId"); wid != "" {
+		if parsed, err := uuid.Parse(wid); err == nil {
+			return parsed, nil
+		}
+	}
+	// Fall back to the user's first owned workspace.
+	var ws models.Workspace
+	if err := h.db.WithContext(c.Context()).
+		Where("owner_id = ?", userID).
+		Order("created_at ASC").
+		First(&ws).Error; err != nil {
+		return uuid.Nil, err
+	}
+	return ws.ID, nil
+}
+
 // ── GetSubscription ───────────────────────────────────────────────────────────
 
 // GetSubscription returns the subscription state for the authenticated user's
@@ -191,11 +218,10 @@ func (h *BillingHandler) GetSubscription(c *fiber.Ctx) error {
 		return unauthorised(c, "not authenticated")
 	}
 
-	workspaceID := user.ID
-	if wid := c.Params("workspaceId"); wid != "" {
-		if parsed, err := uuid.Parse(wid); err == nil {
-			workspaceID = parsed
-		}
+	workspaceID, err := h.resolveWorkspaceID(c, user.ID)
+	if err != nil {
+		h.log.Error("GetSubscription: resolve workspace", zap.Error(err))
+		return internalError(c, "could not determine workspace")
 	}
 
 	sub, err := h.billing.GetSubscription(c.Context(), workspaceID)
@@ -278,12 +304,10 @@ func (h *BillingHandler) GetUsage(c *fiber.Ctx) error {
 		return unauthorised(c, "not authenticated")
 	}
 
-	// Resolve workspace ID from route param or fall back to user ID.
-	workspaceID := user.ID
-	if wid := c.Params("workspaceId"); wid != "" {
-		if parsed, err := uuid.Parse(wid); err == nil {
-			workspaceID = parsed
-		}
+	workspaceID, err := h.resolveWorkspaceID(c, user.ID)
+	if err != nil {
+		h.log.Error("GetUsage: resolve workspace", zap.Error(err))
+		return internalError(c, "could not determine workspace")
 	}
 
 	usage, err := h.billing.GetUsage(c.Context(), workspaceID)

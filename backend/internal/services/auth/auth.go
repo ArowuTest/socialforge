@@ -291,6 +291,7 @@ func (s *Service) GenerateAPIKey(ctx context.Context, workspaceID, userID uuid.U
 	record = &models.ApiKey{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
+		CreatedBy:   userID,
 		Name:        name,
 		KeyHash:     hash,
 		KeyPrefix:   prefix,

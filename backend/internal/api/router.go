@@ -55,7 +55,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.BlueskyClient, deps.Config, deps.Log)
 	scheduleH := handlers.NewScheduleHandler(deps.DB, deps.ScheduleService, deps.Log)
 	aiH := handlers.NewAIHandler(deps.DB, deps.AIService, deps.AnalyticsService, deps.AsynqClient, deps.Log)
-	billingH := handlers.NewBillingHandler(deps.BillingService, deps.Log, deps.RDB)
+	billingH := handlers.NewBillingHandler(deps.BillingService, deps.Log, deps.RDB, deps.DB)
 	analyticsH := handlers.NewAnalyticsHandler(deps.AnalyticsService, deps.Log)
 	whitelabelH := handlers.NewWhitelabelHandler(deps.DB, deps.Config, deps.Log)
 	adminH := handlers.NewAdminHandler(deps.DB, repos, deps.Log)
