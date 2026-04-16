@@ -433,8 +433,21 @@ function AICaptionDialog({
   );
 }
 
-export default function ComposePage() {
+// Extracted into its own component so it can be wrapped in Suspense (required by Next.js for useSearchParams)
+function CaptionFromSearchParams() {
   const searchParams = useSearchParams();
+  const { caption, setCaption } = useComposeStore();
+  React.useEffect(() => {
+    const prompt = searchParams.get("prompt");
+    if (prompt && !caption) {
+      setCaption(prompt);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
+export default function ComposePage() {
   const {
     caption,
     selectedPlatforms,
@@ -451,15 +464,6 @@ export default function ComposePage() {
     setIsPublishing,
     reset,
   } = useComposeStore();
-
-  // Pre-fill caption from ?prompt= query param (e.g. when coming from Templates page)
-  React.useEffect(() => {
-    const prompt = searchParams.get("prompt");
-    if (prompt && !caption) {
-      setCaption(prompt);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const [activePreviewTab, setActivePreviewTab] = React.useState<string>("");
   const [showAIDialog, setShowAIDialog] = React.useState(false);
@@ -682,6 +686,9 @@ export default function ComposePage() {
 
   return (
     <div className="flex flex-col h-full">
+      <React.Suspense fallback={null}>
+        <CaptionFromSearchParams />
+      </React.Suspense>
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Left Panel: Editor */}
         <div className="flex-1 flex flex-col border-r border-gray-200 dark:border-gray-800 overflow-y-auto">
