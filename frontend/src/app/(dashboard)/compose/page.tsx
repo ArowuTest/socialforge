@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import {
   Sparkles,
@@ -433,6 +434,7 @@ function AICaptionDialog({
 }
 
 export default function ComposePage() {
+  const searchParams = useSearchParams();
   const {
     caption,
     selectedPlatforms,
@@ -449,6 +451,15 @@ export default function ComposePage() {
     setIsPublishing,
     reset,
   } = useComposeStore();
+
+  // Pre-fill caption from ?prompt= query param (e.g. when coming from Templates page)
+  React.useEffect(() => {
+    const prompt = searchParams.get("prompt");
+    if (prompt && !caption) {
+      setCaption(prompt);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [activePreviewTab, setActivePreviewTab] = React.useState<string>("");
   const [showAIDialog, setShowAIDialog] = React.useState(false);

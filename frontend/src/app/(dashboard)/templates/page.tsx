@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -204,6 +205,7 @@ const defaultForm: CreateFormState = {
 };
 
 export default function TemplatesPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<SubTab>("mine");
   const [showCreateForm, setShowCreateForm] = React.useState(false);
   const [form, setForm] = React.useState<CreateFormState>(defaultForm);
@@ -274,6 +276,20 @@ export default function TemplatesPage() {
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditForm(defaultForm);
+  };
+
+  const handleUseTemplate = (template: Template) => {
+    // Increment usedCount and update lastUsed timestamp
+    setTemplates((prev) =>
+      prev.map((t) =>
+        t.id === template.id
+          ? { ...t, usedCount: t.usedCount + 1, lastUsed: new Date().toLocaleDateString() }
+          : t
+      )
+    );
+    // Navigate to compose with prompt pre-filled
+    const params = new URLSearchParams({ prompt: template.prompt });
+    router.push(`/compose?${params.toString()}`);
   };
 
   const handleCopyPublic = (pubTemplate: PublicTemplate) => {
@@ -534,7 +550,11 @@ export default function TemplatesPage() {
 
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-gray-400">Last used: {template.lastUsed}</span>
-                        <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white text-xs h-7 px-3">
+                        <Button
+                          size="sm"
+                          className="bg-violet-600 hover:bg-violet-700 text-white text-xs h-7 px-3"
+                          onClick={() => handleUseTemplate(template)}
+                        >
                           Use
                         </Button>
                       </div>

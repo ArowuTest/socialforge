@@ -32,7 +32,8 @@ type PlatformTab =
   | "twitter"
   | "facebook"
   | "pinterest"
-  | "threads";
+  | "threads"
+  | "bluesky";
 
 const inputTabs: { id: InputTab; label: string; icon: React.ElementType }[] = [
   { id: "url", label: "URL", icon: Link },
@@ -51,11 +52,12 @@ const platformTabs: { id: PlatformTab; label: string; color: string; charLimit: 
   { id: "facebook", label: "Facebook", color: "bg-blue-600", charLimit: 63206 },
   { id: "pinterest", label: "Pinterest", color: "bg-red-600", charLimit: 500 },
   { id: "threads", label: "Threads", color: "bg-gray-900", charLimit: 500 },
+  { id: "bluesky", label: "Bluesky", color: "bg-sky-500", charLimit: 300 },
 ];
 
 const emptyPlatformContent: Record<PlatformTab, string> = {
   instagram: "", tiktok: "", youtube: "", linkedin: "",
-  twitter: "", facebook: "", pinterest: "", threads: "",
+  twitter: "", facebook: "", pinterest: "", threads: "", bluesky: "",
 };
 
 function PlatformIcon({ platform }: { platform: PlatformTab }) {
@@ -68,6 +70,7 @@ function PlatformIcon({ platform }: { platform: PlatformTab }) {
     facebook: <Facebook className="h-4 w-4 text-white" />,
     pinterest: <span className="text-white text-xs font-bold">P</span>,
     threads: <span className="text-white text-xs font-bold">@</span>,
+    bluesky: <span className="text-white text-xs font-bold">B</span>,
   };
   const color = platformTabs.find((p) => p.id === platform)?.color ?? "bg-gray-500";
   return (
