@@ -31,7 +31,8 @@ export function formatRelativeTime(date: string | Date): string {
   return formatDistanceToNow(d, { addSuffix: true });
 }
 
-export function truncateText(text: string, maxLength: number): string {
+export function truncateText(text: string | null | undefined, maxLength: number): string {
+  if (!text) return "";
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength - 3) + "...";
 }
