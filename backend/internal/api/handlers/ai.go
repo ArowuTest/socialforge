@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 
 	"github.com/gofiber/fiber/v2"
@@ -208,15 +209,31 @@ func (h *AIHandler) GenerateImage(c *fiber.Ctx) error {
 		return internalError(c, "failed to create AI job")
 	}
 
-	// Generate synchronously using the AI service (fal.ai is fast for images).
+	// Generate in a background goroutine using a detached context so the
+	// HTTP response returning does not cancel the fal.ai call.
 	go func() {
-		result, _, _ := h.ai.GenerateImage(c.Context(), wid, user.ID, req.Prompt, req.Style)
-		if result != nil {
-			h.db.Model(job).Updates(map[string]interface{}{
-				"status":      models.AIJobStatusCompleted,
-				"output_data": models.JSONMap{"url": result.URL, "width": result.Width, "height": result.Height},
+		ctx := context.Background()
+		result, _, err := h.ai.GenerateImage(ctx, wid, user.ID, req.Prompt, req.Style)
+		if err != nil || result == nil {
+			errMsg := "image generation failed"
+			if err != nil {
+				errMsg = err.Error()
+			}
+			h.log.Error("GenerateImage background: fal.ai call failed", zap.Error(err))
+			h.db.WithContext(ctx).Model(job).Updates(map[string]interface{}{
+				"status":        models.AIJobStatusFailed,
+				"error_message": errMsg,
 			})
+			// Refund the credits since generation failed.
+			if refundErr := h.ai.RefundCredits(ctx, wid, ai.CreditCostImage); refundErr != nil {
+				h.log.Error("GenerateImage background: failed to refund credits", zap.Error(refundErr))
+			}
+			return
 		}
+		h.db.WithContext(ctx).Model(job).Updates(map[string]interface{}{
+			"status":      models.AIJobStatusCompleted,
+			"output_data": models.JSONMap{"url": result.URL, "width": result.Width, "height": result.Height},
+		})
 	}()
 
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{

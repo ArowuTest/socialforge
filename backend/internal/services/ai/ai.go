@@ -306,6 +306,19 @@ func (s *Service) DeductCredits(ctx context.Context, workspaceID uuid.UUID, amou
 	return nil
 }
 
+// RefundCredits adds credits back to a workspace, capped at zero minimum.
+// Used to undo a DeductCredits call when an async job fails.
+func (s *Service) RefundCredits(ctx context.Context, workspaceID uuid.UUID, amount int) error {
+	result := s.db.WithContext(ctx).
+		Model(&models.Workspace{}).
+		Where("id = ?", workspaceID).
+		UpdateColumn("ai_credits_used", gorm.Expr("GREATEST(ai_credits_used - ?, 0)", amount))
+	if result.Error != nil {
+		return fmt.Errorf("RefundCredits: %w", result.Error)
+	}
+	return nil
+}
+
 // ─── saveJob ──────────────────────────────────────────────────────────────────
 
 func (s *Service) saveJob(
