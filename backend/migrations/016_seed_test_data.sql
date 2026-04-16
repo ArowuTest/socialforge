@@ -174,19 +174,28 @@ BEGIN
 
       -- Note: access_token/refresh_token are empty — accounts display correctly
       -- but won't be usable for publishing until real OAuth tokens are connected.
+      -- platform_user_id and platform_username are the original NOT NULL columns.
+      -- account_id / account_name / account_handle are aliases added by migration 009.
+      -- We must supply both to satisfy the NOT NULL constraints.
       INSERT INTO social_accounts
-        (id, workspace_id, platform, account_id, account_name, account_handle,
+        (id, workspace_id, platform,
+         platform_user_id, platform_username,
+         account_id, account_name, account_handle,
          account_type, access_token, refresh_token, is_active, follower_count,
          scopes, created_at, updated_at)
       VALUES
-        (gen_random_uuid(), v_ws, 'twitter',   '1234567890',
-         'ChiselPost Test',    '@chiselpost_test',       'personal', '', '', TRUE, 4820,  ARRAY[]::text[], v_now, v_now),
-        (gen_random_uuid(), v_ws, 'instagram', '9876543210',
-         'chiselpost.test',    '@chiselpost.test',       'business', '', '', TRUE, 12340, ARRAY[]::text[], v_now, v_now),
-        (gen_random_uuid(), v_ws, 'linkedin',  'urn:li:person:seed1234',
-         'ChiselPost Company', 'chiselpost-company',     'business', '', '', TRUE, 2187,  ARRAY[]::text[], v_now, v_now),
-        (gen_random_uuid(), v_ws, 'bluesky',   'did:plc:seed1234567890',
-         'ChiselPost',         '@chiselpost.bsky.social','personal', '', '', TRUE, 891,   ARRAY[]::text[], v_now, v_now);
+        (gen_random_uuid(), v_ws, 'twitter',
+         '1234567890', 'chiselpost_test',
+         '1234567890', 'ChiselPost Test',    '@chiselpost_test',        'personal', '', '', TRUE, 4820,  ARRAY[]::text[], v_now, v_now),
+        (gen_random_uuid(), v_ws, 'instagram',
+         '9876543210', 'chiselpost.test',
+         '9876543210', 'chiselpost.test',    '@chiselpost.test',        'business', '', '', TRUE, 12340, ARRAY[]::text[], v_now, v_now),
+        (gen_random_uuid(), v_ws, 'linkedin',
+         'urn:li:person:seed1234', 'chiselpost-company',
+         'urn:li:person:seed1234', 'ChiselPost Company', 'chiselpost-company', 'business', '', '', TRUE, 2187,  ARRAY[]::text[], v_now, v_now),
+        (gen_random_uuid(), v_ws, 'bluesky',
+         'did:plc:seed1234567890', 'chiselpost.bsky.social',
+         'did:plc:seed1234567890', 'ChiselPost',         '@chiselpost.bsky.social', 'personal', '', '', TRUE, 891, ARRAY[]::text[], v_now, v_now);
 
       RAISE NOTICE 'seed: created social accounts for workspace %', v_ws;
     ELSE
