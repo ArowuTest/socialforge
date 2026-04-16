@@ -211,9 +211,11 @@ func (h *AIHandler) GenerateImage(c *fiber.Ctx) error {
 
 	// Generate in a background goroutine using a detached context so the
 	// HTTP response returning does not cancel the fal.ai call.
+	// We call GenerateImageRaw (no DB side effects) because credits were already
+	// deducted and the job record was already created above.
 	go func() {
 		ctx := context.Background()
-		result, _, err := h.ai.GenerateImage(ctx, wid, user.ID, req.Prompt, req.Style)
+		result, err := h.ai.GenerateImageRaw(ctx, req.Prompt, req.Style)
 		if err != nil || result == nil {
 			errMsg := "image generation failed"
 			if err != nil {

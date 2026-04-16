@@ -570,6 +570,38 @@ func (s *Service) GenerateImage(
 	return imageResult, job, nil
 }
 
+// GenerateImageRaw makes the fal.ai API call and returns the image result
+// without any DB side effects (no credit deduction, no job record creation).
+// Used by handlers that manage credits and job records themselves.
+func (s *Service) GenerateImageRaw(ctx context.Context, prompt, style string) (*ImageResult, error) {
+	enhancedPrompt := prompt
+	if style != "" {
+		enhancedPrompt = fmt.Sprintf(
+			"%s. Art style: %s. High quality, professional composition, "+
+				"sharp details, vibrant colors, suitable for social media post. "+
+				"No text overlays unless specified. No watermarks.",
+			prompt, style)
+	} else {
+		enhancedPrompt = fmt.Sprintf(
+			"%s. High quality, professional composition, sharp details, "+
+				"vibrant colors, suitable for social media. No watermarks.",
+			prompt)
+	}
+
+	reqBody := map[string]interface{}{
+		"prompt":                enhancedPrompt,
+		"image_size":            "square_hd",
+		"num_images":            1,
+		"enable_safety_checker": true,
+	}
+
+	result, err := s.falRequest(ctx, "fal-ai/flux/schnell", reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("GenerateImageRaw: fal.ai: %w", err)
+	}
+	return extractImageResult(result), nil
+}
+
 // ─── GenerateVideo ────────────────────────────────────────────────────────────
 
 // VideoResult holds the fal.ai generated video URL.
