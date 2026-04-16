@@ -294,7 +294,7 @@ func (s *Service) GetCalendar(workspaceID uuid.UUID, startDate, endDate time.Tim
 
 	var posts []models.Post
 	if err := s.db.
-		Preload("SocialAccount").
+		Preload("PostPlatforms").
 		Where(`workspace_id = ?
 			AND scheduled_at >= ?
 			AND scheduled_at < ?

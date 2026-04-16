@@ -150,7 +150,7 @@ func repurposeText(
 		systemPrompt := platformSystemPrompt(platform)
 
 		resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-			Model: openai.GPT4TurboPreview,
+			Model: "gpt-4o-mini",
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
