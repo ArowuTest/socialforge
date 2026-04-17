@@ -501,7 +501,7 @@ export const aiApi = {
       }),
     }),
 
-  generateVideo: (data: { concept: string; duration: 15 | 30 | 60; style: string }) =>
+  generateVideo: (data: { concept: string; duration: 5 | 10; style: string }) =>
     request<ApiResponse<AIJob>>(`${ws()}/ai/generate-video`, {
       method: "POST",
       // Backend expects `prompt` (not `concept`)

@@ -694,9 +694,14 @@ func (s *Service) GenerateVideo(
 					"Optimized for social media vertical video (9:16).",
 				prompt, style)
 		}
+		// Kling v1.6 only accepts 5 or 10 as duration values.
+		falDuration := 5
+		if duration >= 10 {
+			falDuration = 10
+		}
 		reqBody := map[string]interface{}{
 			"prompt":       enhancedPrompt,
-			"duration":     duration,
+			"duration":     falDuration,
 			"aspect_ratio": "9:16",
 		}
 

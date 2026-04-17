@@ -568,7 +568,7 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
 function GenerateVideoTab() {
   const queryClient = useQueryClient();
   const [concept, setConcept] = React.useState("");
-  const [duration, setDuration] = React.useState<15 | 30 | 60>(15);
+  const [duration, setDuration] = React.useState<5 | 10>(5);
   const [style, setStyle] = React.useState("cinematic");
   const [jobId, setJobId] = React.useState<string | null>(null);
   const [isGenerating, setIsGenerating] = React.useState(false);
@@ -627,7 +627,7 @@ function GenerateVideoTab() {
         <div className="space-y-2">
           <Label>Duration</Label>
           <div className="flex gap-2">
-            {([15, 30, 60] as const).map((d) => (
+            {([5, 10] as const).map((d) => (
               <button
                 key={d}
                 onClick={() => setDuration(d)}
