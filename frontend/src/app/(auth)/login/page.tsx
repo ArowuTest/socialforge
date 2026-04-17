@@ -54,7 +54,7 @@ function LoginForm() {
         rememberMe: data.rememberMe,
       });
       toast.success("Welcome back!");
-      const next = searchParams.get("next") || "/calendar";
+      const next = searchParams.get("redirect") || searchParams.get("next") || "/calendar";
       router.push(next);
     } catch (error) {
       const message =

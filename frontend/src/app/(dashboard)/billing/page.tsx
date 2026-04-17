@@ -726,10 +726,27 @@ export default function BillingPage() {
       .catch(() => { /* show empty state */ })
       .finally(() => setLedgerLoading(false));
 
-    // Usage / subscription
+    // Usage / subscription — backend returns snake_case; normalise here.
     billingApi
       .getWorkspaceUsage()
-      .then((res) => { if (res.data) setUsage(res.data); })
+      .then((res) => {
+        if (res.data) {
+          const d = res.data as any;
+          setUsage({
+            ...res.data,
+            socialAccountsUsed:  d.socialAccountsUsed  ?? d.accounts_connected ?? 0,
+            socialAccountsLimit: d.socialAccountsLimit ?? d.accounts_max        ?? 0,
+            scheduledPostsUsed:  d.scheduledPostsUsed  ?? d.posts_this_month    ?? 0,
+            scheduledPostsLimit: d.scheduledPostsLimit ?? 0,
+            aiCreditsUsed:       d.aiCreditsUsed       ?? d.credits_used        ?? 0,
+            aiCreditsLimit:      d.aiCreditsLimit      ?? d.credits_total       ?? 0,
+            workspaceId:         d.workspaceId         ?? d.workspace_id        ?? "",
+            period:              d.period              ?? "",
+            teamMembersUsed:     d.teamMembersUsed     ?? d.team_members_used   ?? 0,
+            teamMembersLimit:    d.teamMembersLimit    ?? d.team_members_limit  ?? 0,
+          });
+        }
+      })
       .catch(() => { /* keep null */ });
   }, [workspaceId]);
 
