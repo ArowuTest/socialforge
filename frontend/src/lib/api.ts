@@ -107,9 +107,14 @@ async function doRefreshToken(): Promise<string> {
     throw new Error("Session expired. Please login again.");
   }
 
-  const data: ApiResponse<AuthTokens> = await res.json();
-  setTokens(data.data);
-  return data.data.accessToken;
+  const raw = await res.json();
+  const d = raw.data as { access_token: string; refresh_token: string; expires_at: string };
+  setTokens({
+    accessToken: d.access_token,
+    refreshToken: d.refresh_token,
+    expiresIn: new Date(d.expires_at).getTime() - Date.now(),
+  });
+  return d.access_token;
 }
 
 async function request<T>(
