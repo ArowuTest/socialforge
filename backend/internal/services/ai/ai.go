@@ -679,7 +679,7 @@ func (s *Service) GenerateVideo(
 
 	// Fire async — wrap in goroutine so the handler returns immediately.
 	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		bgCtx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
 		defer cancel()
 
 		enhancedPrompt := fmt.Sprintf(
@@ -700,7 +700,7 @@ func (s *Service) GenerateVideo(
 			"aspect_ratio": "9:16",
 		}
 
-		result, err := s.falRequest(bgCtx, "fal-ai/kling-video/v1.6/standard/text-to-video", reqBody)
+		result, err := s.falQueueRequest(bgCtx, "fal-ai/kling-video/v1.6/pro/text-to-video", reqBody)
 		now := time.Now().UTC()
 		if err != nil {
 			s.db.Model(job).Updates(map[string]interface{}{
@@ -1083,6 +1083,98 @@ func (s *Service) falRequest(ctx context.Context, model string, body map[string]
 		return nil, fmt.Errorf("fal.ai decode: %w", err)
 	}
 	return result, nil
+}
+
+// falQueueRequest submits a job to fal.ai's async queue, then polls until done.
+// This avoids holding a long-lived TCP connection open and allows clean cancellation.
+func (s *Service) falQueueRequest(ctx context.Context, model string, body map[string]interface{}) (map[string]interface{}, error) {
+	// 1. Submit to queue
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	submitURL := fmt.Sprintf("https://queue.fal.run/%s", model)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Key "+s.getFalAPIKey())
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fal.ai queue submit: %w", err)
+	}
+	rawBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("fal.ai queue submit error %d: %s", resp.StatusCode, string(rawBody))
+	}
+	var submitResp map[string]interface{}
+	if err := json.Unmarshal(rawBody, &submitResp); err != nil {
+		return nil, fmt.Errorf("fal.ai queue submit decode: %w", err)
+	}
+	requestID, _ := submitResp["request_id"].(string)
+	if requestID == "" {
+		return nil, fmt.Errorf("fal.ai queue submit: no request_id in response")
+	}
+
+	// 2. Poll status until completed or failed
+	statusURL := fmt.Sprintf("https://queue.fal.run/%s/requests/%s/status", model, requestID)
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("fal.ai queue: context cancelled while waiting for %s", requestID)
+		case <-ticker.C:
+			sreq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
+			if err != nil {
+				return nil, err
+			}
+			sreq.Header.Set("Authorization", "Key "+s.getFalAPIKey())
+			sresp, err := s.httpClient.Do(sreq)
+			if err != nil {
+				// transient error — keep polling
+				continue
+			}
+			sBody, _ := io.ReadAll(sresp.Body)
+			sresp.Body.Close()
+			var statusResp map[string]interface{}
+			if err := json.Unmarshal(sBody, &statusResp); err != nil {
+				continue
+			}
+			status, _ := statusResp["status"].(string)
+			switch status {
+			case "COMPLETED":
+				// 3. Fetch result
+				resultURL := fmt.Sprintf("https://queue.fal.run/%s/requests/%s", model, requestID)
+				rreq, err := http.NewRequestWithContext(ctx, http.MethodGet, resultURL, nil)
+				if err != nil {
+					return nil, err
+				}
+				rreq.Header.Set("Authorization", "Key "+s.getFalAPIKey())
+				rresp, err := s.httpClient.Do(rreq)
+				if err != nil {
+					return nil, fmt.Errorf("fal.ai queue result fetch: %w", err)
+				}
+				rBody, _ := io.ReadAll(rresp.Body)
+				rresp.Body.Close()
+				if rresp.StatusCode >= 400 {
+					return nil, fmt.Errorf("fal.ai queue result error %d: %s", rresp.StatusCode, string(rBody))
+				}
+				var result map[string]interface{}
+				if err := json.Unmarshal(rBody, &result); err != nil {
+					return nil, fmt.Errorf("fal.ai queue result decode: %w", err)
+				}
+				return result, nil
+			case "FAILED":
+				errMsg, _ := statusResp["error"].(string)
+				return nil, fmt.Errorf("fal.ai queue job failed: %s", errMsg)
+			// IN_QUEUE, IN_PROGRESS — keep polling
+			}
+		}
+	}
 }
 
 func extractImageResult(raw map[string]interface{}) *ImageResult {
