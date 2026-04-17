@@ -122,7 +122,11 @@ function CreditsBar() {
 }
 
 // Poll AI job
-function useJobPoller(jobId: string | null, onComplete: (job: AIJob) => void) {
+function useJobPoller(
+  jobId: string | null,
+  onComplete: (job: AIJob) => void,
+  onFail?: (job: AIJob) => void,
+) {
   React.useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
@@ -136,6 +140,7 @@ function useJobPoller(jobId: string | null, onComplete: (job: AIJob) => void) {
           onComplete(res.data);
         } else if (res.data.status === AIJobStatus.FAILED) {
           toast.error(res.data.error || "Generation failed");
+          onFail?.(res.data);
         } else {
           setTimeout(poll, 2000);
         }
@@ -163,6 +168,9 @@ function GenerateCaptionTab({ onGenerateMatchingImage }: { onGenerateMatchingIma
   useJobPoller(jobId, (job) => {
     setResult(job);
     setHistory((prev) => [job, ...prev].slice(0, 5));
+    setJobId(null);
+    setIsGenerating(false);
+  }, () => {
     setJobId(null);
     setIsGenerating(false);
   });
@@ -410,6 +418,10 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
     setIsGenerating(false);
     setProgress(100);
     queryClient.invalidateQueries({ queryKey: ["ai-credits"] });
+  }, () => {
+    setJobId(null);
+    setIsGenerating(false);
+    setProgress(0);
   });
 
   const handleGenerate = async () => {
@@ -595,6 +607,10 @@ function GenerateVideoTab() {
     setIsGenerating(false);
     setProgress(100);
     queryClient.invalidateQueries({ queryKey: ["ai-credits"] });
+  }, () => {
+    setJobId(null);
+    setIsGenerating(false);
+    setProgress(0);
   });
 
   const handleGenerate = async () => {
