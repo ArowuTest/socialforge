@@ -95,7 +95,7 @@ async function doRefreshToken(): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken: rt }),
+    body: JSON.stringify({ refresh_token: rt }),
   });
 
   if (!res.ok) {
@@ -205,7 +205,7 @@ export const authApi = {
   refreshToken: (token: string) =>
     request<ApiResponse<AuthTokens>>("/api/v1/auth/refresh", {
       method: "POST",
-      body: JSON.stringify({ refreshToken: token }),
+      body: JSON.stringify({ refresh_token: token }),
     }),
 
   logout: () => request<void>("/api/v1/auth/logout", { method: "POST" }),

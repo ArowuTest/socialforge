@@ -162,7 +162,7 @@ func Load() (*Config, error) {
 
 	// ── JWT ─────────────────────────────────────────────────────────────────────
 	cfg.JWT.Secret = requireEnv("JWT_SECRET")
-	cfg.JWT.AccessTokenExpiry = getEnvDuration("JWT_ACCESS_EXPIRY", 15*time.Minute)
+	cfg.JWT.AccessTokenExpiry = getEnvDuration("JWT_ACCESS_EXPIRY", 4*time.Hour)
 	cfg.JWT.RefreshTokenExpiry = getEnvDuration("JWT_REFRESH_EXPIRY", 30*24*time.Hour)
 
 	// ── Stripe (optional — billing disabled when not configured) ────────────────
