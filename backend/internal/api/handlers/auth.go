@@ -248,7 +248,7 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 		MaxAge:   -1,
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "Strict",
+		SameSite: "None",
 		Path:     "/",
 	})
 
@@ -590,7 +590,7 @@ func setRefreshCookie(c *fiber.Ctx, token string) {
 		MaxAge:   30 * 24 * 60 * 60, // 30 days
 		HTTPOnly: true,
 		Secure:   true,
-		SameSite: "Strict",
+		SameSite: "None",
 		Path:     "/",
 	})
 }
