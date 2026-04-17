@@ -307,13 +307,14 @@ function WhitelabelPanel() {
 
   React.useEffect(() => {
     if (wlData?.data) {
+      const d = wlData.data as any;
       setState((prev) => ({
         ...prev,
-        enabled: wlData.data.enabled,
-        primaryColor: wlData.data.primaryColor,
-        appName: wlData.data.brandName,
-        customDomain: wlData.data.customDomain ?? "",
-        logoPreview: wlData.data.logo ?? null,
+        enabled: d.enabled ?? d.is_whitelabel ?? prev.enabled,
+        primaryColor: d.primaryColor ?? d.primary_color ?? prev.primaryColor,
+        appName: d.brandName ?? d.brand_name ?? prev.appName,
+        customDomain: d.customDomain ?? d.custom_domain ?? prev.customDomain,
+        logoPreview: d.logo ?? d.logo_url ?? prev.logoPreview,
       }));
     }
   }, [wlData]);
