@@ -899,7 +899,7 @@ function RepurposeTab() {
                 </p>
                 {draft.hashtags.length > 0 && (
                   <p className="text-xs text-violet-600 dark:text-violet-400 mb-3">
-                    {draft.hashtags.map((h) => `#${h}`).join(" ")}
+                    {draft.hashtags.map((h) => h.startsWith("#") ? h : `#${h}`).join(" ")}
                   </p>
                 )}
                 <div className="flex gap-2">
