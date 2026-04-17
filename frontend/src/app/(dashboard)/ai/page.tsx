@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles,
   Image,
@@ -150,6 +150,7 @@ function useJobPoller(jobId: string | null, onComplete: (job: AIJob) => void) {
 
 // ==================== Generate Caption Tab ====================
 function GenerateCaptionTab() {
+  const queryClient = useQueryClient();
   const [platform, setPlatform] = React.useState<Platform>(Platform.INSTAGRAM);
   const [topic, setTopic] = React.useState("");
   const [tone, setTone] = React.useState("casual");
@@ -194,6 +195,7 @@ function GenerateCaptionTab() {
         };
         setResult(syntheticJob);
         setHistory((prev) => [syntheticJob, ...prev].slice(0, 5));
+        queryClient.invalidateQueries({ queryKey: ["ai-credits"] });
       } else {
         throw new Error("No caption returned");
       }
@@ -358,6 +360,7 @@ function GenerateCaptionTab() {
 
 // ==================== Generate Image Tab ====================
 function GenerateImageTab() {
+  const queryClient = useQueryClient();
   const [prompt, setPrompt] = React.useState("");
   const [style, setStyle] = React.useState("photorealistic");
   const [aspectRatio, setAspectRatio] = React.useState<"1:1" | "9:16" | "16:9">("1:1");
@@ -384,6 +387,7 @@ function GenerateImageTab() {
     setJobId(null);
     setIsGenerating(false);
     setProgress(100);
+    queryClient.invalidateQueries({ queryKey: ["ai-credits"] });
   });
 
   const handleGenerate = async () => {
@@ -540,6 +544,7 @@ function GenerateImageTab() {
 
 // ==================== Generate Video Tab ====================
 function GenerateVideoTab() {
+  const queryClient = useQueryClient();
   const [concept, setConcept] = React.useState("");
   const [duration, setDuration] = React.useState<15 | 30 | 60>(15);
   const [style, setStyle] = React.useState("cinematic");
@@ -567,6 +572,7 @@ function GenerateVideoTab() {
     setJobId(null);
     setIsGenerating(false);
     setProgress(100);
+    queryClient.invalidateQueries({ queryKey: ["ai-credits"] });
   });
 
   const handleGenerate = async () => {

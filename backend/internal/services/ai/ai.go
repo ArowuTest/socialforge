@@ -375,9 +375,30 @@ func (s *Service) GenerateCaption(
 		guidance = platform
 	}
 
+	// Hard character limits for platforms that enforce them strictly.
+	// These must appear as a top-priority rule so the model doesn't exceed them.
+	platformHardLimits := map[string]int{
+		"twitter":  280,
+		"bluesky":  300,
+		"threads":  500,
+	}
+	var hardLimitRule string
+	if limit, ok := platformHardLimits[platform]; ok {
+		hardLimitRule = fmt.Sprintf(`
+⚠️ CRITICAL HARD LIMIT: This platform enforces a STRICT %d-character maximum. Your "caption" value MUST be %d characters or fewer — count every character including spaces, emojis (which count as 2), and newlines. If it exceeds %d characters the post will be rejected. Write tight, punchy, every-word-counts copy. Do NOT exceed this limit under any circumstances.
+`, limit, limit, limit)
+	}
+
+	// LinkedIn-specific hashtag reminder: the platform guidance says 3-5 hashtags
+	// but GPT tends to omit them from the caption body. Remind it explicitly.
+	var linkedinHashtagRule string
+	if platform == "linkedin" {
+		linkedinHashtagRule = "\n10. LinkedIn hashtags: add 3-5 relevant industry hashtags at the very end of the caption body (e.g. #FitnessGoals #Nutrition #AthleteLife)."
+	}
+
 	systemPrompt := fmt.Sprintf(
 		`You are an elite social media strategist who has grown 100+ accounts to 1M+ followers.
-
+%s
 PLATFORM:
 %s
 
@@ -392,14 +413,14 @@ RULES:
 6. Write for EMOTION — content that triggers curiosity, surprise, or "I need to save this" performs best.
 7. NEVER use clichés like "In today's fast-paced world", "Game-changer", "Unlock your potential".
 8. Tone: %s
-9. Target audience: %s
+9. Target audience: %s%s
 
 Return a JSON object with exactly two keys:
 - "caption": the complete post caption (string)
 - "hashtags": array of relevant hashtags without # prefix (string[])
 
 Make the caption feel like it was written by a human who genuinely cares about helping their audience, not by AI.`,
-		guidance, tone, targetAudience,
+		hardLimitRule, guidance, tone, targetAudience, linkedinHashtagRule,
 	)
 
 	openaiClient, err := s.requireOpenAIClient()
