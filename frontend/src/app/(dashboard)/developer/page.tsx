@@ -189,7 +189,13 @@ export default function DeveloperPage() {
     queryKey: ["api-keys"],
     queryFn: () => apiKeysApi.list(),
   });
-  const apiKeys = keysData?.data ?? [];
+  const apiKeys = (keysData?.data ?? []).map((k: any) => ({
+    ...k,
+    createdAt: k.createdAt ?? k.created_at,
+    lastUsedAt: k.lastUsedAt ?? k.last_used_at,
+    keyPreview: k.keyPreview ?? k.key_prefix,
+    workspaceId: k.workspaceId ?? k.workspace_id,
+  }));
 
   const createMutation = useMutation({
     mutationFn: (data: { name: string; permissions?: string[] }) => apiKeysApi.create(data),
@@ -409,7 +415,7 @@ export default function DeveloperPage() {
                   </div>
                   {key.permissions && key.permissions.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-1">
-                      {key.permissions.map((p) => (
+                      {key.permissions.map((p: string) => (
                         <span key={p} className="text-xs px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-full">
                           {p}
                         </span>
