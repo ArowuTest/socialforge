@@ -547,7 +547,7 @@ type ImageResult struct {
 func (s *Service) GenerateImage(
 	ctx context.Context,
 	workspaceID, userID uuid.UUID,
-	prompt, style string,
+	prompt, style, aspectRatio string,
 ) (*ImageResult, *models.AIJob, error) {
 	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("image", CreditCostImage)); err != nil {
 		return nil, nil, err
@@ -568,13 +568,14 @@ func (s *Service) GenerateImage(
 	}
 
 	reqBody := map[string]interface{}{
-		"prompt":           enhancedPrompt,
-		"image_size":       "square_hd",
-		"num_images":       1,
+		"prompt":                enhancedPrompt,
+		"image_size":            aspectRatioToImageSize(aspectRatio),
+		"num_images":            1,
+		"num_inference_steps":   28,
 		"enable_safety_checker": true,
 	}
 
-	result, err := s.falRequest(ctx, "fal-ai/flux/schnell", reqBody)
+	result, err := s.falRequest(ctx, "fal-ai/flux/dev", reqBody)
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "image",
 			models.JSONMap{"prompt": prompt, "style": style},
@@ -591,10 +592,23 @@ func (s *Service) GenerateImage(
 	return imageResult, job, nil
 }
 
+// aspectRatioToImageSize maps the user-facing aspect ratio string to a fal.ai
+// image_size preset. Falls back to "square_hd" for unknown values.
+func aspectRatioToImageSize(ar string) string {
+	switch ar {
+	case "9:16":
+		return "portrait_16_9"
+	case "16:9":
+		return "landscape_16_9"
+	default: // "1:1" or empty
+		return "square_hd"
+	}
+}
+
 // GenerateImageRaw makes the fal.ai API call and returns the image result
 // without any DB side effects (no credit deduction, no job record creation).
 // Used by handlers that manage credits and job records themselves.
-func (s *Service) GenerateImageRaw(ctx context.Context, prompt, style string) (*ImageResult, error) {
+func (s *Service) GenerateImageRaw(ctx context.Context, prompt, style, aspectRatio string) (*ImageResult, error) {
 	enhancedPrompt := prompt
 	if style != "" {
 		enhancedPrompt = fmt.Sprintf(
@@ -611,12 +625,14 @@ func (s *Service) GenerateImageRaw(ctx context.Context, prompt, style string) (*
 
 	reqBody := map[string]interface{}{
 		"prompt":                enhancedPrompt,
-		"image_size":            "square_hd",
+		"image_size":            aspectRatioToImageSize(aspectRatio),
 		"num_images":            1,
+		"num_inference_steps":   28,
 		"enable_safety_checker": true,
 	}
 
-	result, err := s.falRequest(ctx, "fal-ai/flux/schnell", reqBody)
+	// Use flux/dev for higher quality output (full diffusion, 28 steps).
+	result, err := s.falRequest(ctx, "fal-ai/flux/dev", reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("GenerateImageRaw: fal.ai: %w", err)
 	}
@@ -967,7 +983,7 @@ func (s *Service) ProcessJob(ctx context.Context, p interface{}) (map[string]int
 
 	case "image":
 		result, _, err := s.GenerateImage(ctx, payload.WorkspaceID, payload.UserID,
-			payload.Prompt, payload.Style)
+			payload.Prompt, payload.Style, "")
 		if err != nil {
 			return nil, err
 		}
