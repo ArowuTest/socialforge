@@ -1073,11 +1073,12 @@ function WhitelabelTab() {
 
   React.useEffect(() => {
     if (wlData?.data) {
-      setEnabled(wlData.data.enabled);
-      setPrimaryColor(wlData.data.primaryColor);
-      setAppName(wlData.data.brandName);
-      setCustomDomain(wlData.data.customDomain ?? "");
-      setLogoPreview(wlData.data.logo ?? null);
+      const d = wlData.data as any;
+      setEnabled(d.enabled ?? d.is_whitelabel ?? false);
+      setPrimaryColor(d.primaryColor ?? d.primary_color ?? "#7C3AED");
+      setAppName(d.brandName ?? d.brand_name ?? "ChiselPost");
+      setCustomDomain(d.customDomain ?? d.custom_domain ?? "");
+      setLogoPreview(d.logo ?? d.logo_url ?? null);
     }
   }, [wlData]);
 
