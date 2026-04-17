@@ -648,11 +648,13 @@ export default function ComposePage() {
     setIsPublishing(true);
     try {
       const mediaUrls = await uploadPendingMedia();
+      // datetime-local gives "2026-04-18T09:00" — convert to full ISO8601
+      const isoScheduledAt = scheduledAt ? new Date(scheduledAt).toISOString() : undefined;
       await postsApi.create({
         caption,
         platforms: selectedPlatforms as Platform[],
         postType,
-        scheduledAt: scheduledAt ?? undefined,
+        scheduledAt: isoScheduledAt,
         useNextSlot,
         ...(mediaUrls.length > 0 && { mediaUrls }),
       });
