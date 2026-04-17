@@ -149,7 +149,7 @@ function useJobPoller(jobId: string | null, onComplete: (job: AIJob) => void) {
 }
 
 // ==================== Generate Caption Tab ====================
-function GenerateCaptionTab() {
+function GenerateCaptionTab({ onGenerateMatchingImage }: { onGenerateMatchingImage?: (prompt: string) => void }) {
   const queryClient = useQueryClient();
   const [platform, setPlatform] = React.useState<Platform>(Platform.INSTAGRAM);
   const [topic, setTopic] = React.useState("");
@@ -313,7 +313,7 @@ function GenerateCaptionTab() {
               <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed mb-3">
                 {result.output_data.caption}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <CopyButton text={result.output_data.caption} />
                 <Button
                   size="sm"
@@ -323,6 +323,20 @@ function GenerateCaptionTab() {
                   <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
                   Use in Composer
                 </Button>
+                {onGenerateMatchingImage && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      // Build a concise image prompt from the topic context
+                      const imagePrompt = `Professional social media product/lifestyle image for: ${topic}. Clean composition, vibrant colors, brand-ready visual, no text overlays`;
+                      onGenerateMatchingImage(imagePrompt);
+                    }}
+                  >
+                    <Image className="h-3.5 w-3.5 mr-1.5" />
+                    Generate matching image
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -359,9 +373,17 @@ function GenerateCaptionTab() {
 }
 
 // ==================== Generate Image Tab ====================
-function GenerateImageTab() {
+function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedPrompt?: string; onPromptConsumed?: () => void }) {
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = React.useState("");
+
+  // When a suggested prompt arrives from the caption tab, apply it once
+  React.useEffect(() => {
+    if (suggestedPrompt) {
+      setPrompt(suggestedPrompt);
+      onPromptConsumed?.();
+    }
+  }, [suggestedPrompt]);
   const [style, setStyle] = React.useState("photorealistic");
   const [aspectRatio, setAspectRatio] = React.useState<"1:1" | "9:16" | "16:9">("1:1");
   const [jobId, setJobId] = React.useState<string | null>(null);
@@ -905,6 +927,9 @@ function RepurposeTab() {
 
 // ==================== Main Page ====================
 export default function AIPage() {
+  const [activeTab, setActiveTab] = React.useState("caption");
+  const [suggestedImagePrompt, setSuggestedImagePrompt] = React.useState("");
+
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto">
       {/* Credits bar */}
@@ -912,7 +937,7 @@ export default function AIPage() {
         <CreditsBar />
       </div>
 
-      <Tabs defaultValue="caption">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="mb-6 bg-gray-100 dark:bg-gray-800">
           <TabsTrigger value="caption" className="gap-1.5">
             <Sparkles className="h-3.5 w-3.5" />
@@ -933,10 +958,15 @@ export default function AIPage() {
         </TabsList>
 
         <TabsContent value="caption">
-          <GenerateCaptionTab />
+          <GenerateCaptionTab
+            onGenerateMatchingImage={(prompt) => {
+              setSuggestedImagePrompt(prompt);
+              setActiveTab("image");
+            }}
+          />
         </TabsContent>
         <TabsContent value="image">
-          <GenerateImageTab />
+          <GenerateImageTab suggestedPrompt={suggestedImagePrompt} onPromptConsumed={() => setSuggestedImagePrompt("")} />
         </TabsContent>
         <TabsContent value="video">
           <GenerateVideoTab />
