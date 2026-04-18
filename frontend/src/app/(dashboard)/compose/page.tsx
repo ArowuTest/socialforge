@@ -45,7 +45,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { cn, getPlatformDisplayName, getCharacterLimit } from "@/lib/utils";
 import { useComposeStore } from "@/lib/stores/compose";
-import { postsApi, aiApi, mediaApi } from "@/lib/api";
+import { postsApi, aiApi, mediaApi, repurposeApi } from "@/lib/api";
 import { Platform, PostType } from "@/types";
 
 // Platform config
@@ -522,16 +522,16 @@ export default function ComposePage() {
       return;
     }
     try {
-      const res = await aiApi.repurpose({
-        content: caption,
-        sourcePlatform: selectedPlatforms[0] as Platform,
-        targetPlatforms: platforms
-          .map((p) => p.id as Platform)
-          .filter((p) => !selectedPlatforms.includes(p)),
+      const targetPlatforms = platforms
+        .map((p) => p.id)
+        .filter((p) => !selectedPlatforms.includes(p));
+      const allPlatforms = targetPlatforms.length > 0 ? targetPlatforms : platforms.map((p) => p.id);
+      const res = await repurposeApi.repurposeContent({
+        source_type: "text",
+        source_text: caption,
+        platforms: allPlatforms,
       });
-      // Backend returns results synchronously in res.data.results
-      const data = res.data as unknown as { results?: Record<string, unknown> };
-      if (data.results) {
+      if (res.platforms && Object.keys(res.platforms).length > 0) {
         toast.success("Content repurposed! Check the Repurpose page for results.");
       } else {
         throw new Error("Repurpose returned no results");
