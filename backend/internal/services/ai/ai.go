@@ -695,18 +695,21 @@ func (s *Service) GenerateVideo(
 					"Optimized for social media vertical video (9:16).",
 				prompt, style)
 		}
-		// Kling v1.6 Pro accepts 5 or 10 as duration values.
-		falDuration := 5
-		if duration >= 10 {
-			falDuration = 10
+		// Kling v3 Pro accepts 3-15 as duration values; clamp to supported range.
+		falDuration := duration
+		if falDuration < 3 {
+			falDuration = 5
+		} else if falDuration > 15 {
+			falDuration = 15
 		}
 		reqBody := map[string]interface{}{
-			"prompt":       enhancedPrompt,
-			"duration":     falDuration,
-			"aspect_ratio": "9:16",
+			"prompt":          enhancedPrompt,
+			"duration":        falDuration,
+			"aspect_ratio":    "9:16",
+			"generate_audio":  true,
 		}
 
-		result, err := s.falQueueRequest(bgCtx, "fal-ai/kling-video/v1.6/pro/text-to-video", reqBody)
+		result, err := s.falQueueRequest(bgCtx, "fal-ai/kling-video/v3/pro/text-to-video", reqBody)
 		now := time.Now().UTC()
 		if err != nil {
 			s.db.Model(job).Updates(map[string]interface{}{
