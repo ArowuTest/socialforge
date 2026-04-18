@@ -92,7 +92,11 @@ export const useAuthStore = create<AuthState>()(
 
         try {
           const res = await authApi.me();
-          set({ user: res.data, isAuthenticated: true });
+          // Backend returns { data: { user: User, workspaces: [...] } }
+          const payload = res as unknown as { data: { user: User; workspaces: Workspace[] } };
+          const hydratedUser = payload.data?.user ?? (res.data as unknown as User);
+          const hydratedWorkspaces = payload.data?.workspaces ?? [];
+          set({ user: hydratedUser, workspaces: hydratedWorkspaces, isAuthenticated: true });
         } catch {
           clearTokens();
           set({ user: null, workspace: null, isAuthenticated: false });

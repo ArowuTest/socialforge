@@ -136,6 +136,11 @@ function ProfileTab() {
   const [email] = React.useState(user?.email ?? "");
   const [bio, setBio] = React.useState("");
   const [avatarPreview, setAvatarPreview] = React.useState<string | null>(user?.avatar ?? null);
+
+  // Sync local state when the auth store hydrates asynchronously after mount
+  React.useEffect(() => {
+    if (user?.name) setName(user.name);
+  }, [user?.name]);
   const [currentPw, setCurrentPw] = React.useState("");
   const [newPw, setNewPw] = React.useState("");
   const [confirmPw, setConfirmPw] = React.useState("");
