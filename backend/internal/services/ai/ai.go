@@ -1106,7 +1106,8 @@ func (s *Service) falRequest(ctx context.Context, model string, body map[string]
 }
 
 // falQueueRequest submits a job to fal.ai's async queue, then polls until done.
-// This avoids holding a long-lived TCP connection open and allows clean cancellation.
+// Uses status_url / response_url from the submit response so we never construct
+// stale or wrong URLs for different model versions.
 func (s *Service) falQueueRequest(ctx context.Context, model string, body map[string]interface{}) (map[string]interface{}, error) {
 	// 1. Submit to queue
 	b, err := json.Marshal(body)
@@ -1134,13 +1135,25 @@ func (s *Service) falQueueRequest(ctx context.Context, model string, body map[st
 	if err := json.Unmarshal(rawBody, &submitResp); err != nil {
 		return nil, fmt.Errorf("fal.ai queue submit decode: %w", err)
 	}
+	s.log.Info("fal.ai queue submit response", zap.String("model", model), zap.String("body", string(rawBody)))
+
 	requestID, _ := submitResp["request_id"].(string)
 	if requestID == "" {
-		return nil, fmt.Errorf("fal.ai queue submit: no request_id in response")
+		return nil, fmt.Errorf("fal.ai queue submit: no request_id in response: %s", string(rawBody))
 	}
 
+	// Prefer URLs returned by fal.ai in the submit response; fall back to constructed ones.
+	statusURL, _ := submitResp["status_url"].(string)
+	if statusURL == "" {
+		statusURL = fmt.Sprintf("https://queue.fal.run/%s/requests/%s/status", model, requestID)
+	}
+	responseURL, _ := submitResp["response_url"].(string)
+	if responseURL == "" {
+		responseURL = fmt.Sprintf("https://queue.fal.run/%s/requests/%s", model, requestID)
+	}
+	s.log.Info("fal.ai queue urls", zap.String("request_id", requestID), zap.String("status_url", statusURL), zap.String("response_url", responseURL))
+
 	// 2. Poll status until completed or failed
-	statusURL := fmt.Sprintf("https://queue.fal.run/%s/requests/%s/status", model, requestID)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -1155,25 +1168,34 @@ func (s *Service) falQueueRequest(ctx context.Context, model string, body map[st
 			sreq.Header.Set("Authorization", "Key "+s.getFalAPIKey())
 			sresp, err := s.httpClient.Do(sreq)
 			if err != nil {
-				// transient error — keep polling
+				// transient network error — keep polling
+				s.log.Warn("fal.ai queue poll network error", zap.String("request_id", requestID), zap.Error(err))
 				continue
 			}
 			sBody, _ := io.ReadAll(sresp.Body)
 			sresp.Body.Close()
 			s.log.Info("fal.ai queue poll", zap.String("request_id", requestID), zap.Int("http_status", sresp.StatusCode), zap.String("body", string(sBody)))
+
+			if sresp.StatusCode >= 400 {
+				// 4xx errors (bad auth, not found, etc.) won't self-heal — fail fast.
+				return nil, fmt.Errorf("fal.ai queue status error %d: %s", sresp.StatusCode, string(sBody))
+			}
+
 			var statusResp map[string]interface{}
 			if err := json.Unmarshal(sBody, &statusResp); err != nil {
 				s.log.Warn("fal.ai queue poll decode error", zap.Error(err))
 				continue
 			}
-			status, _ := statusResp["status"].(string)
+			// fal.ai returns uppercase status strings: IN_QUEUE, IN_PROGRESS, COMPLETED, FAILED.
+			// Use strings.ToUpper for safety in case the API ever changes casing.
+			status := strings.ToUpper(fmt.Sprintf("%v", statusResp["status"]))
 			s.log.Info("fal.ai queue status", zap.String("request_id", requestID), zap.String("status", status))
+
 			switch status {
 			case "COMPLETED":
-				// 3. Fetch result
-				resultURL := fmt.Sprintf("https://queue.fal.run/%s/requests/%s", model, requestID)
-				s.log.Info("fal.ai queue fetching result", zap.String("url", resultURL))
-				rreq, err := http.NewRequestWithContext(ctx, http.MethodGet, resultURL, nil)
+				// 3. Fetch result using the response_url from fal.ai
+				s.log.Info("fal.ai queue fetching result", zap.String("url", responseURL))
+				rreq, err := http.NewRequestWithContext(ctx, http.MethodGet, responseURL, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -1195,7 +1217,12 @@ func (s *Service) falQueueRequest(ctx context.Context, model string, body map[st
 				return result, nil
 			case "FAILED":
 				errMsg, _ := statusResp["error"].(string)
+				if errMsg == "" {
+					errMsg, _ = statusResp["error_message"].(string)
+				}
 				return nil, fmt.Errorf("fal.ai queue job failed: %s", errMsg)
+			case "<NIL>", "":
+				s.log.Warn("fal.ai queue: empty status field", zap.String("body", string(sBody)))
 			// IN_QUEUE, IN_PROGRESS — keep polling
 			}
 		}
