@@ -709,9 +709,11 @@ func (s *Service) GenerateVideo(
 			"generate_audio":  true,
 		}
 
+		s.log.Info("fal.ai video: submitting to queue", zap.String("job_id", job.ID.String()))
 		result, err := s.falQueueRequest(bgCtx, "fal-ai/kling-video/v3/pro/text-to-video", reqBody)
 		now := time.Now().UTC()
 		if err != nil {
+			s.log.Error("fal.ai video: queue request failed", zap.String("job_id", job.ID.String()), zap.Error(err))
 			s.db.Model(job).Updates(map[string]interface{}{
 				"status":        "failed",
 				"error_message": err.Error(),
@@ -721,10 +723,18 @@ func (s *Service) GenerateVideo(
 			return
 		}
 
+		s.log.Info("fal.ai video: result received", zap.String("job_id", job.ID.String()), zap.Any("result_keys", func() []string {
+			keys := make([]string, 0, len(result))
+			for k := range result {
+				keys = append(keys, k)
+			}
+			return keys
+		}()))
 		var videoURL string
 		if v, ok := result["video"].(map[string]interface{}); ok {
 			videoURL, _ = v["url"].(string)
 		}
+		s.log.Info("fal.ai video: extracted URL", zap.String("job_id", job.ID.String()), zap.String("video_url", videoURL))
 
 		s.db.Model(job).Updates(map[string]interface{}{
 			"status":       "completed",
@@ -1150,15 +1160,19 @@ func (s *Service) falQueueRequest(ctx context.Context, model string, body map[st
 			}
 			sBody, _ := io.ReadAll(sresp.Body)
 			sresp.Body.Close()
+			s.log.Info("fal.ai queue poll", zap.String("request_id", requestID), zap.Int("http_status", sresp.StatusCode), zap.String("body", string(sBody)))
 			var statusResp map[string]interface{}
 			if err := json.Unmarshal(sBody, &statusResp); err != nil {
+				s.log.Warn("fal.ai queue poll decode error", zap.Error(err))
 				continue
 			}
 			status, _ := statusResp["status"].(string)
+			s.log.Info("fal.ai queue status", zap.String("request_id", requestID), zap.String("status", status))
 			switch status {
 			case "COMPLETED":
 				// 3. Fetch result
 				resultURL := fmt.Sprintf("https://queue.fal.run/%s/requests/%s", model, requestID)
+				s.log.Info("fal.ai queue fetching result", zap.String("url", resultURL))
 				rreq, err := http.NewRequestWithContext(ctx, http.MethodGet, resultURL, nil)
 				if err != nil {
 					return nil, err
@@ -1170,6 +1184,7 @@ func (s *Service) falQueueRequest(ctx context.Context, model string, body map[st
 				}
 				rBody, _ := io.ReadAll(rresp.Body)
 				rresp.Body.Close()
+				s.log.Info("fal.ai queue result response", zap.Int("http_status", rresp.StatusCode), zap.String("body", string(rBody)))
 				if rresp.StatusCode >= 400 {
 					return nil, fmt.Errorf("fal.ai queue result error %d: %s", rresp.StatusCode, string(rBody))
 				}
