@@ -592,6 +592,44 @@ func (a *AuditLog) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
+// ─── Automation ───────────────────────────────────────────────────────────────
+
+// AutomationTriggerType enumerates the events that can fire an automation.
+type AutomationTriggerType string
+
+const (
+	TriggerPostPublished AutomationTriggerType = "post_published"
+	TriggerPostFailed    AutomationTriggerType = "post_failed"
+	TriggerSchedule      AutomationTriggerType = "schedule"
+)
+
+// AutomationActionType enumerates the actions an automation can perform.
+type AutomationActionType string
+
+const (
+	ActionSendNotification    AutomationActionType = "send_notification"
+	ActionAutoRepurpose       AutomationActionType = "auto_repurpose"
+	ActionRepublishAfterDelay AutomationActionType = "republish_after_delay"
+)
+
+// Automation represents a user-defined automation rule.
+type Automation struct {
+	Base
+	WorkspaceID     uuid.UUID             `gorm:"type:uuid;not null;index"           json:"workspace_id"`
+	CreatedBy       uuid.UUID             `gorm:"type:uuid;not null"                 json:"created_by"`
+	Name            string                `gorm:"not null;size:255"                  json:"name"`
+	Description     string                `gorm:"size:1000"                          json:"description,omitempty"`
+	TriggerType     AutomationTriggerType `gorm:"not null;size:50"                   json:"trigger_type"`
+	TriggerConfig   JSONMap               `gorm:"type:text;default:'{}'"             json:"trigger_config"`
+	ActionType      AutomationActionType  `gorm:"not null;size:50"                   json:"action_type"`
+	ActionConfig    JSONMap               `gorm:"type:text;default:'{}'"             json:"action_config"`
+	IsEnabled       bool                  `gorm:"not null;default:true"              json:"is_enabled"`
+	LastTriggeredAt *time.Time            `                                          json:"last_triggered_at,omitempty"`
+	RunCount        int                   `gorm:"not null;default:0"                 json:"run_count"`
+}
+
+func (Automation) TableName() string { return "automations" }
+
 // ─── PostRequest / PostResult (in-memory, not persisted) ─────────────────────
 
 // PostRequest is the in-memory representation passed to platform publisher methods.

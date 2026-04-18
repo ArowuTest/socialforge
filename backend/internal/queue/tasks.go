@@ -188,3 +188,28 @@ func NewSendNotificationTask(payload SendNotificationPayload, opts ...asynq.Opti
 	}
 	return asynq.NewTask(TypeSendNotification, b, append(defaults, opts...)...), nil
 }
+
+// ─── Run Automation ───────────────────────────────────────────────────────────
+
+const TypeRunAutomation = "automation:run"
+
+// RunAutomationPayload carries the data needed to execute an automation rule.
+type RunAutomationPayload struct {
+	AutomationID uuid.UUID              `json:"automation_id"`
+	WorkspaceID  uuid.UUID              `json:"workspace_id"`
+	TriggerData  map[string]interface{} `json:"trigger_data,omitempty"`
+}
+
+// NewRunAutomationTask creates an asynq.Task for running an automation.
+func NewRunAutomationTask(payload RunAutomationPayload, opts ...asynq.Option) (*asynq.Task, error) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("queue: marshal RunAutomationPayload: %w", err)
+	}
+	defaults := []asynq.Option{
+		asynq.MaxRetry(2),
+		asynq.Timeout(5 * time.Minute),
+		asynq.Queue("default"),
+	}
+	return asynq.NewTask(TypeRunAutomation, b, append(defaults, opts...)...), nil
+}

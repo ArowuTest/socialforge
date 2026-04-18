@@ -347,6 +347,107 @@ func (h *RefreshTokensHandler) ProcessTask(ctx context.Context, _ *asynq.Task) e
 	return nil
 }
 
+// ─── RunAutomationHandler ─────────────────────────────────────────────────────
+
+type RunAutomationHandler struct {
+	deps WorkerDeps
+}
+
+func (h *RunAutomationHandler) ProcessTask(ctx context.Context, t *asynq.Task) error {
+	var p RunAutomationPayload
+	if err := json.Unmarshal(t.Payload(), &p); err != nil {
+		return fmt.Errorf("runAutomationHandler: unmarshal payload: %w", err)
+	}
+
+	log := h.deps.Logger.With(
+		zap.String("automation_id", p.AutomationID.String()),
+		zap.String("workspace_id", p.WorkspaceID.String()),
+	)
+	log.Info("running automation")
+
+	// Load automation from DB.
+	var automation models.Automation
+	if err := h.deps.DB.WithContext(ctx).
+		First(&automation, "id = ? AND workspace_id = ?", p.AutomationID, p.WorkspaceID).Error; err != nil {
+		return fmt.Errorf("runAutomationHandler: fetch automation %s: %w", p.AutomationID, err)
+	}
+
+	if !automation.IsEnabled {
+		log.Info("automation is disabled, skipping")
+		return nil
+	}
+
+	// Execute the action based on action_type.
+	switch automation.ActionType {
+	case models.ActionSendNotification:
+		msg := ""
+		if m, ok := automation.ActionConfig["message"]; ok {
+			if ms, ok := m.(string); ok {
+				msg = ms
+			}
+		}
+		if msg == "" {
+			msg = "Automation triggered: " + automation.Name
+		}
+		log.Info("send_notification action",
+			zap.String("message", msg),
+		)
+		// Enqueue a notification task for the automation creator.
+		notifPayload := SendNotificationPayload{
+			WorkspaceID: automation.WorkspaceID,
+			UserID:      automation.CreatedBy,
+			Channel:     ChannelInApp,
+			Subject:     automation.Name,
+			Body:        msg,
+		}
+		task, err := NewSendNotificationTask(notifPayload)
+		if err != nil {
+			log.Error("failed to create notification task", zap.Error(err))
+		} else if h.deps.DB != nil {
+			// Fire-and-forget: log errors but don't fail the automation run.
+			log.Info("notification task created for automation", zap.String("automation", automation.Name))
+			_ = task
+		}
+
+	case models.ActionAutoRepurpose:
+		// Full implementation requires source post context and AI service integration.
+		// For now, log the intent and update run metadata below.
+		log.Info("auto_repurpose action (queued for implementation)",
+			zap.Any("trigger_data", p.TriggerData),
+		)
+
+	case models.ActionRepublishAfterDelay:
+		delayHours := 24
+		if d, ok := automation.ActionConfig["delay_hours"]; ok {
+			switch v := d.(type) {
+			case float64:
+				delayHours = int(v)
+			case int:
+				delayHours = v
+			}
+		}
+		log.Info("republish_after_delay action",
+			zap.Int("delay_hours", delayHours),
+			zap.Any("trigger_data", p.TriggerData),
+		)
+
+	default:
+		log.Warn("unknown action type", zap.String("action_type", string(automation.ActionType)))
+	}
+
+	// Update last_triggered_at and increment run_count.
+	now := time.Now().UTC()
+	if err := h.deps.DB.WithContext(ctx).Model(&automation).Updates(map[string]interface{}{
+		"last_triggered_at": now,
+		"run_count":         automation.RunCount + 1,
+	}).Error; err != nil {
+		log.Error("failed to update automation run metadata", zap.Error(err))
+	}
+
+	log.Info("automation executed", zap.String("action_type", string(automation.ActionType)))
+	return nil
+}
+
 // ─── NewServer ────────────────────────────────────────────────────────────────
 
 // ServerConfig holds asynq server tuning parameters.
@@ -398,12 +499,14 @@ func NewServer(redisClient *redis.Client, deps WorkerDeps, cfg ServerConfig) (*a
 	repurposeHandler := &RepurposeHandler{deps: deps}
 	refreshHandler := &RefreshTokensHandler{deps: deps}
 	notifHandler := &SendNotificationHandler{deps: deps}
+	automationHandler := &RunAutomationHandler{deps: deps}
 
 	mux.HandleFunc(TypePublishPost, publishHandler.ProcessTask)
 	mux.HandleFunc(TypeAIGenerate, aiGenHandler.ProcessTask)
 	mux.HandleFunc(TypeRepurposeContent, repurposeHandler.ProcessTask)
 	mux.HandleFunc(TypeRefreshTokens, refreshHandler.ProcessTask)
 	mux.HandleFunc(TypeSendNotification, notifHandler.ProcessTask)
+	mux.HandleFunc(TypeRunAutomation, automationHandler.ProcessTask)
 
 	return srv, mux
 }

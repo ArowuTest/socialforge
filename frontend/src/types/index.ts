@@ -382,6 +382,39 @@ export interface CreditPackage {
   best_value?: boolean;
 }
 
+// ============================================================
+// Automations
+// ============================================================
+
+export type AutomationTriggerType = 'post_published' | 'post_failed' | 'schedule';
+export type AutomationActionType = 'send_notification' | 'auto_repurpose' | 'republish_after_delay';
+
+export interface Automation {
+  id: string;
+  workspace_id: string;
+  created_by: string;
+  name: string;
+  description?: string;
+  trigger_type: AutomationTriggerType;
+  trigger_config: Record<string, unknown>;
+  action_type: AutomationActionType;
+  action_config: Record<string, unknown>;
+  is_enabled: boolean;
+  last_triggered_at?: string;
+  run_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAutomationRequest {
+  name: string;
+  description?: string;
+  trigger_type: AutomationTriggerType;
+  trigger_config: Record<string, unknown>;
+  action_type: AutomationActionType;
+  action_config: Record<string, unknown>;
+}
+
 export interface CreditBalance {
   credit_balance: number;
   plan_credits_used: number;

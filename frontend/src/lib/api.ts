@@ -27,6 +27,8 @@ import {
   CreditBalance,
   CreditLedgerEntry,
   CreditTopUpSession,
+  Automation,
+  CreateAutomationRequest,
 } from "@/types";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
@@ -706,6 +708,50 @@ export const repurposeApi = {
     }>(`${ws()}/repurpose`, {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+};
+
+// ============================================================
+// Automations
+// ============================================================
+
+export interface AutomationsListResponse {
+  data: Automation[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+export const automationsApi = {
+  list: (page = 1, limit = 20) =>
+    request<AutomationsListResponse>(
+      `${ws()}/automations?page=${page}&limit=${limit}`,
+    ),
+
+  create: (data: CreateAutomationRequest) =>
+    request<{ data: Automation }>(`${ws()}/automations`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  get: (id: string) =>
+    request<{ data: Automation }>(`${ws()}/automations/${id}`),
+
+  update: (id: string, data: Partial<CreateAutomationRequest>) =>
+    request<{ data: Automation }>(`${ws()}/automations/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  delete: (id: string) =>
+    request<void>(`${ws()}/automations/${id}`, { method: "DELETE" }),
+
+  toggle: (id: string) =>
+    request<{ data: Automation }>(`${ws()}/automations/${id}/toggle`, {
+      method: "POST",
     }),
 };
 

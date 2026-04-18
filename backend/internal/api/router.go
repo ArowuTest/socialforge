@@ -69,6 +69,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	}, deps.Log)
 	mediaH := handlers.NewMediaHandler(deps.DB, storageSvc, deps.Log)
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
+	automationsH := handlers.NewAutomationsHandler(deps.DB, deps.Log)
 	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Config.JWT.Secret, deps.Log)
 	membersH := handlers.NewMembersHandler(deps.DB, deps.RDB, repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)
 	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
@@ -178,6 +179,14 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 
 	// Repurpose
 	ws.Post("/repurpose", repurposeH.RepurposeContent)
+
+	// Automations
+	ws.Get("/automations", automationsH.ListAutomations)
+	ws.Post("/automations", automationsH.CreateAutomation)
+	ws.Get("/automations/:id", automationsH.GetAutomation)
+	ws.Patch("/automations/:id", automationsH.UpdateAutomation)
+	ws.Delete("/automations/:id", automationsH.DeleteAutomation)
+	ws.Post("/automations/:id/toggle", automationsH.ToggleAutomation)
 
 	// Whitelabel (member-readable, admin-writable)
 	ws.Get("/whitelabel", whitelabelH.GetWhitelabelConfig)
