@@ -680,7 +680,7 @@ func (s *Service) GenerateVideo(
 	// Fire async — wrap in goroutine so the handler returns immediately.
 	capturedWorkspaceID := workspaceID
 	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
+		bgCtx, cancel := context.WithTimeout(context.Background(), 35*time.Minute)
 		defer cancel()
 
 		enhancedPrompt := fmt.Sprintf(
@@ -695,21 +695,18 @@ func (s *Service) GenerateVideo(
 					"Optimized for social media vertical video (9:16).",
 				prompt, style)
 		}
-		// Kling v2 master accepts 5, 10, or 15 as duration values.
+		// Kling v1.6 Pro accepts 5 or 10 as duration values.
 		falDuration := 5
-		if duration >= 15 {
-			falDuration = 15
-		} else if duration >= 10 {
+		if duration >= 10 {
 			falDuration = 10
 		}
 		reqBody := map[string]interface{}{
 			"prompt":       enhancedPrompt,
 			"duration":     falDuration,
 			"aspect_ratio": "9:16",
-			"audio":        true,
 		}
 
-		result, err := s.falQueueRequest(bgCtx, "fal-ai/kling-video/v2/master/text-to-video", reqBody)
+		result, err := s.falQueueRequest(bgCtx, "fal-ai/kling-video/v1.6/pro/text-to-video", reqBody)
 		now := time.Now().UTC()
 		if err != nil {
 			s.db.Model(job).Updates(map[string]interface{}{
