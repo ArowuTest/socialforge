@@ -147,7 +147,7 @@ func (h *PostsHandler) CreatePost(c *fiber.Ctx) error {
 	}
 
 	postType := models.PostType(req.PostType)
-	if postType == "" {
+	if postType == "" || postType == "post" {
 		postType = models.PostTypeText
 	}
 

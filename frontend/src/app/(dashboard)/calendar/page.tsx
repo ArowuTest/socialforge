@@ -74,7 +74,7 @@ const platformDotColors: Record<string, string> = {
 type ViewMode = "month" | "week" | "list";
 
 function PostPill({ post }: { post: Post }) {
-  const firstPlatform = post.platforms[0]?.platform;
+  const firstPlatform = post.platforms[0] as Platform | undefined;
   const dotColor = firstPlatform ? platformDotColors[firstPlatform] ?? "bg-violet-500" : "bg-violet-500";
   return (
     <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 truncate cursor-pointer hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors">
@@ -113,15 +113,15 @@ function DayPanel({ date, posts, onClose }: { date: Date; posts: Post[]; onClose
               className="p-3 rounded-lg border border-gray-100 dark:border-gray-800 hover:border-violet-200 dark:hover:border-violet-800 transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                {post.platforms.map((pp) => (
+                {post.platforms.map((platform) => (
                   <span
-                    key={pp.platform}
+                    key={platform}
                     className={cn(
                       "text-xs px-1.5 py-0.5 rounded-full font-medium",
-                      platformColors[pp.platform] ?? "bg-gray-100 text-gray-600"
+                      platformColors[platform] ?? "bg-gray-100 text-gray-600"
                     )}
                   >
-                    {getPlatformDisplayName(pp.platform)}
+                    {getPlatformDisplayName(platform)}
                   </span>
                 ))}
               </div>
@@ -203,7 +203,7 @@ export default function CalendarPage() {
     let posts: Post[] = entry.posts;
     if (!selectedPlatforms.includes("all")) {
       posts = posts.filter((p: Post) =>
-        p.platforms.some((pp: { platform: string }) => selectedPlatforms.includes(pp.platform))
+        p.platforms.some((platform) => selectedPlatforms.includes(platform))
       );
     }
     return posts;
@@ -394,15 +394,15 @@ export default function CalendarPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                        {post.platforms.map((pp: { platform: string }) => (
+                        {post.platforms.map((platform) => (
                           <span
-                            key={pp.platform}
+                            key={platform}
                             className={cn(
                               "text-xs px-1.5 py-0.5 rounded-full font-medium",
-                              platformColors[pp.platform] ?? "bg-gray-100 text-gray-600"
+                              platformColors[platform] ?? "bg-gray-100 text-gray-600"
                             )}
                           >
-                            {getPlatformDisplayName(pp.platform as Platform)}
+                            {getPlatformDisplayName(platform as Platform)}
                           </span>
                         ))}
                         <StatusBadge status={post.status} />

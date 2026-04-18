@@ -44,6 +44,7 @@ type UsageResponse struct {
 	AccountsConnected int `json:"accounts_connected"`
 	AccountsMax       int `json:"accounts_max"`
 	PostsThisMonth    int `json:"posts_this_month"`
+	PostsLimit        int `json:"posts_limit"`
 }
 
 // ─── SubscriptionResponse ─────────────────────────────────────────────────────
@@ -312,6 +313,7 @@ func (s *Service) GetUsage(ctx context.Context, workspaceID uuid.UUID) (*UsageRe
 		AccountsConnected: accountsConnected,
 		AccountsMax:       limits.MaxSocialAccounts,
 		PostsThisMonth:    int(postsThisMonth),
+		PostsLimit:        limits.MaxScheduledPosts,
 	}, nil
 }
 

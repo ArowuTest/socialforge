@@ -236,11 +236,11 @@ export default function AnalyticsPage() {
   const topPosts: TopPost[] = (topPostsData?.data ?? []).map((p) => ({
     id: p.id,
     excerpt: p.caption,
-    platform: p.platforms?.[0]?.platform ?? Platform.INSTAGRAM,
+    platform: (p.platforms?.[0] as Platform | undefined) ?? Platform.INSTAGRAM,
     publishedAt: p.publishedAt ?? p.scheduledAt ?? p.createdAt,
-    impressions: p.platforms?.[0]?.metrics?.impressions ?? 0,
+    impressions: p.postPlatforms?.[0]?.metrics?.impressions ?? 0,
     engagement: (() => {
-      const m = p.platforms?.[0]?.metrics;
+      const m = p.postPlatforms?.[0]?.metrics;
       if (!m) return 0;
       const totalEng = (m.likes ?? 0) + (m.comments ?? 0) + (m.shares ?? 0);
       return totalEng > 0 ? Number(((totalEng / (m.impressions || 1)) * 100).toFixed(1)) : 0;

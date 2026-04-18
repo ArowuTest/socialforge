@@ -359,8 +359,8 @@ function OverviewTab({
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          {post.platforms.map((pp) => (
-                            <PlatformIcon key={pp.platform} platform={pp.platform} />
+                          {post.platforms.map((platform) => (
+                            <PlatformIcon key={platform} platform={platform as any} />
                           ))}
                         </div>
                       </TableCell>
@@ -472,8 +472,8 @@ function PostsTab({ posts }: { posts: Post[] }) {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          {post.platforms.map((pp) => (
-                            <PlatformIcon key={pp.platform} platform={pp.platform} />
+                          {post.platforms.map((platform) => (
+                            <PlatformIcon key={platform} platform={platform as any} />
                           ))}
                         </div>
                       </TableCell>

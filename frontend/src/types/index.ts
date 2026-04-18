@@ -23,7 +23,7 @@ export enum PostStatus {
 }
 
 export enum PostType {
-  POST = "post",
+  POST = "text",
   REEL = "reel",
   STORY = "story",
   CAROUSEL = "carousel",
@@ -145,7 +145,8 @@ export interface Post {
   workspaceId: string;
   caption: string;
   media: PostMedia[];
-  platforms: PostPlatform[];
+  platforms: string[];
+  postPlatforms?: PostPlatform[];
   status: PostStatus;
   postType: PostType;
   scheduledAt?: string;
@@ -201,6 +202,7 @@ export interface AIJob {
     repurposed?: Record<string, string>;
   };
   error?: string;
+  error_message?: string;
   creditsUsed: number;
   createdAt: string;
   completedAt?: string;

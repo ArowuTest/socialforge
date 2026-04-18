@@ -139,7 +139,7 @@ function useJobPoller(
         if (res.data.status === AIJobStatus.COMPLETED) {
           onComplete(res.data);
         } else if (res.data.status === AIJobStatus.FAILED) {
-          toast.error(res.data.error || "Generation failed");
+          toast.error(res.data.error_message || "Generation failed");
           onFail?.(res.data);
         } else {
           setTimeout(poll, 2000);
@@ -712,17 +712,17 @@ function GenerateVideoTab() {
                 <p className="text-xs text-muted-foreground">{Math.round(progress)}%</p>
               </div>
               <p className="text-xs text-muted-foreground">
-                Video generation usually takes 2–5 minutes
+                Video generation usually takes 5–15 minutes
               </p>
             </CardContent>
           </Card>
         )}
 
-        {result?.result?.videoUrl && (
+        {result?.output_data?.url && (
           <Card className="border-violet-200 dark:border-violet-800">
             <CardContent className="p-4">
               <video
-                src={result.result.videoUrl}
+                src={result.output_data.url}
                 controls
                 className="w-full rounded-lg mb-3"
               />

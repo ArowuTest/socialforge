@@ -8,12 +8,13 @@ import "github.com/socialforge/backend/internal/models"
 // This is the authoritative in-service limit definition used by billing logic.
 // The models.PlanLimits type carries the same fields but is used for DB storage.
 type PlanLimits struct {
-	MaxSocialAccounts int
-	AICreditsMonthly  int
-	MaxWorkspaces     int
-	HasAPIAccess      bool
-	HasWhitelabel     bool
-	HasAnalytics      bool
+	MaxSocialAccounts  int
+	AICreditsMonthly   int
+	MaxWorkspaces      int
+	MaxScheduledPosts  int
+	HasAPIAccess       bool
+	HasWhitelabel      bool
+	HasAnalytics       bool
 }
 
 // PlanLimitMap maps every known PlanType to its corresponding limits.
@@ -22,6 +23,7 @@ var PlanLimitMap = map[models.PlanType]PlanLimits{
 		MaxSocialAccounts: 2,
 		AICreditsMonthly:  100,
 		MaxWorkspaces:     1,
+		MaxScheduledPosts: 10,
 		HasAPIAccess:      false,
 		HasWhitelabel:     false,
 		HasAnalytics:      false,
@@ -30,6 +32,7 @@ var PlanLimitMap = map[models.PlanType]PlanLimits{
 		MaxSocialAccounts: 20,
 		AICreditsMonthly:  1250,
 		MaxWorkspaces:     1,
+		MaxScheduledPosts: 100,
 		HasAPIAccess:      true,
 		HasWhitelabel:     false,
 		HasAnalytics:      true,
@@ -38,6 +41,7 @@ var PlanLimitMap = map[models.PlanType]PlanLimits{
 		MaxSocialAccounts: 40,
 		AICreditsMonthly:  5000,
 		MaxWorkspaces:     5,
+		MaxScheduledPosts: 500,
 		HasAPIAccess:      true,
 		HasWhitelabel:     false,
 		HasAnalytics:      true,
@@ -46,6 +50,7 @@ var PlanLimitMap = map[models.PlanType]PlanLimits{
 		MaxSocialAccounts: 999,
 		AICreditsMonthly:  28000,
 		MaxWorkspaces:     999,
+		MaxScheduledPosts: 9999,
 		HasAPIAccess:      true,
 		HasWhitelabel:     true,
 		HasAnalytics:      true,

@@ -737,7 +737,7 @@ export default function BillingPage() {
             socialAccountsUsed:  d.socialAccountsUsed  ?? d.accounts_connected ?? 0,
             socialAccountsLimit: d.socialAccountsLimit ?? d.accounts_max        ?? 0,
             scheduledPostsUsed:  d.scheduledPostsUsed  ?? d.posts_this_month    ?? 0,
-            scheduledPostsLimit: d.scheduledPostsLimit ?? 0,
+            scheduledPostsLimit: d.scheduledPostsLimit ?? d.posts_limit         ?? 0,
             aiCreditsUsed:       d.aiCreditsUsed       ?? d.credits_used        ?? 0,
             aiCreditsLimit:      d.aiCreditsLimit      ?? d.credits_total       ?? 0,
             workspaceId:         d.workspaceId         ?? d.workspace_id        ?? "",
