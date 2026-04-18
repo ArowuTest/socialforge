@@ -342,13 +342,11 @@ export const accountsApi = {
       method: "POST",
     }),
 
-  /** Build the backend OAuth initiation URL for the given platform. */
-  getOAuthUrl: async (
-    platform: Platform | string,
-  ): Promise<ApiResponse<{ url: string }>> => ({
-    success: true,
-    data: { url: oauthApi.getConnectUrl(platform) },
-  }),
+  /** Fetch the OAuth initiation URL from the backend (auth-protected). */
+  getOAuthUrl: (platform: Platform | string) =>
+    request<ApiResponse<{ url: string }>>(
+      `/api/v1/oauth/${platform}/connect?workspace_id=${getActiveWorkspaceId()}`,
+    ),
 
   /** Connect a Bluesky account using handle + app password. */
   connectBluesky: (handle: string, appPassword: string) =>
