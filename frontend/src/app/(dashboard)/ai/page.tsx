@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles,
@@ -155,6 +156,7 @@ function useJobPoller(
 
 // ==================== Generate Caption Tab ====================
 function GenerateCaptionTab({ onGenerateMatchingImage }: { onGenerateMatchingImage?: (prompt: string) => void }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [platform, setPlatform] = React.useState<Platform>(Platform.INSTAGRAM);
   const [topic, setTopic] = React.useState("");
@@ -217,6 +219,7 @@ function GenerateCaptionTab({ onGenerateMatchingImage }: { onGenerateMatchingIma
   const handleUseInComposer = (caption: string) => {
     useComposeStore.getState().setCaption(caption);
     toast.success("Caption added to composer!");
+    router.push("/compose");
   };
 
   return (
@@ -382,6 +385,7 @@ function GenerateCaptionTab({ onGenerateMatchingImage }: { onGenerateMatchingIma
 
 // ==================== Generate Image Tab ====================
 function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedPrompt?: string; onPromptConsumed?: () => void }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = React.useState("");
 
@@ -552,6 +556,11 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
                 <Button
                   size="sm"
                   className="flex-1 bg-violet-600 hover:bg-violet-700 text-white"
+                  onClick={() => {
+                    useComposeStore.getState().addMedia({ id: Date.now().toString(), url: result.output_data!.url!, type: "image" });
+                    toast.success("Image added to composer!");
+                    router.push("/compose");
+                  }}
                 >
                   <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
                   Use in Composer
@@ -578,6 +587,7 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
 
 // ==================== Generate Video Tab ====================
 function GenerateVideoTab() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [concept, setConcept] = React.useState("");
   const [duration, setDuration] = React.useState<5 | 10>(5);
@@ -731,7 +741,15 @@ function GenerateVideoTab() {
                   <Download className="h-3.5 w-3.5 mr-1.5" />
                   Download
                 </Button>
-                <Button size="sm" className="flex-1 bg-violet-600 hover:bg-violet-700 text-white">
+                <Button
+                  size="sm"
+                  className="flex-1 bg-violet-600 hover:bg-violet-700 text-white"
+                  onClick={() => {
+                    useComposeStore.getState().addMedia({ id: Date.now().toString(), url: result!.output_data!.url!, type: "video" });
+                    toast.success("Video added to composer!");
+                    router.push("/compose");
+                  }}
+                >
                   <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
                   Use in Composer
                 </Button>
