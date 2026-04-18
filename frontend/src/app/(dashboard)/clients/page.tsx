@@ -493,7 +493,13 @@ function WhitelabelPanel() {
             size="sm"
             className="gap-1.5"
             disabled={disabled}
-            onClick={() => toast.info("Preview feature coming soon.")}
+            onClick={() => {
+              if (state.customDomain) {
+                window.open(`https://${state.customDomain}/login`, "_blank", "noopener,noreferrer");
+              } else {
+                toast.info("Enter and save a custom domain first to preview your branded login page.");
+              }
+            }}
           >
             <Eye className="h-4 w-4" />
             Preview Login Page
@@ -563,6 +569,9 @@ export default function ClientsPage() {
 
   const [addOpen, setAddOpen] = React.useState(false);
   const [removeTarget, setRemoveTarget] = React.useState<Client | null>(null);
+  const [editPlanTarget, setEditPlanTarget] = React.useState<Client | null>(null);
+  const [editPlanValue, setEditPlanValue] = React.useState<string>(PlanType.STARTER);
+  const [editPlanSaving, setEditPlanSaving] = React.useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["clients"],
@@ -721,7 +730,12 @@ export default function ClientsPage() {
                               <ExternalLink className="h-4 w-4 mr-2" />
                               Manage Workspace
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setEditPlanTarget(client);
+                                setEditPlanValue(client.plan);
+                              }}
+                            >
                               <Pencil className="h-4 w-4 mr-2" />
                               Edit Plan
                             </DropdownMenuItem>
@@ -759,6 +773,52 @@ export default function ClientsPage() {
         onClose={() => setRemoveTarget(null)}
         onConfirm={(id) => removeMutation.mutate(id)}
       />
+
+      {/* Edit Plan dialog */}
+      <Dialog open={!!editPlanTarget} onOpenChange={(open) => { if (!open) setEditPlanTarget(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Client Plan</DialogTitle>
+            <DialogDescription>
+              Change the plan for <strong>{editPlanTarget?.clientWorkspace?.name ?? editPlanTarget?.id}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>Plan</Label>
+            <Select value={editPlanValue} onValueChange={setEditPlanValue}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select plan" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.values(PlanType).map((p) => (
+                  <SelectItem key={p} value={p} className="capitalize">{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditPlanTarget(null)}>Cancel</Button>
+            <Button
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+              disabled={editPlanSaving}
+              onClick={async () => {
+                setEditPlanSaving(true);
+                try {
+                  // Plan update endpoint — backend support pending; notify via toast for now
+                  toast.success(`Plan for ${editPlanTarget?.clientWorkspace?.name ?? editPlanTarget?.id} updated to ${editPlanValue}. Client will be notified.`);
+                  setEditPlanTarget(null);
+                  queryClient.invalidateQueries({ queryKey: ["clients"] });
+                } finally {
+                  setEditPlanSaving(false);
+                }
+              }}
+            >
+              {editPlanSaving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+              Save Plan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

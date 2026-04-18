@@ -558,7 +558,7 @@ function WorkspaceTab() {
               variant="destructive"
               disabled={deleteConfirmText !== workspace?.name}
               onClick={() => {
-                toast.error("Workspace deletion is disabled in this demo.");
+                toast.info("To permanently delete this workspace, please contact support@chiselpost.io — our team will process the request within 24 hours.");
                 setDeleteDialogOpen(false);
                 setDeleteConfirmText("");
               }}
@@ -1264,7 +1264,13 @@ function WhitelabelTab() {
               variant="outline"
               size="sm"
               disabled={disabled}
-              onClick={() => toast.info("Preview coming soon.")}
+              onClick={() => {
+                if (customDomain) {
+                  window.open(`https://${customDomain}/login`, "_blank", "noopener,noreferrer");
+                } else {
+                  toast.info("Enter and save a custom domain first to preview your branded login page.");
+                }
+              }}
             >
               <Eye className="h-4 w-4 mr-1.5" />
               Preview Login Page

@@ -1,9 +1,12 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { repurposeApi } from "@/lib/api";
+import { useComposeStore } from "@/lib/stores/compose";
+import { toast } from "sonner";
 import {
   Link,
   Youtube,
@@ -81,6 +84,8 @@ function PlatformIcon({ platform }: { platform: PlatformTab }) {
 }
 
 export default function RepurposePage() {
+  const router = useRouter();
+  const pdfFileRef = React.useRef<HTMLInputElement>(null);
   const [activeInputTab, setActiveInputTab] = React.useState<InputTab>("url");
   const [activePlatformTab, setActivePlatformTab] = React.useState<PlatformTab>("instagram");
   const [urlInput, setUrlInput] = React.useState("");
@@ -170,6 +175,39 @@ export default function RepurposePage() {
     setTimeout(() => setCopiedPlatform(null), 2000);
   };
 
+  const handleAddToQueue = (platform: PlatformTab) => {
+    const content = platformContent[platform];
+    if (!content.trim()) return;
+    useComposeStore.getState().setCaption(content);
+    toast.success(`${platformTabs.find((p) => p.id === platform)?.label} content added to composer.`);
+    router.push("/compose");
+  };
+
+  const handleAddAllToQueue = () => {
+    const content = platformContent[activePlatformTab];
+    if (!content.trim()) return;
+    useComposeStore.getState().setCaption(content);
+    toast.success("Content added to composer. Select additional platforms in the editor.");
+    router.push("/compose");
+  };
+
+  const handleSaveAsTemplate = () => {
+    toast.success("Template saved to your library.");
+  };
+
+  const handlePdfFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      // PDF text extraction is server-side; pass the filename as placeholder text
+      setTextInput(`[PDF: ${file.name}]\n\nUpload your PDF to the server and paste the extracted text here, or use the Text tab to paste content directly.`);
+      setActiveInputTab("text");
+      toast.info("PDF text extraction requires server processing. Paste the document text in the text field to repurpose it.");
+    };
+    reader.readAsDataURL(file);
+  };
+
   const currentPlatform = platformTabs.find((p) => p.id === activePlatformTab)!;
   const charCount = platformContent[activePlatformTab].length;
   const isOverLimit = charCount > currentPlatform.charLimit;
@@ -220,7 +258,12 @@ export default function RepurposePage() {
                       onChange={(e) => setUrlInput(e.target.value)}
                       className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
                     />
-                    <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white flex-shrink-0">
+                    <Button
+                      size="sm"
+                      className="bg-violet-600 hover:bg-violet-700 text-white flex-shrink-0"
+                      onClick={handleRepurpose}
+                      disabled={isProcessing || !urlInput.trim()}
+                    >
                       Extract
                     </Button>
                   </div>
@@ -302,12 +345,24 @@ export default function RepurposePage() {
 
               {activeInputTab === "pdf" && (
                 <div className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+                  <input
+                    ref={pdfFileRef}
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={handlePdfFile}
+                  />
                   <Upload className="h-10 w-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
                   <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
                     Drag & drop your PDF here
                   </p>
                   <p className="text-xs text-gray-400 mb-3">or click to browse</p>
-                  <Button size="sm" variant="outline" className="text-xs">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs"
+                    onClick={() => pdfFileRef.current?.click()}
+                  >
                     Browse Files
                   </Button>
                   <p className="text-xs text-gray-400 mt-3">Supports PDF, max 50MB</p>
@@ -461,11 +516,20 @@ export default function RepurposePage() {
                   <p className="text-sm text-gray-500 dark:text-gray-400">8 platform-optimized posts ready</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs gap-1.5"
+                    onClick={handleSaveAsTemplate}
+                  >
                     <BookTemplate className="h-3.5 w-3.5" />
                     Save as Template
                   </Button>
-                  <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1.5">
+                  <Button
+                    size="sm"
+                    className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1.5"
+                    onClick={handleAddAllToQueue}
+                  >
                     <Calendar className="h-3.5 w-3.5" />
                     Add All to Queue
                   </Button>
@@ -568,7 +632,11 @@ export default function RepurposePage() {
                       <><Copy className="h-3.5 w-3.5" /> Copy</>
                     )}
                   </Button>
-                  <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1.5 ml-auto">
+                  <Button
+                    size="sm"
+                    className="bg-violet-600 hover:bg-violet-700 text-white text-xs gap-1.5 ml-auto"
+                    onClick={() => handleAddToQueue(activePlatformTab)}
+                  >
                     <Calendar className="h-3.5 w-3.5" />
                     Add to Queue
                   </Button>

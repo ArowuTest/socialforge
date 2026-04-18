@@ -258,11 +258,30 @@ export default function DeveloperPage() {
     deleteMutation.mutate(id);
   };
 
-  const handleTestWebhook = () => {
+  const handleTestWebhook = async () => {
+    if (!webhookUrl.trim()) {
+      toast.error("Enter a webhook URL first.");
+      return;
+    }
     setWebhookTestResult("idle");
-    setTimeout(() => {
-      setWebhookTestResult(Math.random() > 0.3 ? "success" : "fail");
-    }, 800);
+    try {
+      // Send a real test ping to the configured webhook URL via browser fetch.
+      // Note: cross-origin requests may be blocked by the target server's CORS policy.
+      const res = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "webhook.test",
+          timestamp: new Date().toISOString(),
+          data: { message: "Test ping from ChiselPost" },
+        }),
+        signal: AbortSignal.timeout(8000),
+      });
+      setWebhookTestResult(res.ok ? "success" : "fail");
+    } catch {
+      // Network error or CORS block — treat as failure
+      setWebhookTestResult("fail");
+    }
   };
 
   const handleCopyCode = () => {
@@ -618,12 +637,20 @@ export default function DeveloperPage() {
 
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" className="gap-1.5" asChild>
-            <a href="#" target="_blank" rel="noopener noreferrer">
+            <a href="https://docs.chiselpost.io" target="_blank" rel="noopener noreferrer">
               <ExternalLink className="h-3.5 w-3.5" />
               View Full API Docs
             </a>
           </Button>
-          <Button variant="outline" size="sm" className="gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              const base = process.env.NEXT_PUBLIC_API_URL ?? "";
+              window.open(`${base}/api/v1/openapi.json`, "_blank", "noopener,noreferrer");
+            }}
+          >
             <Globe className="h-3.5 w-3.5" />
             OpenAPI Spec
           </Button>

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   TrendingUp, TrendingDown, Share2, Sparkles, BarChart3,
   PenSquare, Calendar, ArrowRight, Instagram, Youtube,
@@ -168,10 +169,18 @@ const stepColors: Record<string, { bg: string; icon: string; badge: string; bord
   emerald: { bg: "bg-emerald-50 dark:bg-emerald-900/20", icon: "text-emerald-600 dark:text-emerald-400", badge: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300", border: "border-emerald-200 dark:border-emerald-700" },
 };
 
-function GettingStartedGuide() {
+function GettingStartedGuide({ accountsConnected }: { accountsConnected: number }) {
   const [dismissed, setDismissed] = React.useState(false);
   const [expanded, setExpanded] = React.useState(true);
-  const [openStep, setOpenStep] = React.useState<string | null>("connect");
+  // Auto-open step 2 if accounts are already connected; auto-dismiss if all steps seem done
+  const [openStep, setOpenStep] = React.useState<string | null>(
+    accountsConnected > 0 ? "compose" : "connect"
+  );
+
+  // Auto-dismiss the guide entirely once 2+ accounts are connected and guide has been seen
+  React.useEffect(() => {
+    if (accountsConnected >= 2) setDismissed(true);
+  }, [accountsConnected]);
 
   if (dismissed) return null;
 
@@ -211,21 +220,25 @@ function GettingStartedGuide() {
           {setupSteps.map((step, idx) => {
             const colors = stepColors[step.color];
             const isOpen = openStep === step.id;
+            // Mark step 1 (connect) as complete when accounts exist
+            const isComplete = step.id === "connect" && accountsConnected > 0;
             return (
               <div key={step.id} className={cn("rounded-xl border overflow-hidden transition-all", isOpen ? `${colors.bg} ${colors.border}` : "bg-white/70 dark:bg-gray-900/50 border-gray-200 dark:border-gray-700")}>
                 <button
                   className="w-full flex items-center gap-3 px-4 py-3 text-left"
                   onClick={() => setOpenStep(isOpen ? null : step.id)}
                 >
-                  <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0", isOpen ? colors.bg : "bg-gray-100 dark:bg-gray-800")}>
-                    <step.icon className={cn("h-4 w-4", isOpen ? colors.icon : "text-gray-400")} />
+                  <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0", isComplete ? "bg-emerald-100 dark:bg-emerald-900/30" : isOpen ? colors.bg : "bg-gray-100 dark:bg-gray-800")}>
+                    {isComplete
+                      ? <span className="text-emerald-600 dark:text-emerald-400 text-base">✓</span>
+                      : <step.icon className={cn("h-4 w-4", isOpen ? colors.icon : "text-gray-400")} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded", isOpen ? colors.badge : "bg-gray-100 dark:bg-gray-800 text-gray-500")}>
-                        Step {idx + 1}
+                      <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded", isComplete ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300" : isOpen ? colors.badge : "bg-gray-100 dark:bg-gray-800 text-gray-500")}>
+                        {isComplete ? "✓ Done" : `Step ${idx + 1}`}
                       </span>
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{step.title}</p>
+                      <p className={cn("text-sm font-medium truncate", isComplete ? "text-gray-400 dark:text-gray-500 line-through" : "text-gray-900 dark:text-white")}>{step.title}</p>
                     </div>
                   </div>
                   <ChevronDown className={cn("h-4 w-4 text-gray-400 flex-shrink-0 transition-transform", isOpen && "rotate-180")} />
@@ -308,6 +321,7 @@ function titleCase(s: string): string {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const workspace = useAuthStore((s) => s.workspace);
   const user = useAuthStore((s) => s.user);
 
@@ -316,6 +330,7 @@ export default function DashboardPage() {
   const [recentPosts, setRecentPosts] = React.useState<RecentPost[]>([]);
   const [platformData, setPlatformData] = React.useState<PlatformDatum[]>([]);
   const [scheduleDots, setScheduleDots] = React.useState<Record<number, { color: string }[]>>({});
+  const [accountsConnected, setAccountsConnected] = React.useState(0);
 
   React.useEffect(() => {
     if (!workspace?.id) {
@@ -369,6 +384,7 @@ export default function DashboardPage() {
       const accountsGrouped = (accountsRes?.data || {}) as Record<string, any[]>;
       const accounts = Object.values(accountsGrouped).flat();
       const connectedPlatforms = new Set(Object.keys(accountsGrouped));
+      if (!cancelled) setAccountsConnected(accounts.length);
 
       const totalPosts: number = a.total_posts || 0;
       const scheduledCount = (postsRes?.data || []).filter(
@@ -476,7 +492,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Getting started guide */}
-      <GettingStartedGuide />
+      <GettingStartedGuide accountsConnected={accountsConnected} />
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -554,8 +570,20 @@ export default function DashboardPage() {
                   </div>
                   <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0", sc.className)}>{sc.label}</span>
                   <div className="flex gap-1 flex-shrink-0">
-                    <button className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"><Eye className="h-3.5 w-3.5" /></button>
-                    <button className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"><Edit3 className="h-3.5 w-3.5" /></button>
+                    <button
+                      title="View on calendar"
+                      onClick={() => router.push(`/calendar`)}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      title="Edit post"
+                      onClick={() => router.push(`/compose?post=${post.id}`)}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-violet-600 transition-colors"
+                    >
+                      <Edit3 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
               );

@@ -439,9 +439,14 @@ function PlanTab({ subscription, onPortalClick, portalLoading }: PlanTabProps) {
               <Button
                 size="sm"
                 className="bg-violet-600 hover:bg-violet-700 text-white text-xs"
-                onClick={() => window.open("/pricing", "_blank")}
+                onClick={onPortalClick}
+                disabled={portalLoading}
               >
-                <ArrowUpRight className="h-3.5 w-3.5 mr-1" />
+                {portalLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : (
+                  <ArrowUpRight className="h-3.5 w-3.5 mr-1" />
+                )}
                 Upgrade Plan
               </Button>
             </div>

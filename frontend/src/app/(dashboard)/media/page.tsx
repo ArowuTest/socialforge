@@ -1,8 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { mediaApi } from "@/lib/api";
+import { useComposeStore } from "@/lib/stores/compose";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -101,6 +104,7 @@ function MediaTypeIcon({ type }: { type: MediaItem["type"] }) {
 }
 
 export default function MediaPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = React.useState<ViewMode>("grid");
   const [typeFilter, setTypeFilter] = React.useState<MediaType>("all");
@@ -585,7 +589,21 @@ export default function MediaPage() {
 
             {/* Actions */}
             <div className="space-y-2 pt-2">
-              <Button size="sm" className="w-full bg-violet-600 hover:bg-violet-700 text-white gap-1.5 justify-center text-xs">
+              <Button
+                size="sm"
+                className="w-full bg-violet-600 hover:bg-violet-700 text-white gap-1.5 justify-center text-xs"
+                onClick={() => {
+                  if (sidebarItem) {
+                    useComposeStore.getState().addMedia({
+                      id: sidebarItem.key,
+                      url: sidebarItem.url,
+                      type: sidebarItem.type === "video" ? "video" : "image",
+                    });
+                    toast.success("Media added to composer.");
+                    router.push("/compose");
+                  }
+                }}
+              >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Use in Compose
               </Button>
@@ -630,7 +648,12 @@ export default function MediaPage() {
             />
           </div>
           <span className="text-xs text-gray-400 flex-shrink-0">{Math.round(usedPct)}%</span>
-          <Button size="sm" variant="outline" className="text-xs flex-shrink-0 h-7">
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs flex-shrink-0 h-7"
+            onClick={() => router.push("/billing")}
+          >
             Upgrade Storage
           </Button>
         </div>
