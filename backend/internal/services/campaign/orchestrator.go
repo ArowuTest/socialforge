@@ -60,13 +60,14 @@ type PostSlot struct {
 
 // Orchestrator handles end-to-end AI campaign generation.
 type Orchestrator struct {
-	db            *gorm.DB
-	asynq         *asynq.Client
-	encryptSecret string
-	fallbackOpenAI string
-	fallbackFal    string
-	httpClient    *http.Client
-	log           *zap.Logger
+	db              *gorm.DB
+	asynq           *asynq.Client
+	encryptSecret   string
+	fallbackOpenAI  string
+	fallbackFal     string
+	httpClient      *http.Client // standard — images, OpenAI, status polls
+	videoHTTPClient *http.Client // extended — Kling video (~2–8 min)
+	log             *zap.Logger
 }
 
 // New creates a new Orchestrator. openaiKey and falKey are env-variable fallbacks;
@@ -78,8 +79,11 @@ func New(db *gorm.DB, asynqClient *asynq.Client, openaiKey, falKey, encryptSecre
 		encryptSecret:  encryptSecret,
 		fallbackOpenAI: openaiKey,
 		fallbackFal:    falKey,
-		httpClient:     &http.Client{Timeout: 120 * time.Second},
-		log:            log,
+		// Standard client for fast API calls (OpenAI, fal.ai image/status).
+		httpClient: &http.Client{Timeout: 120 * time.Second},
+		// Long-timeout client for fal.ai video generation (Kling ~2–8 min).
+		videoHTTPClient: &http.Client{Timeout: 15 * time.Minute},
+		log:             log,
 	}
 }
 
@@ -420,7 +424,14 @@ func (o *Orchestrator) GenerateCampaignPost(ctx context.Context, campaignPostID,
 		} else if videoURL != "" {
 			mediaURLs = append(mediaURLs, videoURL)
 		}
-	// "text" and "carousel" — no media generation
+	case "carousel":
+		carouselURLs, err := o.generateCarousel(ctx, falKey, slot, &campaign, campaign.BrandKit)
+		if err != nil {
+			log.Warn("GenerateCampaignPost: carousel generation failed, continuing without media", zap.Error(err))
+		} else {
+			mediaURLs = append(mediaURLs, carouselURLs...)
+		}
+	// "text" — no media generation
 	}
 
 	// 6. Update post: caption, hashtags, media, status=generated.
@@ -677,19 +688,164 @@ func platformToImageSize(platform string) string {
 
 // ─── generateVideo ────────────────────────────────────────────────────────────
 
-// generateVideo generates media for a video post slot.
-// TODO: Implement true video generation using Kling (fal-ai/kling-video).
-// Currently uses flux/schnell to generate a static image as a placeholder
-// because video generation is slow (~10min) and expensive per post.
+// generateVideo generates a short-form social video via Kling V3 Pro (fal.ai).
+// The task timeout is 10 minutes so we have headroom for Kling's ~2–5 min jobs.
 func (o *Orchestrator) generateVideo(ctx context.Context, falKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) (string, error) {
-	return o.generateImage(ctx, falKey, slot, campaign, bk)
+	if falKey == "" {
+		return "", fmt.Errorf("generateVideo: fal.ai API key not configured")
+	}
+
+	// Build a detailed text-to-video prompt from brand + slot context.
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Short-form social media video for %s. ", slot.Platform))
+	sb.WriteString(fmt.Sprintf("Visual style: %s. ", slot.VisualStyle))
+	sb.WriteString(fmt.Sprintf("Key message: %s. ", slot.KeyMessage))
+	sb.WriteString(fmt.Sprintf("Content theme: %s. ", slot.ContentPillar))
+	if bk != nil {
+		if bk.BrandVoice != "" {
+			sb.WriteString(fmt.Sprintf("Brand tone: %s. ", bk.BrandVoice))
+		}
+		if bk.PrimaryColor != "" {
+			sb.WriteString(fmt.Sprintf("Color palette: primary %s. ", bk.PrimaryColor))
+		}
+	}
+	sb.WriteString("Cinematic quality, dynamic movement, engaging for social media. No text overlays.")
+
+	// Platform → aspect ratio + duration
+	aspectRatio, duration := platformToVideoParams(slot.Platform)
+
+	reqBody := map[string]interface{}{
+		"prompt":       sb.String(),
+		"duration":     duration,
+		"aspect_ratio": aspectRatio,
+	}
+
+	o.log.Info("generateVideo: submitting Kling job",
+		zap.String("platform", slot.Platform),
+		zap.String("aspect_ratio", aspectRatio),
+		zap.Int("duration", duration),
+	)
+
+	// Use the long-timeout client so the HTTP connection itself doesn't die
+	// while we wait for Kling to finish.
+	result, err := o.falQueueRequestWithClient(ctx, o.videoHTTPClient, falKey, "fal-ai/kling-video/v3/pro/text-to-video", reqBody)
+	if err != nil {
+		return "", fmt.Errorf("generateVideo: kling: %w", err)
+	}
+
+	// Extract video URL from Kling response: {"video": {"url": "..."}}
+	if v, ok := result["video"].(map[string]interface{}); ok {
+		if url, _ := v["url"].(string); url != "" {
+			o.log.Info("generateVideo: Kling job complete", zap.String("video_url", url))
+			return url, nil
+		}
+	}
+
+	o.log.Warn("generateVideo: no video URL in Kling response", zap.Any("result_keys", func() []string {
+		keys := make([]string, 0, len(result))
+		for k := range result {
+			keys = append(keys, k)
+		}
+		return keys
+	}()))
+	return "", nil
+}
+
+// platformToVideoParams returns the aspect ratio and duration (seconds) for Kling
+// based on the target social platform.
+func platformToVideoParams(platform string) (aspectRatio string, duration int) {
+	switch strings.ToLower(platform) {
+	case "tiktok", "reels", "stories", "instagram":
+		return "9:16", 5 // vertical short-form
+	case "youtube":
+		return "16:9", 10
+	case "linkedin", "facebook":
+		return "16:9", 5
+	case "twitter":
+		return "16:9", 5
+	default:
+		return "9:16", 5
+	}
+}
+
+// ─── generateCarousel ─────────────────────────────────────────────────────────
+
+// generateCarousel generates 3 brand-consistent images for a carousel post
+// and returns all URLs. The caption is expected to be slide-aware.
+func (o *Orchestrator) generateCarousel(ctx context.Context, falKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) ([]string, error) {
+	if falKey == "" {
+		return nil, fmt.Errorf("generateCarousel: fal.ai API key not configured")
+	}
+
+	slideCount := 3
+	var urls []string
+
+	// Base color/brand context.
+	colorCtx := ""
+	if bk != nil && bk.PrimaryColor != "" {
+		colorCtx = fmt.Sprintf("Color palette: primary %s", bk.PrimaryColor)
+		if bk.SecondaryColor != "" {
+			colorCtx += fmt.Sprintf(", secondary %s", bk.SecondaryColor)
+		}
+		colorCtx += ". "
+	}
+
+	for i := 0; i < slideCount; i++ {
+		slideRole := slideRole(i, slideCount)
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Carousel slide %d of %d — %s. ", i+1, slideCount, slideRole))
+		sb.WriteString(fmt.Sprintf("Platform: %s. ", slot.Platform))
+		sb.WriteString(fmt.Sprintf("Visual style: %s. ", slot.VisualStyle))
+		sb.WriteString(fmt.Sprintf("Theme: %s. %s: %s. ", slot.ContentPillar, "Key message", slot.KeyMessage))
+		sb.WriteString(colorCtx)
+		sb.WriteString("Consistent visual branding, professional quality, no text overlays, no watermarks.")
+
+		reqBody := map[string]interface{}{
+			"prompt":                sb.String(),
+			"image_size":            "square_hd", // carousels are 1:1
+			"num_images":            1,
+			"num_inference_steps":   4,
+			"enable_safety_checker": true,
+		}
+
+		result, err := o.falQueueRequest(ctx, falKey, "fal-ai/flux/schnell", reqBody)
+		if err != nil {
+			o.log.Warn("generateCarousel: slide failed", zap.Int("slide", i+1), zap.Error(err))
+			continue
+		}
+		if url := extractFirstImageURL(result); url != "" {
+			urls = append(urls, url)
+		}
+	}
+
+	return urls, nil
+}
+
+// slideRole returns a descriptive role string for a carousel slide by index.
+func slideRole(idx, total int) string {
+	if total <= 1 {
+		return "main content"
+	}
+	switch idx {
+	case 0:
+		return "hook/cover slide — eye-catching, makes viewer swipe"
+	case total - 1:
+		return "closing slide — CTA, summary, or key takeaway"
+	default:
+		return fmt.Sprintf("content slide %d — supporting detail or step", idx+1)
+	}
 }
 
 // ─── fal.ai helpers ───────────────────────────────────────────────────────────
 
-// falQueueRequest submits a job to fal.ai's async queue and polls until done.
-// Mirrors the pattern from internal/services/ai/ai.go.
+// falQueueRequest submits a job using the standard (120 s) HTTP client.
 func (o *Orchestrator) falQueueRequest(ctx context.Context, falKey, model string, body map[string]interface{}) (map[string]interface{}, error) {
+	return o.falQueueRequestWithClient(ctx, o.httpClient, falKey, model, body)
+}
+
+// falQueueRequestWithClient submits a job to fal.ai's async queue and polls until done.
+// Mirrors the pattern from internal/services/ai/ai.go.
+func (o *Orchestrator) falQueueRequestWithClient(ctx context.Context, client *http.Client, falKey, model string, body map[string]interface{}) (map[string]interface{}, error) {
 	// 1. Submit to queue.
 	b, err := json.Marshal(body)
 	if err != nil {
@@ -703,7 +859,7 @@ func (o *Orchestrator) falQueueRequest(ctx context.Context, falKey, model string
 	req.Header.Set("Authorization", "Key "+falKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := o.httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fal.ai queue submit: %w", err)
 	}
@@ -747,7 +903,7 @@ func (o *Orchestrator) falQueueRequest(ctx context.Context, falKey, model string
 				return nil, err
 			}
 			sreq.Header.Set("Authorization", "Key "+falKey)
-			sresp, err := o.httpClient.Do(sreq)
+			sresp, err := client.Do(sreq)
 			if err != nil {
 				o.log.Warn("fal.ai queue poll network error", zap.String("request_id", requestID), zap.Error(err))
 				continue
@@ -776,7 +932,7 @@ func (o *Orchestrator) falQueueRequest(ctx context.Context, falKey, model string
 					return nil, err
 				}
 				rreq.Header.Set("Authorization", "Key "+falKey)
-				rresp, err := o.httpClient.Do(rreq)
+				rresp, err := client.Do(rreq)
 				if err != nil {
 					return nil, fmt.Errorf("fal.ai queue result fetch: %w", err)
 				}

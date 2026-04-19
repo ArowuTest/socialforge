@@ -39,6 +39,7 @@ type createCampaignRequest struct {
 	PostingFrequency models.JSONMap       `json:"posting_frequency,omitempty"`
 	ContentMix       models.JSONMap       `json:"content_mix,omitempty"`
 	AutoApprove      bool                 `json:"auto_approve"`
+	CreditsBudgetCap int                  `json:"credits_budget_cap,omitempty"` // 0 = no cap
 	Settings         models.JSONMap       `json:"settings,omitempty"`
 }
 
@@ -153,18 +154,19 @@ func (h *CampaignsHandler) CreateCampaign(c *fiber.Ctx) error {
 	}
 
 	campaign := models.Campaign{
-		WorkspaceID:      wid,
-		BrandKitID:       req.BrandKitID,
-		CreatedBy:        user.ID,
-		Name:             req.Name,
-		Status:           models.CampaignStatusDraft,
-		Goal:             req.Goal,
-		Brief:            req.Brief,
-		Platforms:        req.Platforms,
-		PostingFrequency: req.PostingFrequency,
-		ContentMix:       req.ContentMix,
-		AutoApprove:      req.AutoApprove,
-		Settings:         req.Settings,
+		WorkspaceID:        wid,
+		BrandKitID:         req.BrandKitID,
+		CreatedBy:          user.ID,
+		Name:               req.Name,
+		Status:             models.CampaignStatusDraft,
+		Goal:               req.Goal,
+		Brief:              req.Brief,
+		Platforms:          req.Platforms,
+		PostingFrequency:   req.PostingFrequency,
+		ContentMix:         req.ContentMix,
+		AutoApprove:        req.AutoApprove,
+		CreditsBudgetCap:   req.CreditsBudgetCap,
+		Settings:           req.Settings,
 		GenerationProgress: models.JSONMap{},
 	}
 
@@ -708,6 +710,148 @@ func (h *CampaignsHandler) ApproveAllPosts(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message":  "posts approved",
 		"approved": approved,
+	})
+}
+
+// ─── CloneCampaign ────────────────────────────────────────────────────────────
+
+// CloneCampaign duplicates a campaign (without its generated posts) as a new draft.
+// POST /api/v1/workspaces/:workspaceId/campaigns/:id/clone
+func (h *CampaignsHandler) CloneCampaign(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
+	}
+
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "campaign id must be a valid UUID", "INVALID_ID")
+	}
+
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "authentication required"})
+	}
+
+	var src models.Campaign
+	if err := h.db.WithContext(c.Context()).
+		Where("id = ? AND workspace_id = ?", id, wid).
+		First(&src).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return notFound(c, "campaign not found", "NOT_FOUND")
+		}
+		h.log.Error("CloneCampaign: find", zap.Error(err))
+		return internalError(c, "failed to clone campaign")
+	}
+
+	clone := models.Campaign{
+		WorkspaceID:      wid,
+		BrandKitID:       src.BrandKitID,
+		CreatedBy:        user.ID,
+		Name:             src.Name + " (Copy)",
+		Status:           models.CampaignStatusDraft,
+		Goal:             src.Goal,
+		Brief:            src.Brief,
+		StartDate:        nil, // user should set new dates
+		EndDate:          nil,
+		Platforms:        src.Platforms,
+		PostingFrequency: src.PostingFrequency,
+		ContentMix:       src.ContentMix,
+		AutoApprove:      src.AutoApprove,
+		CreditsBudgetCap: src.CreditsBudgetCap,
+		Settings:         src.Settings,
+	}
+
+	if err := h.db.WithContext(c.Context()).Create(&clone).Error; err != nil {
+		h.log.Error("CloneCampaign: create", zap.Error(err))
+		return internalError(c, "failed to clone campaign")
+	}
+
+	return c.Status(201).JSON(fiber.Map{
+		"data":    clone,
+		"message": "campaign cloned successfully",
+	})
+}
+
+// ─── RegenerateCampaignPost ───────────────────────────────────────────────────
+
+// RegenerateCampaignPost re-queues generation for a single campaign post,
+// resetting its status to pending_generation.
+// POST /api/v1/workspaces/:workspaceId/campaigns/:id/posts/:pid/regenerate
+func (h *CampaignsHandler) RegenerateCampaignPost(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
+	}
+
+	campaignID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "campaign id must be a valid UUID", "INVALID_ID")
+	}
+
+	postID, err := uuid.Parse(c.Params("pid"))
+	if err != nil {
+		return badRequest(c, "post id must be a valid UUID", "INVALID_ID")
+	}
+
+	// Verify post ownership.
+	var post models.CampaignPost
+	if err := h.db.WithContext(c.Context()).
+		Where("id = ? AND campaign_id = ? AND workspace_id = ?", postID, campaignID, wid).
+		First(&post).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return notFound(c, "campaign post not found", "NOT_FOUND")
+		}
+		h.log.Error("RegenerateCampaignPost: find", zap.Error(err))
+		return internalError(c, "failed to regenerate post")
+	}
+
+	// Only allow regenerating posts that are not currently generating.
+	if post.Status == models.CampaignPostGenerating {
+		return badRequest(c, "post is already being generated", "ALREADY_GENERATING")
+	}
+
+	// Reset status → pending_generation, clear previous output.
+	updates := map[string]interface{}{
+		"status":             models.CampaignPostPendingGeneration,
+		"generated_caption":  "",
+		"generated_hashtags": models.StringSlice{},
+		"media_urls":         models.StringSlice{},
+		"error_message":      "",
+	}
+	if err := h.db.WithContext(c.Context()).Model(&post).Updates(updates).Error; err != nil {
+		h.log.Error("RegenerateCampaignPost: reset", zap.Error(err))
+		return internalError(c, "failed to reset post for regeneration")
+	}
+
+	// Decrement campaign.posts_generated if the post was previously generated.
+	if post.Status == models.CampaignPostGenerated ||
+		post.Status == models.CampaignPostApproved ||
+		post.Status == models.CampaignPostRejected {
+		h.db.WithContext(c.Context()).Model(&models.Campaign{}).
+			Where("id = ? AND posts_generated > 0", campaignID).
+			UpdateColumn("posts_generated", gorm.Expr("posts_generated - 1"))
+	}
+
+	// Enqueue the generation task.
+	payload := queue.GenerateCampaignPostPayload{
+		CampaignPostID: postID,
+		CampaignID:     campaignID,
+		WorkspaceID:    wid,
+	}
+	task, err := queue.NewGenerateCampaignPostTask(payload)
+	if err != nil {
+		h.log.Error("RegenerateCampaignPost: create task", zap.Error(err))
+		return internalError(c, "failed to enqueue regeneration task")
+	}
+	if _, err := h.asynq.EnqueueContext(c.Context(), task); err != nil {
+		h.log.Error("RegenerateCampaignPost: enqueue", zap.Error(err))
+		return internalError(c, "failed to enqueue regeneration task")
+	}
+
+	return c.JSON(fiber.Map{
+		"data":    post,
+		"message": "post queued for regeneration",
 	})
 }
 

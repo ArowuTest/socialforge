@@ -803,6 +803,8 @@ export const campaignsApi = {
   approvePost: (id: string, pid: string) => request<{ data: CampaignPost }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts/${pid}/approve`, { method: 'POST' }),
   rejectPost: (id: string, pid: string) => request<{ data: CampaignPost }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts/${pid}/reject`, { method: 'POST' }),
   approveAll: (id: string) => request<{ approved: number }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/approve-all`, { method: 'POST' }),
+  clone: (id: string) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/clone`, { method: 'POST' }),
+  regeneratePost: (id: string, pid: string) => request<{ data: CampaignPost }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts/${pid}/regenerate`, { method: 'POST' }),
 }
 
 // ============================================================

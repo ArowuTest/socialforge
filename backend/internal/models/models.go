@@ -827,6 +827,7 @@ type Campaign struct {
 	ContentMix         JSONMap        `gorm:"type:text;default:'{}'"         json:"content_mix"`
 	AutoApprove        bool           `gorm:"not null;default:false"         json:"auto_approve"`
 	CreditsEstimated   int            `gorm:"not null;default:0"             json:"credits_estimated"`
+	CreditsBudgetCap   int            `gorm:"not null;default:0"             json:"credits_budget_cap"` // 0 = no cap
 	CreditsUsed        int            `gorm:"not null;default:0"             json:"credits_used"`
 	GenerationProgress JSONMap        `gorm:"type:text;default:'{}'"         json:"generation_progress"`
 	TotalPosts         int            `gorm:"not null;default:0"             json:"total_posts"`

@@ -529,6 +529,7 @@ export interface Campaign {
   posting_frequency: Record<string, number>
   content_mix: Record<string, number>
   auto_approve: boolean
+  credits_budget_cap: number
   credits_estimated: number
   credits_used: number
   generation_progress: Record<string, unknown>
@@ -572,5 +573,6 @@ export interface CreateCampaignRequest {
   posting_frequency?: Record<string, number>
   content_mix?: Record<string, number>
   auto_approve?: boolean
+  credits_budget_cap?: number
   settings?: Record<string, unknown>
 }

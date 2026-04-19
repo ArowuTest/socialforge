@@ -212,6 +212,8 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/campaigns/:id/posts/:pid/approve", campaignsH.ApproveCampaignPost)
 	ws.Post("/campaigns/:id/posts/:pid/reject", campaignsH.RejectCampaignPost)
 	ws.Post("/campaigns/:id/approve-all", campaignsH.ApproveAllPosts)
+	ws.Post("/campaigns/:id/clone", campaignsH.CloneCampaign)
+	ws.Post("/campaigns/:id/posts/:pid/regenerate", campaignsH.RegenerateCampaignPost)
 
 	// Whitelabel (member-readable, admin-writable)
 	ws.Get("/whitelabel", whitelabelH.GetWhitelabelConfig)

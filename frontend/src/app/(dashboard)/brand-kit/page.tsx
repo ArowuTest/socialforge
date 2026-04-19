@@ -11,6 +11,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Eye,
+  Mic,
+  BarChart2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { brandKitApi } from "@/lib/api";
@@ -258,6 +260,166 @@ interface EditorProps {
   onDeleted: () => void;
 }
 
+// ── Tone Analyzer ─────────────────────────────────────────────────────────────
+
+const TONE_SIGNATURES: { tone: string; emoji: string; keywords: string[]; desc: string; color: string }[] = [
+  { tone: "Professional", emoji: "💼", keywords: ["expertise", "solution", "strategy", "results", "industry", "clients", "proven", "excellence", "quality", "performance"], desc: "Authoritative and business-focused — builds credibility and trust.", color: "blue" },
+  { tone: "Playful", emoji: "🎉", keywords: ["fun", "exciting", "awesome", "love", "amazing", "wow", "yay", "happy", "celebrate", "joy", "!"], desc: "Light-hearted and energetic — great for lifestyle and consumer brands.", color: "yellow" },
+  { tone: "Educational", emoji: "📚", keywords: ["learn", "tip", "how", "guide", "teach", "know", "understand", "insight", "fact", "did you know", "tutorial"], desc: "Informative and clear — positions your brand as an authority.", color: "green" },
+  { tone: "Inspirational", emoji: "✨", keywords: ["inspire", "dream", "believe", "achieve", "transform", "journey", "empower", "potential", "vision", "mission"], desc: "Motivating and aspirational — resonates with values-driven audiences.", color: "purple" },
+  { tone: "Casual", emoji: "😊", keywords: ["hey", "just", "check out", "tbh", "lol", "honestly", "pretty", "kind of", "literally", "you know", "grab"], desc: "Conversational and relatable — like talking to a friend.", color: "orange" },
+  { tone: "Urgency", emoji: "⚡", keywords: ["now", "limited", "last chance", "hurry", "don't miss", "today only", "exclusive", "sale ends", "act fast", "claim"], desc: "Action-driving — creates FOMO and encourages immediate response.", color: "red" },
+];
+
+function scoreTone(text: string): { tone: string; emoji: string; score: number; desc: string; color: string }[] {
+  const lower = text.toLowerCase();
+  return TONE_SIGNATURES.map((sig) => {
+    const hits = sig.keywords.filter((kw) => lower.includes(kw)).length;
+    const score = Math.min(100, Math.round((hits / sig.keywords.length) * 100 * 3));
+    return { tone: sig.tone, emoji: sig.emoji, score, desc: sig.desc, color: sig.color };
+  }).sort((a, b) => b.score - a.score);
+}
+
+const COLOR_MAP: Record<string, string> = {
+  blue: "bg-blue-500",
+  yellow: "bg-yellow-400",
+  green: "bg-emerald-500",
+  purple: "bg-violet-500",
+  orange: "bg-orange-400",
+  red: "bg-red-500",
+};
+
+const COLOR_BADGE: Record<string, string> = {
+  blue: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  yellow: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-600",
+  green: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  purple: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
+  orange: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+  red: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+};
+
+function ToneAnalyzerTab({ brandVoice }: { brandVoice: string }) {
+  const [input, setInput] = React.useState("");
+  const [results, setResults] = React.useState<ReturnType<typeof scoreTone> | null>(null);
+  const [analysed, setAnalysed] = React.useState(false);
+
+  function analyzeText(text: string) {
+    if (!text.trim() || text.trim().length < 20) return;
+    setResults(scoreTone(text));
+    setAnalysed(true);
+  }
+
+  const dominantTone = results?.[0];
+  const wordCount = input.trim().split(/\s+/).filter(Boolean).length;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Mic className="h-4 w-4 text-violet-500" />
+          Tone Analyzer
+        </CardTitle>
+        <CardDescription>
+          Paste existing content to detect the tone mix — then compare it against your Brand Voice setting.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Current brand voice chip */}
+        {brandVoice && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
+            <span className="text-xs font-semibold text-violet-700 dark:text-violet-400">Your brand voice:</span>
+            <span className="text-xs text-violet-800 dark:text-violet-300 italic">&ldquo;{brandVoice}&rdquo;</span>
+          </div>
+        )}
+
+        {/* Input area */}
+        <div>
+          <Label className="text-sm font-medium">Paste your content</Label>
+          <Textarea
+            className="mt-1.5 min-h-[140px] text-sm"
+            placeholder="Paste a social media caption, blog excerpt, or any marketing copy here…"
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setAnalysed(false);
+            }}
+          />
+          <div className="flex items-center justify-between mt-1.5">
+            <span className="text-xs text-gray-400">{wordCount} words</span>
+            <Button
+              size="sm"
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+              onClick={() => analyzeText(input)}
+              disabled={input.trim().length < 20}
+            >
+              <BarChart2 className="h-3.5 w-3.5 mr-1.5" />
+              Analyze Tone
+            </Button>
+          </div>
+        </div>
+
+        {/* Results */}
+        {analysed && results && (
+          <div className="space-y-4">
+            {/* Dominant tone callout */}
+            {dominantTone && dominantTone.score > 0 && (
+              <div className={`flex items-start gap-3 p-3 rounded-xl border ${COLOR_BADGE[dominantTone.color]} border-current/20`}>
+                <span className="text-2xl leading-none">{dominantTone.emoji}</span>
+                <div>
+                  <p className="text-sm font-bold">Dominant tone: {dominantTone.tone}</p>
+                  <p className="text-xs mt-0.5 opacity-80">{dominantTone.desc}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Tone bars */}
+            <div className="space-y-2.5">
+              {results.map((r) => (
+                <div key={r.tone} className="space-y-0.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                      {r.emoji} {r.tone}
+                    </span>
+                    <span className="text-gray-500 dark:text-gray-400">{r.score}%</span>
+                  </div>
+                  <div className="h-2 w-full bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${COLOR_MAP[r.color]}`}
+                      style={{ width: `${r.score}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Alignment hint */}
+            {brandVoice && dominantTone && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+                <CheckCircle2 className="h-4 w-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  <span className="font-medium">Alignment check:</span> Your brand voice is{" "}
+                  <span className="italic">&ldquo;{brandVoice}&rdquo;</span> and this content reads as{" "}
+                  <span className="font-semibold">{dominantTone.tone}</span>.{" "}
+                  {dominantTone.score < 20
+                    ? "No clear tone detected — try more expressive copy."
+                    : "Update your brand voice description to reflect this style if it resonates."}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {analysed && results && results[0]?.score === 0 && (
+          <div className="flex items-center gap-2 text-sm text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="h-4 w-4" />
+            No strong tone signals detected. Try longer or more expressive content.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
   // Local state mirrors kit fields
   const [name, setName] = React.useState(kit.name);
@@ -407,6 +569,9 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
           <TabsTrigger value="voice" className="text-xs sm:text-sm">Voice & Audience</TabsTrigger>
           <TabsTrigger value="content" className="text-xs sm:text-sm">Content Strategy</TabsTrigger>
           <TabsTrigger value="guidelines" className="text-xs sm:text-sm">Guidelines</TabsTrigger>
+          <TabsTrigger value="tone" className="text-xs sm:text-sm flex items-center gap-1">
+            <Mic className="h-3 w-3" />Tone Analyzer
+          </TabsTrigger>
         </TabsList>
 
         {/* Tab 1: Identity */}
@@ -679,6 +844,11 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Tab 6: Tone Analyzer */}
+        <TabsContent value="tone">
+          <ToneAnalyzerTab brandVoice={brandVoice} />
         </TabsContent>
       </Tabs>
 

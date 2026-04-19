@@ -139,6 +139,7 @@ interface CampaignCardProps {
   onGenerate: (id: string) => void;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
+  onClone: (id: string) => void;
   actionLoading: string | null;
 }
 
@@ -147,6 +148,7 @@ function CampaignCard({
   onGenerate,
   onPause,
   onResume,
+  onClone,
   actionLoading,
 }: CampaignCardProps) {
   const router = useRouter();
@@ -359,17 +361,16 @@ function CampaignCard({
               <Eye className="h-3.5 w-3.5 mr-1" />
               View
             </Button>
-            {status === "completed" && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 text-xs"
-                onClick={() => router.push(`/campaigns/new?clone=${campaign.id}`)}
-              >
-                <Copy className="h-3.5 w-3.5 mr-1" />
-                Clone
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs"
+              onClick={() => onClone(campaign.id)}
+              disabled={isLoading}
+            >
+              <Copy className="h-3.5 w-3.5 mr-1" />
+              Clone
+            </Button>
           </>
         )}
       </div>
@@ -490,6 +491,19 @@ export default function CampaignsPage() {
     }
   }
 
+  async function handleClone(id: string) {
+    setActionLoading(id);
+    try {
+      const res = await campaignsApi.clone(id);
+      toast.success("Campaign cloned — opening draft…");
+      router.push(`/campaigns/${res.data.id}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to clone campaign");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -556,6 +570,7 @@ export default function CampaignsPage() {
               onGenerate={handleGenerate}
               onPause={handlePause}
               onResume={handleResume}
+              onClone={handleClone}
               actionLoading={actionLoading}
             />
           ))}

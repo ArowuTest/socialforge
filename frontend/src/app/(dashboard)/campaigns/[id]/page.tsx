@@ -21,6 +21,14 @@ import {
   ChevronUp,
   Zap,
   RefreshCw,
+  Eye,
+  X,
+  Hash,
+  Heart,
+  MessageCircle,
+  Share2,
+  Bookmark,
+  ThumbsUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -218,6 +226,307 @@ function formatDateTime(iso: string): string {
   });
 }
 
+// ─── Platform Preview Modal ───────────────────────────────────────────────────
+
+type PreviewPlatform = "instagram" | "linkedin" | "twitter" | "tiktok" | "facebook" | "youtube";
+
+const PREVIEW_PLATFORMS: { id: PreviewPlatform; label: string; emoji: string }[] = [
+  { id: "instagram", label: "Instagram", emoji: "📸" },
+  { id: "linkedin", label: "LinkedIn", emoji: "💼" },
+  { id: "twitter", label: "Twitter / X", emoji: "🐦" },
+  { id: "tiktok", label: "TikTok", emoji: "🎵" },
+  { id: "facebook", label: "Facebook", emoji: "👍" },
+  { id: "youtube", label: "YouTube", emoji: "▶️" },
+];
+
+function InstagramPreview({ post }: { post: CampaignPost }) {
+  const caption = post.generated_caption ?? "";
+  const tags = (post.generated_hashtags ?? []).slice(0, 8);
+  const hasMedia = post.media_urls.length > 0;
+  const isCarousel = post.post_type === "carousel";
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm">
+      {/* Header */}
+      <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-gray-100">
+        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">B</div>
+        <div>
+          <p className="text-xs font-semibold leading-none">your_brand</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">Sponsored</p>
+        </div>
+        <span className="ml-auto text-gray-400 text-lg">···</span>
+      </div>
+      {/* Image */}
+      <div className="aspect-square bg-gray-100 relative overflow-hidden">
+        {hasMedia ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className={`w-full h-full bg-gradient-to-br ${PLATFORM_GRADIENT[post.platform] ?? "from-gray-300 to-gray-400"} flex items-center justify-center`}>
+            <span className="text-white/60 text-4xl">{isCarousel ? "🖼️🖼️🖼️" : "🖼️"}</span>
+          </div>
+        )}
+        {isCarousel && (
+          <div className="absolute top-2 right-2 bg-black/60 rounded-full p-1">
+            <div className="grid grid-cols-2 gap-0.5 w-3 h-3">
+              {[0,1,2,3].map(i=><div key={i} className="bg-white rounded-sm"/>)}
+            </div>
+          </div>
+        )}
+      </div>
+      {/* Actions */}
+      <div className="px-3 pt-2.5 pb-1 flex items-center gap-3">
+        <Heart className="h-5 w-5" />
+        <MessageCircle className="h-5 w-5" />
+        <Share2 className="h-5 w-5" />
+        <Bookmark className="h-5 w-5 ml-auto" />
+      </div>
+      {/* Caption */}
+      <div className="px-3 pb-3 space-y-1">
+        <p className="text-xs font-semibold">1,234 likes</p>
+        <p className="text-xs text-gray-800 line-clamp-3">
+          <span className="font-semibold">your_brand</span>{" "}
+          {caption || <span className="text-gray-400 italic">No caption yet</span>}
+        </p>
+        {tags.length > 0 && (
+          <p className="text-xs text-blue-500">{tags.map(t => t.startsWith("#") ? t : `#${t}`).join(" ")}</p>
+        )}
+        <p className="text-[10px] text-gray-400 uppercase tracking-wide">2 hours ago</p>
+      </div>
+    </div>
+  );
+}
+
+function LinkedInPreview({ post }: { post: CampaignPost }) {
+  const caption = post.generated_caption ?? "";
+  const hasMedia = post.media_urls.length > 0;
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm">
+      <div className="flex items-start gap-2.5 px-3 py-3">
+        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">B</div>
+        <div>
+          <p className="text-xs font-semibold leading-tight">Your Brand</p>
+          <p className="text-[10px] text-gray-400">10,000 followers · Promoted</p>
+        </div>
+      </div>
+      <div className="px-3 pb-2">
+        <p className="text-xs text-gray-800 line-clamp-4">
+          {caption || <span className="text-gray-400 italic">No caption yet</span>}
+        </p>
+        {caption.length > 200 && <span className="text-[11px] text-blue-600 cursor-pointer">…see more</span>}
+      </div>
+      <div className={`${hasMedia ? "aspect-[1.91/1]" : "h-24"} bg-gray-100 overflow-hidden`}>
+        {hasMedia ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center text-3xl">💼</div>
+        )}
+      </div>
+      <div className="px-3 py-2 border-t border-gray-100 flex items-center gap-4 text-[11px] text-gray-500">
+        <button className="flex items-center gap-1 hover:text-blue-600"><ThumbsUp className="h-3.5 w-3.5" /> Like</button>
+        <button className="flex items-center gap-1 hover:text-blue-600"><MessageCircle className="h-3.5 w-3.5" /> Comment</button>
+        <button className="flex items-center gap-1 hover:text-blue-600"><Share2 className="h-3.5 w-3.5" /> Repost</button>
+      </div>
+    </div>
+  );
+}
+
+function TwitterPreview({ post }: { post: CampaignPost }) {
+  const caption = post.generated_caption ?? "";
+  const tags = (post.generated_hashtags ?? []).slice(0, 3);
+  const charCount = caption.length;
+  const hasMedia = post.media_urls.length > 0;
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm">
+      <div className="flex gap-2.5 px-3 pt-3 pb-2">
+        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">B</div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1">
+            <span className="text-xs font-semibold">Your Brand</span>
+            <span className="text-[10px] text-gray-400">@your_brand · 2h</span>
+          </div>
+          <p className="text-xs text-gray-800 mt-0.5 line-clamp-4">
+            {caption || <span className="text-gray-400 italic">No caption yet</span>}
+            {tags.length > 0 && <span className="text-sky-500"> {tags.map(t=>t.startsWith("#")?t:`#${t}`).join(" ")}</span>}
+          </p>
+          {hasMedia && (
+            <div className="mt-2 rounded-xl overflow-hidden aspect-video bg-gray-100">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+            </div>
+          )}
+          <div className="flex items-center gap-4 mt-2 text-[11px] text-gray-400">
+            <span className="flex items-center gap-1"><MessageCircle className="h-3.5 w-3.5" /> 12</span>
+            <span className="flex items-center gap-1"><RefreshCw className="h-3.5 w-3.5" /> 45</span>
+            <span className="flex items-center gap-1"><Heart className="h-3.5 w-3.5" /> 234</span>
+            <span className={`ml-auto text-[10px] ${charCount > 280 ? "text-red-500" : "text-gray-400"}`}>{charCount}/280</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TikTokPreview({ post }: { post: CampaignPost }) {
+  const caption = post.generated_caption ?? "";
+  const tags = (post.generated_hashtags ?? []).slice(0, 4);
+  const hasMedia = post.media_urls.length > 0;
+  return (
+    <div className="bg-black rounded-xl max-w-[220px] mx-auto relative overflow-hidden" style={{ aspectRatio: "9/16" }}>
+      {hasMedia ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={post.media_urls[0]} alt="" className="absolute inset-0 w-full h-full object-cover" />
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-black flex items-center justify-center text-5xl">🎵</div>
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+      {/* Right actions */}
+      <div className="absolute right-2 bottom-20 flex flex-col items-center gap-3">
+        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 border-2 border-white flex items-center justify-center text-white text-xs font-bold">B</div>
+        <div className="text-center"><Heart className="h-6 w-6 text-white" /><p className="text-[9px] text-white">12.3K</p></div>
+        <div className="text-center"><MessageCircle className="h-6 w-6 text-white" /><p className="text-[9px] text-white">456</p></div>
+        <div className="text-center"><Share2 className="h-6 w-6 text-white" /><p className="text-[9px] text-white">Share</p></div>
+      </div>
+      {/* Bottom caption */}
+      <div className="absolute bottom-3 left-2 right-12">
+        <p className="text-[10px] font-semibold text-white">@your_brand</p>
+        <p className="text-[9px] text-white/90 line-clamp-2 mt-0.5">{caption}</p>
+        {tags.length > 0 && <p className="text-[9px] text-white/80 mt-0.5">{tags.map(t=>t.startsWith("#")?t:`#${t}`).join(" ")}</p>}
+      </div>
+    </div>
+  );
+}
+
+function FacebookPreview({ post }: { post: CampaignPost }) {
+  const caption = post.generated_caption ?? "";
+  const hasMedia = post.media_urls.length > 0;
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold">B</div>
+        <div>
+          <p className="text-xs font-semibold">Your Brand</p>
+          <p className="text-[10px] text-gray-400">2 hrs · 🌐</p>
+        </div>
+        <span className="ml-auto text-gray-400 text-lg">···</span>
+      </div>
+      <div className="px-3 pb-2">
+        <p className="text-xs text-gray-800 line-clamp-3">{caption || <span className="text-gray-400 italic">No caption yet</span>}</p>
+      </div>
+      {hasMedia && (
+        <div className="aspect-video bg-gray-100 overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+        </div>
+      )}
+      <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-around text-[11px] text-gray-500">
+        <button className="flex items-center gap-1"><ThumbsUp className="h-3.5 w-3.5" /> Like</button>
+        <button className="flex items-center gap-1"><MessageCircle className="h-3.5 w-3.5" /> Comment</button>
+        <button className="flex items-center gap-1"><Share2 className="h-3.5 w-3.5" /> Share</button>
+      </div>
+    </div>
+  );
+}
+
+function YouTubePreview({ post }: { post: CampaignPost }) {
+  const caption = post.generated_caption ?? "";
+  const hasMedia = post.media_urls.length > 0;
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm overflow-hidden">
+      <div className={`aspect-video bg-gray-900 relative ${!hasMedia ? "flex items-center justify-center" : ""}`}>
+        {hasMedia ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <span className="text-4xl">▶️</span>
+        )}
+        <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 rounded">0:30</div>
+      </div>
+      <div className="flex gap-2 p-2.5">
+        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">B</div>
+        <div>
+          <p className="text-xs font-semibold line-clamp-2">{caption || "Your Video Title"}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">Your Brand · 1.2K views · 2 hours ago</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface PlatformPreviewModalProps {
+  post: CampaignPost;
+  onClose: () => void;
+}
+
+function PlatformPreviewModal({ post, onClose }: PlatformPreviewModalProps) {
+  const defaultPlatform = (post.platform as PreviewPlatform) ?? "instagram";
+  const [active, setActive] = React.useState<PreviewPlatform>(
+    PREVIEW_PLATFORMS.some(p => p.id === defaultPlatform) ? defaultPlatform : "instagram"
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Platform Preview</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">How this post looks across platforms</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="h-8 w-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Platform tabs */}
+        <div className="flex gap-1 px-4 pt-3 pb-0 flex-wrap">
+          {PREVIEW_PLATFORMS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setActive(p.id)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                active === p.id
+                  ? "bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400"
+                  : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+              }`}
+            >
+              <span>{p.emoji}</span>
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Preview content */}
+        <div className="flex-1 overflow-y-auto p-5 bg-gray-50 dark:bg-gray-800/30">
+          {active === "instagram" && <InstagramPreview post={post} />}
+          {active === "linkedin" && <LinkedInPreview post={post} />}
+          {active === "twitter" && <TwitterPreview post={post} />}
+          {active === "tiktok" && <TikTokPreview post={post} />}
+          {active === "facebook" && <FacebookPreview post={post} />}
+          {active === "youtube" && <YouTubePreview post={post} />}
+        </div>
+
+        {/* Caption + hashtag summary */}
+        <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
+          <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mb-1">
+            <Hash className="h-3 w-3" />
+            {(post.generated_hashtags ?? []).length} hashtags · {(post.generated_caption ?? "").length} chars
+          </p>
+          <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2">
+            {post.generated_caption || <span className="italic">No caption generated yet</span>}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Generation Progress ──────────────────────────────────────────────────────
 
 interface GenerationProgressProps {
@@ -325,6 +634,8 @@ interface PostCardProps {
   onApprove: (pid: string) => Promise<void>;
   onReject: (pid: string) => Promise<void>;
   onUpdate: (pid: string, caption: string) => Promise<void>;
+  onRegenerate: (pid: string) => Promise<void>;
+  onPreview: (post: CampaignPost) => void;
 }
 
 function PostCard({
@@ -332,6 +643,8 @@ function PostCard({
   onApprove,
   onReject,
   onUpdate,
+  onRegenerate,
+  onPreview,
 }: PostCardProps) {
   const [expanded, setExpanded] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
@@ -340,6 +653,7 @@ function PostCard({
   );
   const [saving, setSaving] = React.useState(false);
   const [actioning, setActioning] = React.useState(false);
+  const [regenerating, setRegenerating] = React.useState(false);
 
   const statusCfg = POST_STATUS_CONFIG[post.status];
   const platformColor =
@@ -369,6 +683,12 @@ function PostCard({
     setEditing(false);
   }
 
+  async function handleRegenerate() {
+    setRegenerating(true);
+    await onRegenerate(post.id);
+    setRegenerating(false);
+  }
+
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden flex flex-col">
       {/* Top badges row */}
@@ -383,11 +703,20 @@ function PostCard({
             {post.post_type}
           </span>
         </div>
-        {post.content_pillar && (
-          <span className="inline-flex items-center rounded-full bg-violet-50 dark:bg-violet-900/20 px-2 py-0.5 text-xs text-violet-700 dark:text-violet-400 font-medium">
-            {post.content_pillar}
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {post.content_pillar && (
+            <span className="inline-flex items-center rounded-full bg-violet-50 dark:bg-violet-900/20 px-2 py-0.5 text-xs text-violet-700 dark:text-violet-400 font-medium">
+              {post.content_pillar}
+            </span>
+          )}
+          <button
+            onClick={() => onPreview(post)}
+            className="h-6 w-6 rounded-md flex items-center justify-center text-gray-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors"
+            title="Platform preview"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Media / placeholder */}
@@ -610,6 +939,25 @@ function PostCard({
                 </a>
               </Button>
             )}
+
+            {/* Regenerate — available for any non-generating, non-published status */}
+            {post.status !== "generating" && post.status !== "published" && post.status !== "scheduled" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-3 text-xs text-violet-600 border-violet-200 hover:bg-violet-50 dark:hover:bg-violet-900/20 ml-auto"
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                title="Regenerate this post with AI"
+              >
+                {regenerating ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3 mr-1" />
+                )}
+                Regen
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -625,15 +973,18 @@ interface PostRowProps {
   onApprove: (pid: string) => Promise<void>;
   onReject: (pid: string) => Promise<void>;
   onUpdate: (pid: string, caption: string) => Promise<void>;
+  onRegenerate: (pid: string) => Promise<void>;
+  onPreview: (post: CampaignPost) => void;
 }
 
-function PostRow({ post, onApprove, onReject, onUpdate }: PostRowProps) {
+function PostRow({ post, onApprove, onReject, onUpdate, onRegenerate, onPreview }: PostRowProps) {
   const [editing, setEditing] = React.useState(false);
   const [editCaption, setEditCaption] = React.useState(
     post.generated_caption ?? ""
   );
   const [saving, setSaving] = React.useState(false);
   const [actioning, setActioning] = React.useState(false);
+  const [regenerating, setRegenerating] = React.useState(false);
 
   const statusCfg = POST_STATUS_CONFIG[post.status];
   const platformColor =
@@ -656,6 +1007,12 @@ function PostRow({ post, onApprove, onReject, onUpdate }: PostRowProps) {
     await onUpdate(post.id, editCaption);
     setSaving(false);
     setEditing(false);
+  }
+
+  async function handleRegenerateRow() {
+    setRegenerating(true);
+    await onRegenerate(post.id);
+    setRegenerating(false);
   }
 
   return (
@@ -803,6 +1160,35 @@ function PostRow({ post, onApprove, onReject, onUpdate }: PostRowProps) {
                   </a>
                 </Button>
               )}
+
+              {/* Regenerate */}
+              {post.status !== "generating" && post.status !== "published" && post.status !== "scheduled" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs text-violet-600 border-violet-200 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+                  onClick={handleRegenerateRow}
+                  disabled={regenerating}
+                  title="Regenerate"
+                >
+                  {regenerating ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3 w-3" />
+                  )}
+                </Button>
+              )}
+
+              {/* Preview */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-xs text-gray-500 hover:text-violet-600 hover:border-violet-200"
+                onClick={() => onPreview(post)}
+                title="Platform preview"
+              >
+                <Eye className="h-3 w-3" />
+              </Button>
             </>
           )}
         </div>
@@ -826,6 +1212,7 @@ export default function CampaignDetailPage() {
 
   const [postFilter, setPostFilter] = React.useState<PostFilterTab>("all");
   const [viewMode, setViewMode] = React.useState<"grid" | "list">("grid");
+  const [previewPost, setPreviewPost] = React.useState<CampaignPost | null>(null);
 
   const pollingRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -927,6 +1314,31 @@ export default function CampaignDetailPage() {
       toast.success("Caption saved");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to save caption");
+    }
+  }
+
+  async function handleRegeneratePost(pid: string) {
+    try {
+      const res = await campaignsApi.regeneratePost(id, pid);
+      updatePostLocally(pid, res.data);
+      toast.success("Post queued for regeneration");
+      // Resume polling so we see when it finishes
+      schedulePolling();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to regenerate post");
+    }
+  }
+
+  async function handleClone() {
+    setActionLoading("clone");
+    try {
+      const res = await campaignsApi.clone(id);
+      toast.success("Campaign cloned — opening draft…");
+      router.push(`/campaigns/${res.data.id}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to clone campaign");
+    } finally {
+      setActionLoading(null);
     }
   }
 
@@ -1163,15 +1575,20 @@ export default function CampaignDetailPage() {
               </Button>
             )}
 
-            {(campaign.status === "completed" ||
-              campaign.status === "failed") && (
+            {/* Clone — available for any non-generating status */}
+            {campaign.status !== "generating" && (
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => router.push(`/campaigns/new?clone=${id}`)}
+                onClick={handleClone}
+                disabled={actionLoading === "clone"}
               >
-                <Copy className="h-4 w-4 mr-1.5" />
-                Clone Campaign
+                {actionLoading === "clone" ? (
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Copy className="h-4 w-4 mr-1.5" />
+                )}
+                Clone
               </Button>
             )}
           </div>
@@ -1336,6 +1753,8 @@ export default function CampaignDetailPage() {
                   onApprove={handleApprovePost}
                   onReject={handleRejectPost}
                   onUpdate={handleUpdatePost}
+                  onRegenerate={handleRegeneratePost}
+                  onPreview={setPreviewPost}
                 />
               ))}
             </div>
@@ -1370,6 +1789,8 @@ export default function CampaignDetailPage() {
                       onApprove={handleApprovePost}
                       onReject={handleRejectPost}
                       onUpdate={handleUpdatePost}
+                      onRegenerate={handleRegeneratePost}
+                      onPreview={setPreviewPost}
                     />
                   ))}
                 </tbody>
@@ -1406,6 +1827,14 @@ export default function CampaignDetailPage() {
             Generate Content
           </Button>
         </div>
+      )}
+
+      {/* Platform Preview Modal */}
+      {previewPost && (
+        <PlatformPreviewModal
+          post={previewPost}
+          onClose={() => setPreviewPost(null)}
+        />
       )}
     </div>
   );

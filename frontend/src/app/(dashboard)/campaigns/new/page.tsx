@@ -93,6 +93,7 @@ interface WizardState {
   posting_frequency: Record<string, number>;
   content_mix: { image: number; video: number; text: number };
   auto_approve: boolean;
+  credits_budget_cap: number; // 0 = no cap
 }
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
@@ -490,6 +491,32 @@ function Step2Settings({ state, onChange, creditBalance }: Step2Props) {
           onCheckedChange={(v) => onChange({ auto_approve: v })}
         />
       </div>
+      {/* Credits budget cap */}
+      <div>
+        <Label htmlFor="credits-budget-cap" className="text-sm font-medium">
+          Credits Budget Cap{" "}
+          <span className="font-normal text-gray-400">(optional)</span>
+        </Label>
+        <div className="flex items-center gap-2 mt-1.5">
+          <Input
+            id="credits-budget-cap"
+            type="number"
+            min={0}
+            step={10}
+            placeholder="0 = no cap"
+            value={state.credits_budget_cap || ""}
+            onChange={(e) =>
+              onChange({ credits_budget_cap: Math.max(0, Number(e.target.value) || 0) })
+            }
+            className="w-40"
+          />
+          <span className="text-sm text-gray-500 dark:text-gray-400">credits</span>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">
+          Generation stops automatically when this limit is reached. Leave at 0 for unlimited.
+        </p>
+      </div>
+
       {state.auto_approve && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 -mt-3">
           <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
@@ -742,6 +769,7 @@ const DEFAULT_STATE: WizardState = {
   posting_frequency: {},
   content_mix: { image: 60, video: 20, text: 20 },
   auto_approve: false,
+  credits_budget_cap: 0,
 };
 
 export default function NewCampaignPage() {
@@ -817,6 +845,7 @@ export default function NewCampaignPage() {
         text: state.content_mix.text,
       },
       auto_approve: state.auto_approve,
+      credits_budget_cap: state.credits_budget_cap > 0 ? state.credits_budget_cap : undefined,
     };
   }
 
