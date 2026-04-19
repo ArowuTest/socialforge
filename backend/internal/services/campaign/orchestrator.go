@@ -512,13 +512,17 @@ func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, sl
 	}
 
 	platformGuide := captionPlatformGuide(slot.Platform)
-	brandVoice := ""
-	targetAudience := ""
+	brandVoice := "professional yet engaging"
+	targetAudience := "general audience"
 	dos := ""
 	donts := ""
 	if bk != nil {
-		brandVoice = bk.BrandVoice
-		targetAudience = bk.TargetAudience
+		if bk.BrandVoice != "" {
+			brandVoice = bk.BrandVoice
+		}
+		if bk.TargetAudience != "" {
+			targetAudience = bk.TargetAudience
+		}
 		if len(bk.Dos) > 0 {
 			dos = strings.Join(bk.Dos, "; ")
 		}
@@ -527,51 +531,143 @@ func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, sl
 		}
 	}
 
-	systemPrompt := fmt.Sprintf(`You are an expert social media copywriter.
-Platform: %s
+	// Hard character limits for platforms that enforce them strictly.
+	platformHardLimits := map[string]int{
+		"twitter": 280,
+		"bluesky": 300,
+		"threads": 500,
+	}
+	var hardLimitRule string
+	if limit, ok := platformHardLimits[strings.ToLower(slot.Platform)]; ok {
+		hardLimitRule = fmt.Sprintf(
+			"\n⚠️ CRITICAL HARD LIMIT: This platform enforces a STRICT %d-character maximum. "+
+				"Your caption MUST be %d characters or fewer — count every character including spaces, "+
+				"emojis (which count as 2), and newlines. Write tight, punchy, every-word-counts copy.\n",
+			limit, limit)
+	}
+
+	var linkedinHashtagRule string
+	if strings.ToLower(slot.Platform) == "linkedin" {
+		linkedinHashtagRule = "\n10. LinkedIn hashtags: add 3-5 relevant industry hashtags at the very end of the caption."
+	}
+
+	var dosRule, dontsRule string
+	if dos != "" {
+		dosRule = fmt.Sprintf("\nBrand Do's: %s", dos)
+	}
+	if donts != "" {
+		dontsRule = fmt.Sprintf("\nBrand Don'ts (NEVER do these): %s", donts)
+	}
+
+	systemPrompt := fmt.Sprintf(
+		`You are an elite social media strategist who has grown 100+ accounts to 1M+ followers.
 %s
-Brand Voice: %s
-Target Audience: %s
-Do's: %s
-Don'ts: %s
-Write a compelling caption for the post. Return ONLY the caption text — no hashtags, no markdown, no JSON wrapper.`,
-		slot.Platform, platformGuide, brandVoice, targetAudience, dos, donts)
+PLATFORM GUIDANCE:
+%s
+
+YOUR TASK: Write a high-converting, scroll-stopping caption that drives maximum engagement.
+
+RULES:
+1. Hook first — the opening line must stop the scroll. Use a bold claim, surprising stat, counter-intuitive take, or relatable pain point.
+2. Structure for readability — use short paragraphs, line breaks, and strategic formatting.
+3. Match the platform's native voice — don't sound like an ad. Sound like a top creator on this platform.
+4. Include a strong CTA — tell readers exactly what to do (save, share, comment, follow).
+5. Be specific and concrete — avoid generic advice. Use numbers, examples, and vivid language.
+6. Write for EMOTION — content that triggers curiosity, surprise, or "I need to save this" performs best.
+7. NEVER use clichés like "In today's fast-paced world", "Game-changer", "Unlock your potential", "Dive into".
+8. Tone: %s
+9. Target audience: %s%s%s%s
+
+Return ONLY the caption text — no hashtags, no JSON, no markdown wrapper. Just the caption.`,
+		hardLimitRule, platformGuide, brandVoice, targetAudience, linkedinHashtagRule, dosRule, dontsRule,
+	)
 
 	userPrompt := fmt.Sprintf(`Campaign Goal: %s
 Content Pillar: %s
 Key Message: %s
-Write the caption now.`, campaign.Goal, slot.ContentPillar, slot.KeyMessage)
+
+Write the caption now. Make it feel authentic and human — like it was written by someone who genuinely cares about their audience.`, campaign.Goal, slot.ContentPillar, slot.KeyMessage)
 
 	req := openAIRequest{
-		Model: "gpt-4o-mini",
+		Model: "gpt-4o", // Use full model for best quality campaign content
 		Messages: []openAIMsg{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
 		},
 		Temperature: 0.75,
-		MaxTokens:   600,
+		MaxTokens:   800,
 	}
 
 	return o.callOpenAI(ctx, openaiKey, req)
 }
 
-// captionPlatformGuide returns platform-specific writing guidance.
+// captionPlatformGuide returns detailed platform-specific writing guidance.
 func captionPlatformGuide(platform string) string {
 	guides := map[string]string{
-		"instagram": "Max 2200 chars (150-300 optimal). Hook in first line. Use line breaks. Strong CTA.",
-		"tiktok":    "Max 150 chars. Casual, authentic voice. Hook in first 2 seconds.",
-		"linkedin":  "Formal but personal. 1300-1500 chars optimal. Short paragraphs. End with a question.",
-		"twitter":   "STRICT 280 character limit. Every word counts. Lead with the most compelling part.",
-		"facebook":  "40-80 chars for highest engagement. Storytelling works. Ask questions.",
-		"youtube":   "Description: keyword-rich. First 150 chars appear in search. Include timestamps.",
-		"pinterest": "Up to 500 chars. SEO-first. Keyword-rich. Value proposition.",
-		"threads":   "Max 500 chars. Casual, conversational. Hot takes perform well.",
-		"bluesky":   "Max 300 chars. Authentic, community-first.",
+		"instagram": `Instagram Feed Post:
+- Hook in the first line (this appears above "...more") — make it impossible to scroll past
+- Use line breaks for readability (no walls of text)
+- 2,200 char limit but 150-300 is optimal for engagement
+- Include a clear CTA (save this, share with a friend, comment below)
+- Use emojis strategically to break up text (not excessively)
+- Write as if speaking to one person, not a crowd`,
+
+		"tiktok": `TikTok:
+- Keep caption under 150 characters (longer gets truncated)
+- First line must be a pattern interrupt, bold claim, or question
+- Casual, authentic voice — NO corporate speak
+- Include a CTA: "Follow for more", "Save this", "Stitch this"`,
+
+		"linkedin": `LinkedIn:
+- First line is EVERYTHING — it appears before "...see more"
+- Open with a bold statement, counter-intuitive take, or personal story
+- Short paragraphs (1-2 sentences max per paragraph)
+- Line breaks between every paragraph for mobile readability
+- 3,000 char limit but optimal is 1,300-1,500
+- End with a question to drive comments
+- Write in first person, share lessons learned`,
+
+		"twitter": `Twitter/X:
+- 280 character STRICT limit — every word must earn its place
+- Lead with the most compelling part of your message
+- 1-2 hashtags max, inline (not at the end)
+- Controversial takes and strong opinions drive engagement`,
+
+		"facebook": `Facebook:
+- Optimal length: 40-80 characters for highest engagement
+- Storytelling posts (300-500 chars) perform well in groups
+- Ask questions that invite comments
+- 0-3 hashtags (Facebook de-prioritizes hashtag-heavy posts)
+- Personal stories and behind-the-scenes content performs best`,
+
+		"youtube": `YouTube Description:
+- First 150 characters appear in search results — front-load keywords
+- Structure: 2-3 keyword-rich paragraphs describing the video
+- Include timestamps for key sections
+- Total length: 500-2000 chars optimal for SEO`,
+
+		"pinterest": `Pinterest Pin:
+- Up to 500 characters
+- Front-load the most important keywords (SEO-first platform)
+- Write as a search query answer — what would someone search to find this?
+- Include a clear value proposition with "how-to" or "tips for" framing`,
+
+		"threads": `Threads:
+- Casual, conversational tone
+- 500 character limit
+- 0-3 hashtags (less is more)
+- Hot takes, personal opinions, and relatable observations perform best`,
+
+		"bluesky": `Bluesky:
+- 300 character limit
+- Authentic, community-first tone
+- Skip the marketing speak — be genuine
+- Conversational, thoughtful — quality over virality`,
 	}
 	if g, ok := guides[strings.ToLower(platform)]; ok {
 		return g
 	}
-	return ""
+	return "Write a compelling, platform-appropriate caption with a strong hook and clear CTA."
 }
 
 // ─── generateHashtags ─────────────────────────────────────────────────────────
@@ -590,11 +686,27 @@ func (o *Orchestrator) generateHashtags(ctx context.Context, openaiKey, caption 
 	req := openAIRequest{
 		Model: "gpt-4o-mini",
 		Messages: []openAIMsg{
-			{Role: "system", Content: fmt.Sprintf(`Generate 10-15 relevant hashtags for a %s post. Return a JSON object: {"hashtags": ["tag1","tag2",...]}. No # prefix.`, slot.Platform)},
-			{Role: "user", Content: fmt.Sprintf("Caption: %s\nContent Pillar: %s\nGoal: %s", caption, slot.ContentPillar, campaign.Goal)},
+			{Role: "system", Content: fmt.Sprintf(`You are a social media growth specialist who understands hashtag strategy deeply.
+
+PLATFORM: %s
+
+Generate a strategic hashtag set using the 3-tier strategy:
+- 5 HIGH-VOLUME tags (500K+ posts) — for discovery
+- 5 MID-TIER tags (50K–500K posts) — for competition balance
+- 5 NICHE-SPECIFIC tags (under 50K posts) — for ranking potential
+
+RULES:
+1. Every hashtag must be directly relevant to the caption content
+2. Mix broad appeal with laser-targeted niche tags
+3. Avoid banned or shadow-banned hashtags
+4. Each hashtag should be a single word or short camelCase phrase (no spaces, no # prefix)
+5. Order from most to least popular
+
+Return JSON: {"hashtags": ["tag1", "tag2", ...]}`, slot.Platform)},
+			{Role: "user", Content: fmt.Sprintf("Caption: %s\nContent Pillar: %s\nCampaign Goal: %s", caption, slot.ContentPillar, campaign.Goal)},
 		},
 		Temperature: 0.5,
-		MaxTokens:   200,
+		MaxTokens:   300,
 	}
 
 	raw, err := o.callOpenAI(ctx, openaiKey, req)
@@ -629,6 +741,87 @@ func (o *Orchestrator) generateHashtags(ctx context.Context, openaiKey, caption 
 	return result
 }
 
+// ─── buildRichImagePrompt ─────────────────────────────────────────────────────
+
+// buildRichImagePrompt uses GPT-4o-mini to generate a detailed, art-directed
+// image prompt from campaign context — far richer than template-based strings.
+func (o *Orchestrator) buildRichImagePrompt(ctx context.Context, openaiKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) string {
+	if openaiKey == "" {
+		return buildFallbackImagePrompt(slot, bk)
+	}
+
+	systemPrompt := `You are a world-class art director and creative director specializing in social media visual content for brands.
+
+Your task: given a social media post brief, write a detailed text-to-image AI prompt that produces a stunning, professional, scroll-stopping visual.
+
+RULES FOR YOUR PROMPT:
+1. Describe a SPECIFIC visual scene — what exactly is shown, from what angle, with what lighting
+2. Include: subject matter, composition, lighting quality, mood, color palette, photographic or artistic style
+3. Use quality descriptors: "professional photography", "8K resolution", "shallow depth of field f/1.8", "cinematic lighting", "award-winning composition", "Behance portfolio quality"
+4. NEVER mention text, words, letters, numbers, logos, or typography — the image must be wordless
+5. Communicate the key message VISUALLY through metaphor, composition, or subject matter — not through text in the image
+6. Avoid cliché stock-photo descriptions like "business people shaking hands" or "smiling person at desk"
+7. Be specific, evocative, and visually compelling — think like a top creative director shooting for Vogue or Wired
+8. Keep the prompt to 2-3 punchy sentences — focused and powerful
+
+Return ONLY the image prompt text. No explanation, no preamble, no JSON.`
+
+	var userPrompt strings.Builder
+	userPrompt.WriteString(fmt.Sprintf("Platform: %s\n", slot.Platform))
+	userPrompt.WriteString(fmt.Sprintf("Content pillar: %s\n", slot.ContentPillar))
+	userPrompt.WriteString(fmt.Sprintf("Key message to convey visually: %s\n", slot.KeyMessage))
+	userPrompt.WriteString(fmt.Sprintf("Visual style: %s\n", slot.VisualStyle))
+	userPrompt.WriteString(fmt.Sprintf("Campaign goal: %s\n", campaign.Goal))
+	if campaign.Brief != "" {
+		brief := campaign.Brief
+		if len(brief) > 400 {
+			brief = brief[:400]
+		}
+		userPrompt.WriteString(fmt.Sprintf("Brand brief: %s\n", brief))
+	}
+	if bk != nil {
+		if bk.Industry != "" {
+			userPrompt.WriteString(fmt.Sprintf("Industry: %s\n", bk.Industry))
+		}
+		if bk.PrimaryColor != "" {
+			userPrompt.WriteString(fmt.Sprintf("Brand primary color: %s\n", bk.PrimaryColor))
+			if bk.SecondaryColor != "" {
+				userPrompt.WriteString(fmt.Sprintf("Brand secondary color: %s\n", bk.SecondaryColor))
+			}
+		}
+	}
+	userPrompt.WriteString("\nGenerate a detailed, cinematic image prompt for this post. The image must contain NO text or words whatsoever.")
+
+	req := openAIRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openAIMsg{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt.String()},
+		},
+		Temperature: 0.85,
+		MaxTokens:   250,
+	}
+
+	prompt, err := o.callOpenAI(ctx, openaiKey, req)
+	if err != nil {
+		o.log.Warn("buildRichImagePrompt: GPT call failed, using fallback", zap.Error(err))
+		return buildFallbackImagePrompt(slot, bk)
+	}
+	return strings.TrimSpace(prompt)
+}
+
+// buildFallbackImagePrompt constructs a basic image prompt without GPT.
+func buildFallbackImagePrompt(slot PostSlot, bk *models.BrandKit) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Professional %s aesthetic visual composition. ", slot.VisualStyle))
+	sb.WriteString(fmt.Sprintf("Theme: %s. ", slot.ContentPillar))
+	if bk != nil && bk.PrimaryColor != "" {
+		sb.WriteString(fmt.Sprintf("Color palette dominated by %s. ", bk.PrimaryColor))
+	}
+	sb.WriteString("Cinematic lighting, sharp details, premium editorial quality, modern aesthetic, no text or typography.")
+	return sb.String()
+}
+
 // ─── generateImage ────────────────────────────────────────────────────────────
 
 func (o *Orchestrator) generateImage(ctx context.Context, falKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) (string, error) {
@@ -636,33 +829,28 @@ func (o *Orchestrator) generateImage(ctx context.Context, falKey string, slot Po
 		return "", fmt.Errorf("generateImage: fal.ai API key not configured")
 	}
 
-	// Build image prompt.
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Professional social media image for %s. ", slot.Platform))
-	sb.WriteString(fmt.Sprintf("Visual style: %s. ", slot.VisualStyle))
-	sb.WriteString(fmt.Sprintf("Key message: %s. ", slot.KeyMessage))
-	if bk != nil {
-		if bk.PrimaryColor != "" {
-			sb.WriteString(fmt.Sprintf("Use color palette: primary %s", bk.PrimaryColor))
-			if bk.SecondaryColor != "" {
-				sb.WriteString(fmt.Sprintf(", secondary %s", bk.SecondaryColor))
-			}
-			sb.WriteString(". ")
-		}
-	}
-	sb.WriteString("High quality, professional composition, no text overlays, no watermarks.")
+	// Build a rich, GPT-crafted scene description — far better than template strings.
+	openaiKey, _ := o.loadAPIKeys(ctx)
+	richPrompt := o.buildRichImagePrompt(ctx, openaiKey, slot, campaign, bk)
+
+	// Append universal quality boosters.
+	finalPrompt := richPrompt + ", ultra-sharp details, 8K resolution, masterpiece quality, professional photography, perfect composition"
 
 	imageSize := platformToImageSize(slot.Platform)
 
 	reqBody := map[string]interface{}{
-		"prompt":                sb.String(),
+		"prompt": finalPrompt,
+		// Strongly suppress any text/typography generation.
+		"negative_prompt":       "text, words, letters, numbers, typography, watermark, logo, caption, subtitle, blurry, low quality, distorted, deformed, ugly, amateur, noise, grainy, out of focus, overexposed, underexposed, cartoon, illustration, anime",
 		"image_size":            imageSize,
 		"num_images":            1,
-		"num_inference_steps":   4, // flux/schnell uses fewer steps
+		"num_inference_steps":   28,  // flux/dev full quality (vs schnell's 4)
+		"guidance_scale":        3.5, // flux/dev optimal guidance
 		"enable_safety_checker": true,
 	}
 
-	result, err := o.falQueueRequest(ctx, falKey, "fal-ai/flux/schnell", reqBody)
+	// Use flux/dev (full diffusion model — same as manual AI Studio).
+	result, err := o.falQueueRequest(ctx, falKey, "fal-ai/flux/dev", reqBody)
 	if err != nil {
 		return "", fmt.Errorf("generateImage: fal.ai: %w", err)
 	}
@@ -686,6 +874,84 @@ func platformToImageSize(platform string) string {
 	}
 }
 
+// ─── buildRichVideoPrompt ─────────────────────────────────────────────────────
+
+// buildRichVideoPrompt uses GPT-4o-mini to generate a cinematic, detailed
+// Kling video prompt from campaign context — describing actual scenes with motion.
+func (o *Orchestrator) buildRichVideoPrompt(ctx context.Context, openaiKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) string {
+	if openaiKey == "" {
+		return buildFallbackVideoPrompt(slot, bk)
+	}
+
+	systemPrompt := `You are a world-class video director and creative director specializing in short-form social media video content.
+
+Your task: given a social media video brief, write a detailed text-to-video AI prompt for Kling (a cinematic AI video model).
+
+RULES FOR YOUR PROMPT:
+1. Describe a SPECIFIC cinematic scene with motion — what moves, how the camera moves, what's in frame
+2. Include: subject, camera movement (slow push-in, drone pull-back, tracking shot, etc.), lighting, mood, color grade
+3. Reference cinematic quality: "smooth slow motion", "golden hour lighting", "anamorphic lens flare", "film grain", "Dolby Vision color grading"
+4. NEVER mention text, words, letters, or on-screen graphics — the video must be wordless
+5. Communicate the key message through VISUAL STORYTELLING — metaphor, composition, and motion
+6. Describe specific motion: "camera slowly drifts through...", "subject turns to reveal...", "particles float upward..."
+7. Keep under 3 sentences — focused and cinematic
+8. Make it feel like a high-end brand film or music video, not stock footage
+
+Return ONLY the video prompt text. No explanation, no JSON.`
+
+	var userPrompt strings.Builder
+	userPrompt.WriteString(fmt.Sprintf("Platform: %s\n", slot.Platform))
+	userPrompt.WriteString(fmt.Sprintf("Content pillar: %s\n", slot.ContentPillar))
+	userPrompt.WriteString(fmt.Sprintf("Key message to convey visually: %s\n", slot.KeyMessage))
+	userPrompt.WriteString(fmt.Sprintf("Visual style: %s\n", slot.VisualStyle))
+	userPrompt.WriteString(fmt.Sprintf("Campaign goal: %s\n", campaign.Goal))
+	if campaign.Brief != "" {
+		brief := campaign.Brief
+		if len(brief) > 300 {
+			brief = brief[:300]
+		}
+		userPrompt.WriteString(fmt.Sprintf("Brand brief: %s\n", brief))
+	}
+	if bk != nil && bk.PrimaryColor != "" {
+		userPrompt.WriteString(fmt.Sprintf("Brand color palette: primary %s", bk.PrimaryColor))
+		if bk.SecondaryColor != "" {
+			userPrompt.WriteString(fmt.Sprintf(", secondary %s", bk.SecondaryColor))
+		}
+		userPrompt.WriteString("\n")
+	}
+	userPrompt.WriteString("\nGenerate a cinematic, motion-rich video prompt. No text or words in the video.")
+
+	req := openAIRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openAIMsg{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt.String()},
+		},
+		Temperature: 0.85,
+		MaxTokens:   200,
+	}
+
+	prompt, err := o.callOpenAI(ctx, openaiKey, req)
+	if err != nil {
+		o.log.Warn("buildRichVideoPrompt: GPT call failed, using fallback", zap.Error(err))
+		return buildFallbackVideoPrompt(slot, bk)
+	}
+	return strings.TrimSpace(prompt)
+}
+
+// buildFallbackVideoPrompt constructs a basic video prompt without GPT.
+func buildFallbackVideoPrompt(slot PostSlot, bk *models.BrandKit) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Cinematic %s social media video. ", slot.VisualStyle))
+	sb.WriteString(fmt.Sprintf("Theme: %s — ", slot.ContentPillar))
+	sb.WriteString("smooth camera movement, dynamic motion, professional color grading, ")
+	if bk != nil && bk.PrimaryColor != "" {
+		sb.WriteString(fmt.Sprintf("color palette dominated by %s, ", bk.PrimaryColor))
+	}
+	sb.WriteString("no text overlays, engaging for social media, high production value.")
+	return sb.String()
+}
+
 // ─── generateVideo ────────────────────────────────────────────────────────────
 
 // generateVideo generates a short-form social video via Kling V3 Pro (fal.ai).
@@ -695,27 +961,15 @@ func (o *Orchestrator) generateVideo(ctx context.Context, falKey string, slot Po
 		return "", fmt.Errorf("generateVideo: fal.ai API key not configured")
 	}
 
-	// Build a detailed text-to-video prompt from brand + slot context.
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Short-form social media video for %s. ", slot.Platform))
-	sb.WriteString(fmt.Sprintf("Visual style: %s. ", slot.VisualStyle))
-	sb.WriteString(fmt.Sprintf("Key message: %s. ", slot.KeyMessage))
-	sb.WriteString(fmt.Sprintf("Content theme: %s. ", slot.ContentPillar))
-	if bk != nil {
-		if bk.BrandVoice != "" {
-			sb.WriteString(fmt.Sprintf("Brand tone: %s. ", bk.BrandVoice))
-		}
-		if bk.PrimaryColor != "" {
-			sb.WriteString(fmt.Sprintf("Color palette: primary %s. ", bk.PrimaryColor))
-		}
-	}
-	sb.WriteString("Cinematic quality, dynamic movement, engaging for social media. No text overlays.")
+	// Build a rich, cinematic video prompt via GPT rather than a template string.
+	openaiKey, _ := o.loadAPIKeys(ctx)
+	videoPrompt := o.buildRichVideoPrompt(ctx, openaiKey, slot, campaign, bk)
 
 	// Platform → aspect ratio + duration
 	aspectRatio, duration := platformToVideoParams(slot.Platform)
 
 	reqBody := map[string]interface{}{
-		"prompt":       sb.String(),
+		"prompt":       videoPrompt,
 		"duration":     duration,
 		"aspect_ratio": aspectRatio,
 	}
@@ -790,25 +1044,61 @@ func (o *Orchestrator) generateCarousel(ctx context.Context, falKey string, slot
 		colorCtx += ". "
 	}
 
+	openaiKey, _ := o.loadAPIKeys(ctx)
+
 	for i := 0; i < slideCount; i++ {
-		slideRole := slideRole(i, slideCount)
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Carousel slide %d of %d — %s. ", i+1, slideCount, slideRole))
-		sb.WriteString(fmt.Sprintf("Platform: %s. ", slot.Platform))
-		sb.WriteString(fmt.Sprintf("Visual style: %s. ", slot.VisualStyle))
-		sb.WriteString(fmt.Sprintf("Theme: %s. %s: %s. ", slot.ContentPillar, "Key message", slot.KeyMessage))
-		sb.WriteString(colorCtx)
-		sb.WriteString("Consistent visual branding, professional quality, no text overlays, no watermarks.")
+		slideRoleStr := slideRole(i, slideCount)
+
+		// Build a GPT-powered prompt for each carousel slide with its specific role.
+		var userPrompt strings.Builder
+		userPrompt.WriteString(fmt.Sprintf("Platform: %s\n", slot.Platform))
+		userPrompt.WriteString(fmt.Sprintf("Content pillar: %s\n", slot.ContentPillar))
+		userPrompt.WriteString(fmt.Sprintf("Key message: %s\n", slot.KeyMessage))
+		userPrompt.WriteString(fmt.Sprintf("Visual style: %s\n", slot.VisualStyle))
+		userPrompt.WriteString(fmt.Sprintf("Campaign goal: %s\n", campaign.Goal))
+		userPrompt.WriteString(fmt.Sprintf("Carousel slide role: %s (slide %d of %d)\n", slideRoleStr, i+1, slideCount))
+		if colorCtx != "" {
+			userPrompt.WriteString(colorCtx + "\n")
+		}
+		if campaign.Brief != "" {
+			brief := campaign.Brief
+			if len(brief) > 200 {
+				brief = brief[:200]
+			}
+			userPrompt.WriteString(fmt.Sprintf("Brand brief: %s\n", brief))
+		}
+		userPrompt.WriteString("\nGenerate a detailed image prompt for this carousel slide. Must be visually consistent with the other slides but serve this slide's specific role. No text, words, or typography in the image.")
+
+		slidePrompt := buildFallbackImagePrompt(slot, bk)
+		if openaiKey != "" {
+			req := openAIRequest{
+				Model: "gpt-4o-mini",
+				Messages: []openAIMsg{
+					{Role: "system", Content: `You are a world-class art director. Write a detailed text-to-image AI prompt for a carousel slide. Describe a specific visual scene with composition, lighting, mood, and style. NEVER include text, words, or typography. Keep to 2-3 sentences. Return ONLY the prompt text.`},
+					{Role: "user", Content: userPrompt.String()},
+				},
+				Temperature: 0.8,
+				MaxTokens:   200,
+			}
+			if p, err := o.callOpenAI(ctx, openaiKey, req); err == nil {
+				slidePrompt = strings.TrimSpace(p)
+			}
+		}
+
+		// Append quality boosters.
+		finalSlidePrompt := slidePrompt + ", ultra-sharp details, 8K resolution, professional photography, consistent visual branding"
 
 		reqBody := map[string]interface{}{
-			"prompt":                sb.String(),
+			"prompt":                finalSlidePrompt,
+			"negative_prompt":       "text, words, letters, numbers, typography, watermark, logo, blurry, low quality, distorted, deformed, ugly, amateur, noise, grainy",
 			"image_size":            "square_hd", // carousels are 1:1
 			"num_images":            1,
-			"num_inference_steps":   4,
+			"num_inference_steps":   28,
+			"guidance_scale":        3.5,
 			"enable_safety_checker": true,
 		}
 
-		result, err := o.falQueueRequest(ctx, falKey, "fal-ai/flux/schnell", reqBody)
+		result, err := o.falQueueRequest(ctx, falKey, "fal-ai/flux/dev", reqBody)
 		if err != nil {
 			o.log.Warn("generateCarousel: slide failed", zap.Int("slide", i+1), zap.Error(err))
 			continue
