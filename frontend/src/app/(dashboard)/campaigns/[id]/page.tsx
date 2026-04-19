@@ -36,6 +36,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { campaignsApi } from "@/lib/api";
+import { useAuthStore } from "@/lib/stores/auth";
 import {
   Campaign,
   CampaignPost,
@@ -239,27 +240,48 @@ const PREVIEW_PLATFORMS: { id: PreviewPlatform; label: string; emoji: string }[]
   { id: "youtube", label: "YouTube", emoji: "▶️" },
 ];
 
-function InstagramPreview({ post }: { post: CampaignPost }) {
+// Helper: render media (image or video) inside preview mocks
+function PreviewMedia({ post, className }: { post: CampaignPost; className?: string }) {
+  const hasMedia = post.media_urls.length > 0;
+  const isVideo = post.post_type === "video";
+  if (!hasMedia) return null;
+  if (isVideo) {
+    return (
+      <video
+        src={post.media_urls[0]}
+        className={className ?? "w-full h-full object-cover"}
+        controls
+        playsInline
+        preload="metadata"
+      />
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={post.media_urls[0]} alt="" className={className ?? "w-full h-full object-cover"} />;
+}
+
+function InstagramPreview({ post, brandName }: { post: CampaignPost; brandName: string }) {
   const caption = post.generated_caption ?? "";
   const tags = (post.generated_hashtags ?? []).slice(0, 8);
   const hasMedia = post.media_urls.length > 0;
   const isCarousel = post.post_type === "carousel";
+  const handle = brandName.toLowerCase().replace(/\s+/g, "_");
+  const initial = brandName.charAt(0).toUpperCase();
   return (
     <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm">
       {/* Header */}
       <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-gray-100">
-        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">B</div>
+        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">{initial}</div>
         <div>
-          <p className="text-xs font-semibold leading-none">your_brand</p>
+          <p className="text-xs font-semibold leading-none">{handle}</p>
           <p className="text-[10px] text-gray-400 mt-0.5">Sponsored</p>
         </div>
         <span className="ml-auto text-gray-400 text-lg">···</span>
       </div>
-      {/* Image */}
+      {/* Image / video */}
       <div className="aspect-square bg-gray-100 relative overflow-hidden">
         {hasMedia ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+          <PreviewMedia post={post} />
         ) : (
           <div className={`w-full h-full bg-gradient-to-br ${PLATFORM_GRADIENT[post.platform] ?? "from-gray-300 to-gray-400"} flex items-center justify-center`}>
             <span className="text-white/60 text-4xl">{isCarousel ? "🖼️🖼️🖼️" : "🖼️"}</span>
@@ -284,7 +306,7 @@ function InstagramPreview({ post }: { post: CampaignPost }) {
       <div className="px-3 pb-3 space-y-1">
         <p className="text-xs font-semibold">1,234 likes</p>
         <p className="text-xs text-gray-800 line-clamp-3">
-          <span className="font-semibold">your_brand</span>{" "}
+          <span className="font-semibold">{handle}</span>{" "}
           {caption || <span className="text-gray-400 italic">No caption yet</span>}
         </p>
         {tags.length > 0 && (
@@ -296,15 +318,16 @@ function InstagramPreview({ post }: { post: CampaignPost }) {
   );
 }
 
-function LinkedInPreview({ post }: { post: CampaignPost }) {
+function LinkedInPreview({ post, brandName }: { post: CampaignPost; brandName: string }) {
   const caption = post.generated_caption ?? "";
   const hasMedia = post.media_urls.length > 0;
+  const initial = brandName.charAt(0).toUpperCase();
   return (
     <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm">
       <div className="flex items-start gap-2.5 px-3 py-3">
-        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">B</div>
+        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">{initial}</div>
         <div>
-          <p className="text-xs font-semibold leading-tight">Your Brand</p>
+          <p className="text-xs font-semibold leading-tight">{brandName}</p>
           <p className="text-[10px] text-gray-400">10,000 followers · Promoted</p>
         </div>
       </div>
@@ -316,8 +339,7 @@ function LinkedInPreview({ post }: { post: CampaignPost }) {
       </div>
       <div className={`${hasMedia ? "aspect-[1.91/1]" : "h-24"} bg-gray-100 overflow-hidden`}>
         {hasMedia ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+          <PreviewMedia post={post} />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center text-3xl">💼</div>
         )}
@@ -331,19 +353,21 @@ function LinkedInPreview({ post }: { post: CampaignPost }) {
   );
 }
 
-function TwitterPreview({ post }: { post: CampaignPost }) {
+function TwitterPreview({ post, brandName }: { post: CampaignPost; brandName: string }) {
   const caption = post.generated_caption ?? "";
   const tags = (post.generated_hashtags ?? []).slice(0, 3);
   const charCount = caption.length;
   const hasMedia = post.media_urls.length > 0;
+  const handle = brandName.toLowerCase().replace(/\s+/g, "_");
+  const initial = brandName.charAt(0).toUpperCase();
   return (
     <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm">
       <div className="flex gap-2.5 px-3 pt-3 pb-2">
-        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">B</div>
+        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">{initial}</div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
-            <span className="text-xs font-semibold">Your Brand</span>
-            <span className="text-[10px] text-gray-400">@your_brand · 2h</span>
+            <span className="text-xs font-semibold">{brandName}</span>
+            <span className="text-[10px] text-gray-400">@{handle} · 2h</span>
           </div>
           <p className="text-xs text-gray-800 mt-0.5 line-clamp-4">
             {caption || <span className="text-gray-400 italic">No caption yet</span>}
@@ -351,8 +375,7 @@ function TwitterPreview({ post }: { post: CampaignPost }) {
           </p>
           {hasMedia && (
             <div className="mt-2 rounded-xl overflow-hidden aspect-video bg-gray-100">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+              <PreviewMedia post={post} className="w-full h-full object-cover" />
             </div>
           )}
           <div className="flex items-center gap-4 mt-2 text-[11px] text-gray-400">
@@ -367,29 +390,30 @@ function TwitterPreview({ post }: { post: CampaignPost }) {
   );
 }
 
-function TikTokPreview({ post }: { post: CampaignPost }) {
+function TikTokPreview({ post, brandName }: { post: CampaignPost; brandName: string }) {
   const caption = post.generated_caption ?? "";
   const tags = (post.generated_hashtags ?? []).slice(0, 4);
   const hasMedia = post.media_urls.length > 0;
+  const handle = brandName.toLowerCase().replace(/\s+/g, "_");
+  const initial = brandName.charAt(0).toUpperCase();
   return (
     <div className="bg-black rounded-xl max-w-[220px] mx-auto relative overflow-hidden" style={{ aspectRatio: "9/16" }}>
       {hasMedia ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={post.media_urls[0]} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        <PreviewMedia post={post} className="absolute inset-0 w-full h-full object-cover" />
       ) : (
         <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-black flex items-center justify-center text-5xl">🎵</div>
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
       {/* Right actions */}
       <div className="absolute right-2 bottom-20 flex flex-col items-center gap-3">
-        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 border-2 border-white flex items-center justify-center text-white text-xs font-bold">B</div>
+        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 border-2 border-white flex items-center justify-center text-white text-xs font-bold">{initial}</div>
         <div className="text-center"><Heart className="h-6 w-6 text-white" /><p className="text-[9px] text-white">12.3K</p></div>
         <div className="text-center"><MessageCircle className="h-6 w-6 text-white" /><p className="text-[9px] text-white">456</p></div>
         <div className="text-center"><Share2 className="h-6 w-6 text-white" /><p className="text-[9px] text-white">Share</p></div>
       </div>
       {/* Bottom caption */}
       <div className="absolute bottom-3 left-2 right-12">
-        <p className="text-[10px] font-semibold text-white">@your_brand</p>
+        <p className="text-[10px] font-semibold text-white">@{handle}</p>
         <p className="text-[9px] text-white/90 line-clamp-2 mt-0.5">{caption}</p>
         {tags.length > 0 && <p className="text-[9px] text-white/80 mt-0.5">{tags.map(t=>t.startsWith("#")?t:`#${t}`).join(" ")}</p>}
       </div>
@@ -397,15 +421,16 @@ function TikTokPreview({ post }: { post: CampaignPost }) {
   );
 }
 
-function FacebookPreview({ post }: { post: CampaignPost }) {
+function FacebookPreview({ post, brandName }: { post: CampaignPost; brandName: string }) {
   const caption = post.generated_caption ?? "";
   const hasMedia = post.media_urls.length > 0;
+  const initial = brandName.charAt(0).toUpperCase();
   return (
     <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm">
       <div className="flex items-center gap-2 px-3 py-2.5">
-        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold">B</div>
+        <div className="h-9 w-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center text-white text-xs font-bold">{initial}</div>
         <div>
-          <p className="text-xs font-semibold">Your Brand</p>
+          <p className="text-xs font-semibold">{brandName}</p>
           <p className="text-[10px] text-gray-400">2 hrs · 🌐</p>
         </div>
         <span className="ml-auto text-gray-400 text-lg">···</span>
@@ -415,8 +440,7 @@ function FacebookPreview({ post }: { post: CampaignPost }) {
       </div>
       {hasMedia && (
         <div className="aspect-video bg-gray-100 overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+          <PreviewMedia post={post} className="w-full h-full object-cover" />
         </div>
       )}
       <div className="px-3 py-2 border-t border-gray-100 flex items-center justify-around text-[11px] text-gray-500">
@@ -428,25 +452,25 @@ function FacebookPreview({ post }: { post: CampaignPost }) {
   );
 }
 
-function YouTubePreview({ post }: { post: CampaignPost }) {
+function YouTubePreview({ post, brandName }: { post: CampaignPost; brandName: string }) {
   const caption = post.generated_caption ?? "";
   const hasMedia = post.media_urls.length > 0;
+  const initial = brandName.charAt(0).toUpperCase();
   return (
     <div className="bg-white rounded-xl border border-gray-200 max-w-sm mx-auto font-sans text-sm overflow-hidden">
       <div className={`aspect-video bg-gray-900 relative ${!hasMedia ? "flex items-center justify-center" : ""}`}>
         {hasMedia ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={post.media_urls[0]} alt="" className="w-full h-full object-cover" />
+          <PreviewMedia post={post} className="w-full h-full object-cover" />
         ) : (
           <span className="text-4xl">▶️</span>
         )}
         <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[10px] px-1 rounded">0:30</div>
       </div>
       <div className="flex gap-2 p-2.5">
-        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">B</div>
+        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold">{initial}</div>
         <div>
           <p className="text-xs font-semibold line-clamp-2">{caption || "Your Video Title"}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">Your Brand · 1.2K views · 2 hours ago</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{brandName} · 1.2K views · 2 hours ago</p>
         </div>
       </div>
     </div>
@@ -459,6 +483,8 @@ interface PlatformPreviewModalProps {
 }
 
 function PlatformPreviewModal({ post, onClose }: PlatformPreviewModalProps) {
+  const { workspace } = useAuthStore();
+  const brandName = workspace?.name ?? "Your Brand";
   const defaultPlatform = (post.platform as PreviewPlatform) ?? "instagram";
   const [active, setActive] = React.useState<PreviewPlatform>(
     PREVIEW_PLATFORMS.some(p => p.id === defaultPlatform) ? defaultPlatform : "instagram"
@@ -504,12 +530,12 @@ function PlatformPreviewModal({ post, onClose }: PlatformPreviewModalProps) {
 
         {/* Preview content */}
         <div className="flex-1 overflow-y-auto p-5 bg-gray-50 dark:bg-gray-800/30">
-          {active === "instagram" && <InstagramPreview post={post} />}
-          {active === "linkedin" && <LinkedInPreview post={post} />}
-          {active === "twitter" && <TwitterPreview post={post} />}
-          {active === "tiktok" && <TikTokPreview post={post} />}
-          {active === "facebook" && <FacebookPreview post={post} />}
-          {active === "youtube" && <YouTubePreview post={post} />}
+          {active === "instagram" && <InstagramPreview post={post} brandName={brandName} />}
+          {active === "linkedin" && <LinkedInPreview post={post} brandName={brandName} />}
+          {active === "twitter" && <TwitterPreview post={post} brandName={brandName} />}
+          {active === "tiktok" && <TikTokPreview post={post} brandName={brandName} />}
+          {active === "facebook" && <FacebookPreview post={post} brandName={brandName} />}
+          {active === "youtube" && <YouTubePreview post={post} brandName={brandName} />}
         </div>
 
         {/* Caption + hashtag summary */}
@@ -722,19 +748,35 @@ function PostCard({
       {/* Media / placeholder */}
       <div className="mx-3 mt-2 rounded-lg overflow-hidden aspect-[4/3] relative">
         {hasMedia ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={post.media_urls[0]}
-            alt="Post media"
-            className="w-full h-full object-cover"
-          />
+          post.post_type === "video" ? (
+            <video
+              src={post.media_urls[0]}
+              className="w-full h-full object-cover"
+              playsInline
+              preload="metadata"
+              muted
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={post.media_urls[0]}
+              alt="Post media"
+              className="w-full h-full object-cover"
+            />
+          )
         ) : (
           <div
-            className={`w-full h-full bg-gradient-to-br ${gradientClass} flex items-center justify-center`}
+            className={`w-full h-full bg-gradient-to-br ${gradientClass} flex items-center justify-center p-4`}
           >
-            <span className="text-white/80 text-3xl font-bold">
-              {PLATFORM_SHORT[post.platform] ?? "?"}
-            </span>
+            {caption ? (
+              <p className="text-white text-xs font-medium leading-snug text-center line-clamp-5 drop-shadow">
+                {caption}
+              </p>
+            ) : (
+              <span className="text-white/60 text-3xl font-bold">
+                {PLATFORM_SHORT[post.platform] ?? "?"}
+              </span>
+            )}
           </div>
         )}
       </div>
