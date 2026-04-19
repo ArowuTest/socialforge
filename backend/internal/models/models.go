@@ -869,7 +869,7 @@ type CampaignPost struct {
 	GeneratedCaption  string             `gorm:"type:text"                                   json:"generated_caption,omitempty"`
 	GeneratedHashtags StringSlice        `gorm:"type:text;default:'[]'"                      json:"generated_hashtags"`
 	MediaURLs         StringSlice        `gorm:"type:text;default:'[]'"                      json:"media_urls"`
-	AIPromptsUsed     JSONMap            `gorm:"type:text;default:'{}'"                      json:"ai_prompts_used,omitempty"`
+	AIPromptsUsed     JSONMap            `gorm:"column:ai_prompts_used;type:text;default:'{}'" json:"ai_prompts_used,omitempty"`
 	ErrorMessage      string             `gorm:"type:text"                                   json:"error_message,omitempty"`
 	SortOrder         int                `gorm:"not null;default:0"                          json:"sort_order"`
 }
