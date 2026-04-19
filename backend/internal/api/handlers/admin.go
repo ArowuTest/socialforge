@@ -6,6 +6,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/models"
@@ -739,6 +740,50 @@ func (h *AdminHandler) GetPlatformStats(c *fiber.Ctx) error {
 		"total_accounts":     totalAccounts,
 		"failed_posts_today": failedPostsToday,
 	})
+}
+
+// ── ResetUserPassword ─────────────────────────────────────────────────────────
+
+type resetPasswordRequest struct {
+	Password string `json:"password"`
+}
+
+// ResetUserPassword allows a super-admin to set a new password for any user.
+// POST /api/v1/admin/users/:id/reset-password
+func (h *AdminHandler) ResetUserPassword(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
+	}
+
+	var req resetPasswordRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if len(req.Password) < 6 {
+		return badRequest(c, "password must be at least 6 characters", "VALIDATION_ERROR")
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		h.log.Error("ResetUserPassword: bcrypt", zap.Error(err))
+		return internalError(c, "failed to hash password")
+	}
+
+	result := h.db.WithContext(c.Context()).
+		Model(&models.User{}).
+		Where("id = ?", id).
+		Update("password_hash", string(hashed))
+	if result.Error != nil {
+		h.log.Error("ResetUserPassword: update", zap.Error(result.Error))
+		return internalError(c, "failed to reset password")
+	}
+	if result.RowsAffected == 0 {
+		return notFound(c, "user not found", "NOT_FOUND")
+	}
+
+	h.log.Info("admin reset user password", zap.String("user_id", id.String()))
+	return c.JSON(fiber.Map{"message": "password reset successfully"})
 }
 
 func clamp(v, lo, hi int) int {
