@@ -1265,40 +1265,68 @@ func extractFirstImageURL(raw map[string]interface{}) string {
 
 // callOpenAI makes a synchronous call to the OpenAI chat completions endpoint
 // using net/http (no SDK dependency) and returns the assistant message content.
+// It retries automatically on 429 (rate-limit) responses with exponential backoff.
 func (o *Orchestrator) callOpenAI(ctx context.Context, apiKey string, req openAIRequest) (string, error) {
 	b, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("callOpenAI: marshal: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://api.openai.com/v1/chat/completions", bytes.NewReader(b))
-	if err != nil {
-		return "", fmt.Errorf("callOpenAI: build request: %w", err)
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
+	const maxRetries = 4
+	backoff := 2 * time.Second
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Respect context cancellation during backoff sleep.
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("callOpenAI: context cancelled during retry backoff: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+			backoff *= 2 // 2s → 4s → 8s → 16s
+		}
 
-	resp, err := o.httpClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("callOpenAI: http: %w", err)
-	}
-	defer resp.Body.Close()
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			"https://api.openai.com/v1/chat/completions", bytes.NewReader(b))
+		if err != nil {
+			return "", fmt.Errorf("callOpenAI: build request: %w", err)
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+		httpReq.Header.Set("Content-Type", "application/json")
 
-	rawBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("callOpenAI: read body: %w", err)
-	}
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("callOpenAI: API error %d: %s", resp.StatusCode, string(rawBody))
-	}
+		resp, err := o.httpClient.Do(httpReq)
+		if err != nil {
+			return "", fmt.Errorf("callOpenAI: http: %w", err)
+		}
 
-	var oaiResp openAIResponse
-	if err := json.Unmarshal(rawBody, &oaiResp); err != nil {
-		return "", fmt.Errorf("callOpenAI: decode: %w", err)
+		rawBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("callOpenAI: read body: %w", err)
+		}
+
+		// Retry on 429 (rate limit) or 503 (service unavailable).
+		if resp.StatusCode == 429 || resp.StatusCode == 503 {
+			if attempt < maxRetries {
+				o.log.Warn("callOpenAI: rate-limited, retrying",
+					zap.Int("attempt", attempt+1),
+					zap.Duration("backoff", backoff),
+					zap.Int("status", resp.StatusCode))
+				continue
+			}
+			return "", fmt.Errorf("callOpenAI: rate-limited after %d retries (status %d)", maxRetries, resp.StatusCode)
+		}
+		if resp.StatusCode >= 400 {
+			return "", fmt.Errorf("callOpenAI: API error %d: %s", resp.StatusCode, string(rawBody))
+		}
+
+		var oaiResp openAIResponse
+		if err := json.Unmarshal(rawBody, &oaiResp); err != nil {
+			return "", fmt.Errorf("callOpenAI: decode: %w", err)
+		}
+		if len(oaiResp.Choices) == 0 {
+			return "", fmt.Errorf("callOpenAI: no choices in response")
+		}
+		return strings.TrimSpace(oaiResp.Choices[0].Message.Content), nil
 	}
-	if len(oaiResp.Choices) == 0 {
-		return "", fmt.Errorf("callOpenAI: no choices in response")
-	}
-	return strings.TrimSpace(oaiResp.Choices[0].Message.Content), nil
+	return "", fmt.Errorf("callOpenAI: exhausted retries")
 }
