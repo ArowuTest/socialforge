@@ -1442,6 +1442,23 @@ export default function CampaignDetailPage() {
     }
   }
 
+  async function handleLaunch() {
+    setActionLoading("launch");
+    try {
+      const res = await campaignsApi.launch(id);
+      setCampaign(res.data);
+      toast.success(
+        `Campaign launched! ${res.meta?.scheduled_posts ?? 0} posts scheduled for publishing.`
+      );
+      // Reload posts to reflect updated statuses
+      await loadData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to launch campaign");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   // ── Filtered posts ────────────────────────────────────────────────────────
 
   const filteredPosts = React.useMemo(() => {
@@ -1570,7 +1587,8 @@ export default function CampaignDetailPage() {
               <>
                 <Button
                   size="sm"
-                  className="bg-amber-500 hover:bg-amber-600 text-white font-semibold"
+                  variant="outline"
+                  className="text-amber-600 border-amber-200 hover:bg-amber-50 dark:hover:bg-amber-900/20"
                   onClick={handleApproveAll}
                   disabled={actionLoading === "approve-all"}
                 >
@@ -1581,7 +1599,37 @@ export default function CampaignDetailPage() {
                   )}
                   Approve All
                 </Button>
+                <Button
+                  size="sm"
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-semibold"
+                  onClick={handleLaunch}
+                  disabled={actionLoading === "launch"}
+                >
+                  {actionLoading === "launch" ? (
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  ) : (
+                    <Rocket className="h-4 w-4 mr-1.5" />
+                  )}
+                  Launch Campaign
+                </Button>
               </>
+            )}
+
+            {campaign.status === "scheduled" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-violet-600 border-violet-200 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+                onClick={handleLaunch}
+                disabled={actionLoading === "launch"}
+              >
+                {actionLoading === "launch" ? (
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Rocket className="h-4 w-4 mr-1.5" />
+                )}
+                Re-schedule Posts
+              </Button>
             )}
 
             {campaign.status === "running" && (

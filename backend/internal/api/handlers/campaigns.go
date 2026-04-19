@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"math"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -852,6 +853,176 @@ func (h *CampaignsHandler) RegenerateCampaignPost(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"data":    post,
 		"message": "post queued for regeneration",
+	})
+}
+
+// ─── LaunchCampaign ───────────────────────────────────────────────────────────
+
+// LaunchCampaign converts all approved CampaignPost records into scheduled Post
+// records, enqueues publish tasks for each one, and transitions the campaign to
+// "scheduled" status. This is the bridge between AI generation and real publishing.
+//
+// POST /api/v1/workspaces/:workspaceId/campaigns/:id/launch
+func (h *CampaignsHandler) LaunchCampaign(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
+	}
+
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "campaign id must be a valid UUID", "INVALID_ID")
+	}
+
+	user := currentUser(c)
+	if user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	// 1. Load campaign and validate it's ready to launch.
+	var campaign models.Campaign
+	if err := h.db.WithContext(c.Context()).
+		Where("id = ? AND workspace_id = ?", id, wid).
+		First(&campaign).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return notFound(c, "campaign not found", "NOT_FOUND")
+		}
+		h.log.Error("LaunchCampaign: find campaign", zap.Error(err))
+		return internalError(c, "failed to launch campaign")
+	}
+
+	if campaign.Status != models.CampaignStatusReview &&
+		campaign.Status != models.CampaignStatusScheduled {
+		return badRequest(c,
+			"campaign must be in 'review' or 'scheduled' status to launch",
+			"INVALID_STATUS",
+		)
+	}
+
+	// 2. Load all approved campaign posts.
+	var campaignPosts []models.CampaignPost
+	if err := h.db.WithContext(c.Context()).
+		Where("campaign_id = ? AND workspace_id = ? AND status = ?",
+			id, wid, models.CampaignPostApproved).
+		Order("sort_order ASC, scheduled_for ASC").
+		Find(&campaignPosts).Error; err != nil {
+		h.log.Error("LaunchCampaign: load campaign posts", zap.Error(err))
+		return internalError(c, "failed to load campaign posts")
+	}
+
+	if len(campaignPosts) == 0 {
+		return badRequest(c,
+			"no approved posts found — approve at least one post before launching",
+			"NO_APPROVED_POSTS",
+		)
+	}
+
+	// 3. For each approved post that hasn't yet been linked to a Post record,
+	//    create a Post and enqueue a publish task.
+	now := time.Now().UTC()
+	scheduled := 0
+	for i := range campaignPosts {
+		cp := &campaignPosts[i]
+
+		// Skip posts that were already converted in a previous launch attempt.
+		if cp.PostID != nil {
+			continue
+		}
+
+		// Determine the publish time: future dates are honoured; past dates
+		// get a 30-second grace period so they don't fail on immediate enqueue.
+		publishAt := cp.ScheduledFor
+		if publishAt.Before(now) {
+			publishAt = now.Add(30 * time.Second)
+		}
+
+		// Build a Post from the CampaignPost.
+		post := models.Post{
+			WorkspaceID: wid,
+			AuthorID:    user.ID,
+			Content:     cp.GeneratedCaption,
+			Type:        cp.PostType,
+			Status:      models.PostStatusScheduled,
+			ScheduledAt: &publishAt,
+			Platforms:   models.StringSlice{string(cp.Platform)},
+			MediaURLs:   cp.MediaURLs,
+			Hashtags:    cp.GeneratedHashtags,
+			AIGenerated: true,
+		}
+
+		if err := h.db.WithContext(c.Context()).Create(&post).Error; err != nil {
+			h.log.Error("LaunchCampaign: create post",
+				zap.String("campaign_post_id", cp.ID.String()),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		// Link back to CampaignPost and mark it scheduled.
+		if err := h.db.WithContext(c.Context()).Model(cp).Updates(map[string]interface{}{
+			"post_id": post.ID,
+			"status":  models.CampaignPostScheduled,
+		}).Error; err != nil {
+			h.log.Error("LaunchCampaign: update campaign post",
+				zap.String("campaign_post_id", cp.ID.String()),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		// Enqueue the publish task, firing at the scheduled time.
+		task, err := queue.NewPublishPostTask(
+			queue.PublishPostPayload{PostID: post.ID, WorkspaceID: wid},
+			asynq.ProcessAt(publishAt),
+		)
+		if err != nil {
+			h.log.Error("LaunchCampaign: create task",
+				zap.String("post_id", post.ID.String()),
+				zap.Error(err),
+			)
+			continue
+		}
+		if _, err := h.asynq.EnqueueContext(c.Context(), task); err != nil {
+			h.log.Error("LaunchCampaign: enqueue task",
+				zap.String("post_id", post.ID.String()),
+				zap.Error(err),
+			)
+			continue
+		}
+
+		scheduled++
+	}
+
+	if scheduled == 0 {
+		return badRequest(c,
+			"could not schedule any posts — posts may already be scheduled or creation failed",
+			"NOTHING_SCHEDULED",
+		)
+	}
+
+	// 4. Transition campaign to "scheduled".
+	if err := h.db.WithContext(c.Context()).Model(&campaign).Updates(map[string]interface{}{
+		"status": models.CampaignStatusScheduled,
+		"generation_progress": models.JSONMap{
+			"step":      "launched",
+			"scheduled": scheduled,
+		},
+	}).Error; err != nil {
+		h.log.Error("LaunchCampaign: update campaign status", zap.Error(err))
+		return internalError(c, "failed to update campaign status after launch")
+	}
+
+	h.log.Info("LaunchCampaign: campaign launched",
+		zap.String("campaign_id", id.String()),
+		zap.Int("scheduled_posts", scheduled),
+	)
+
+	return c.JSON(fiber.Map{
+		"data":    campaign,
+		"message": "campaign launched",
+		"meta": fiber.Map{
+			"scheduled_posts": scheduled,
+		},
 	})
 }
 

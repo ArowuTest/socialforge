@@ -212,14 +212,20 @@ func (o *Orchestrator) GenerateCampaign(ctx context.Context, campaignID, workspa
 		log.Warn("GenerateCampaign: failed to update total_posts", zap.Error(err))
 	}
 
-	// 7. Enqueue generate_post tasks for each post.
-	for _, post := range posts {
+	// 7. Enqueue generate_post tasks with staggered ProcessAt times.
+	// Spacing tasks 10 s apart prevents all posts from hitting OpenAI simultaneously
+	// (the primary cause of 429 rate-limit errors on large campaigns).
+	const taskStagger = 10 * time.Second
+	for i, post := range posts {
 		payload := queue.GenerateCampaignPostPayload{
 			CampaignPostID: post.ID,
 			CampaignID:     campaignID,
 			WorkspaceID:    workspaceID,
 		}
-		task, err := queue.NewGenerateCampaignPostTask(payload)
+		delay := time.Duration(i) * taskStagger
+		task, err := queue.NewGenerateCampaignPostTask(payload,
+			asynq.ProcessAt(time.Now().Add(delay)),
+		)
 		if err != nil {
 			log.Error("GenerateCampaign: failed to create task", zap.String("post_id", post.ID.String()), zap.Error(err))
 			continue
@@ -227,6 +233,10 @@ func (o *Orchestrator) GenerateCampaign(ctx context.Context, campaignID, workspa
 		if _, err := o.asynq.EnqueueContext(ctx, task); err != nil {
 			log.Error("GenerateCampaign: failed to enqueue task", zap.String("post_id", post.ID.String()), zap.Error(err))
 		}
+		log.Debug("GenerateCampaign: enqueued post task",
+			zap.String("post_id", post.ID.String()),
+			zap.Duration("delay", delay),
+		)
 	}
 
 	// 8. Update progress step 3.
@@ -715,11 +725,37 @@ Return JSON: {"hashtags": ["tag1", "tag2", ...]}`, slot.Platform)},
 		return brandTags
 	}
 
+	// Strip markdown code fences before JSON parsing (same pattern as strategy parser).
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSuffix(raw, "```")
+	raw = strings.TrimSpace(raw)
+	// Find JSON object boundaries in case there is preamble text.
+	if idx := strings.Index(raw, "{"); idx > 0 {
+		raw = raw[idx:]
+	}
+	if idx := strings.LastIndex(raw, "}"); idx >= 0 && idx < len(raw)-1 {
+		raw = raw[:idx+1]
+	}
+
 	var out struct {
 		Hashtags []string `json:"hashtags"`
 	}
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		// Try to extract from raw text.
+		o.log.Warn("generateHashtags: JSON parse failed after fence strip",
+			zap.String("raw_preview", func() string {
+				if len(raw) > 150 {
+					return raw[:150]
+				}
+				return raw
+			}()),
+			zap.Error(err),
+		)
+		return brandTags
+	}
+	if len(out.Hashtags) == 0 {
+		o.log.Warn("generateHashtags: OpenAI returned empty hashtags array")
 		return brandTags
 	}
 
@@ -859,16 +895,24 @@ func (o *Orchestrator) generateImage(ctx context.Context, falKey string, slot Po
 }
 
 // platformToImageSize maps a platform to a fal.ai image_size preset.
+// fal.ai flux/dev presets: square_hd (1024×1024), portrait_16_9 (576×1024),
+// portrait_4_3 (768×1024), landscape_16_9 (1024×576), landscape_4_3 (1024×768).
 func platformToImageSize(platform string) string {
 	switch strings.ToLower(platform) {
 	case "instagram":
-		return "square_hd" // 1:1 feed
+		return "square_hd"     // 1:1 feed post
 	case "tiktok", "reels", "stories":
-		return "portrait_4_3" // closest to 9:16 in fal presets
+		return "portrait_16_9" // 9:16 — correct vertical short-form ratio
 	case "linkedin":
-		return "landscape_16_9" // 1.91:1 ≈ 16:9
+		return "landscape_16_9" // 16:9 professional
 	case "twitter":
 		return "landscape_16_9" // 16:9
+	case "youtube":
+		return "landscape_16_9" // 16:9 thumbnail
+	case "pinterest":
+		return "portrait_4_3"   // 3:4 tall pin
+	case "facebook":
+		return "landscape_4_3"  // 4:3 newsfeed
 	default:
 		return "square_hd"
 	}

@@ -205,6 +205,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Patch("/campaigns/:id", campaignsH.UpdateCampaign)
 	ws.Delete("/campaigns/:id", campaignsH.DeleteCampaign)
 	ws.Post("/campaigns/:id/generate", campaignsH.GenerateCampaign)
+	ws.Post("/campaigns/:id/launch", campaignsH.LaunchCampaign)
 	ws.Post("/campaigns/:id/pause", campaignsH.PauseCampaign)
 	ws.Post("/campaigns/:id/resume", campaignsH.ResumeCampaign)
 	ws.Get("/campaigns/:id/posts", campaignsH.ListCampaignPosts)

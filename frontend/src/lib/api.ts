@@ -805,6 +805,7 @@ export const campaignsApi = {
   approveAll: (id: string) => request<{ approved: number }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/approve-all`, { method: 'POST' }),
   clone: (id: string) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/clone`, { method: 'POST' }),
   regeneratePost: (id: string, pid: string) => request<{ data: CampaignPost }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts/${pid}/regenerate`, { method: 'POST' }),
+  launch: (id: string) => request<{ data: Campaign; message: string; meta: { scheduled_posts: number } }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/launch`, { method: 'POST' }),
 }
 
 // ============================================================

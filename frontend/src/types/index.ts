@@ -82,6 +82,9 @@ export interface Workspace {
   updatedAt: string;
   isAgency: boolean;
   whitelabelEnabled: boolean;
+  // AI credit tracking — present on backend responses
+  ai_credits_limit?: number;
+  ai_credits_used?: number;
 }
 
 export interface SocialAccount {

@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { campaignsApi, brandKitApi } from "@/lib/api";
+import { useAuthStore } from "@/lib/stores/auth";
 import { BrandKit, CampaignGoal, CreateCampaignRequest } from "@/types";
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -774,12 +775,15 @@ const DEFAULT_STATE: WizardState = {
 
 export default function NewCampaignPage() {
   const router = useRouter();
+  const { workspace } = useAuthStore();
   const [step, setStep] = React.useState(1);
   const [state, setState] = React.useState<WizardState>(DEFAULT_STATE);
   const [brandKits, setBrandKits] = React.useState<BrandKit[]>([]);
   const [brandKitsLoading, setBrandKitsLoading] = React.useState(true);
   const [submitting, setSubmitting] = React.useState(false);
-  const [creditBalance, setCreditBalance] = React.useState(0);
+
+  // Real credit balance from authenticated workspace — avoids a redundant API call.
+  const creditBalance = (workspace?.ai_credits_limit ?? 0) - (workspace?.ai_credits_used ?? 0);
 
   React.useEffect(() => {
     brandKitApi
@@ -868,7 +872,9 @@ export default function NewCampaignPage() {
       const created = await campaignsApi.create(buildRequest());
       await campaignsApi.generate(created.data.id);
       toast.success("Campaign created! AI is generating your content calendar.");
-      router.push("/campaigns");
+      // Redirect to the specific campaign page so the user can watch generation
+      // progress and review posts in real time.
+      router.push(`/campaigns/${created.data.id}`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to create campaign");
     } finally {
