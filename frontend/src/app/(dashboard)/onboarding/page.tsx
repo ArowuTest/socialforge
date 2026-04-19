@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
@@ -16,12 +16,17 @@ import {
   X,
   ArrowRight,
   Sparkles,
+  PenSquare,
+  Zap,
+  Rocket,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { workspaceApi, accountsApi, scheduleApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/stores/auth";
 
-type Step = 1 | 2 | 3 | 4 | 5;
+// Step 0 = path selection, Steps 1-5 = setup wizard
+type Step = 0 | 1 | 2 | 3 | 4 | 5;
+type Mode = "manual" | "autopilot" | null;
 
 // Day name → backend dayOfWeek int (0=Sun..6=Sat)
 const dayToInt: Record<string, number> = {
@@ -61,7 +66,8 @@ const timeSlots = ["Morning", "Noon", "Evening", "Night"];
 export default function OnboardingPage() {
   const router = useRouter();
   const workspace = useAuthStore((s) => s.workspace);
-  const [step, setStep] = React.useState<Step>(1);
+  const [step, setStep] = React.useState<Step>(0);
+  const [mode, setMode] = React.useState<Mode>(null);
   const [workspaceName, setWorkspaceName] = React.useState("");
   const [timezone, setTimezone] = React.useState("UTC+00:00 London");
   const [connectingPlatform, setConnectingPlatform] = React.useState<string | null>(null);
@@ -140,9 +146,7 @@ export default function OnboardingPage() {
     }
   };
 
-  // Step 4 → POST each selected schedule slot (one per connected platform),
-  // then advance. If no platforms are connected yet, just skip — the user can
-  // configure slots per-platform later from Settings.
+  // Step 4 → POST each selected schedule slot, then advance.
   const handleStep4Continue = async () => {
     if (selectedSlots.size === 0 || connectedPlatforms.length === 0 || !workspace?.id) {
       setStep(5);
@@ -192,15 +196,113 @@ export default function OnboardingPage() {
     });
   };
 
+  // Wizard step labels (shown after path selection)
   const stepLabels = ["Welcome", "Connect", "Team", "Schedule", "Done"];
 
+  // ── Step 0: Choose your path ─────────────────────────────────────────────
+  if (step === 0) {
+    return (
+      <div className="min-h-full bg-gradient-to-br from-gray-50 to-violet-50/30 dark:from-gray-950 dark:to-violet-950/10 flex items-center justify-center p-6">
+        <div className="w-full max-w-2xl">
+          {/* Header */}
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-violet-600 shadow-lg mb-4">
+              <Zap className="h-7 w-7 text-white fill-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+              Welcome to ChiselPost
+            </h1>
+            <p className="text-gray-500 dark:text-gray-400">
+              How would you like to create content? You can always switch between modes.
+            </p>
+          </div>
+
+          {/* Path cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            {/* Manual */}
+            <button
+              onClick={() => { setMode("manual"); setStep(1); }}
+              className={cn(
+                "group relative text-left p-6 rounded-2xl border-2 transition-all duration-200 hover:scale-[1.02] hover:shadow-lg",
+                mode === "manual"
+                  ? "border-violet-500 bg-violet-50 dark:bg-violet-900/20"
+                  : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-violet-300 dark:hover:border-violet-700"
+              )}
+            >
+              <div className="h-12 w-12 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4 group-hover:bg-violet-100 dark:group-hover:bg-violet-900/30 transition-colors">
+                <PenSquare className="h-6 w-6 text-gray-600 dark:text-gray-400 group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors" />
+              </div>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+                🖊️ Manual Mode
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-4">
+                I'll create and schedule my own content using AI as a helper — generating captions, images, and repurposing on demand.
+              </p>
+              <ul className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
+                <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-500 flex-shrink-0" /> Compose posts manually</li>
+                <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-500 flex-shrink-0" /> AI Studio on demand</li>
+                <li className="flex items-center gap-2"><Check className="h-3.5 w-3.5 text-green-500 flex-shrink-0" /> Full calendar control</li>
+              </ul>
+              <div className="mt-5 flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 group-hover:text-violet-600 dark:group-hover:text-violet-400 transition-colors">
+                Get Started <ArrowRight className="h-4 w-4" />
+              </div>
+            </button>
+
+            {/* Autopilot */}
+            <button
+              onClick={() => { setMode("autopilot"); setStep(1); }}
+              className={cn(
+                "group relative text-left p-6 rounded-2xl border-2 transition-all duration-200 hover:scale-[1.02] hover:shadow-lg overflow-hidden",
+                mode === "autopilot"
+                  ? "border-violet-500 bg-violet-50 dark:bg-violet-900/20"
+                  : "border-violet-200 dark:border-violet-800 bg-white dark:bg-gray-900 hover:border-violet-400 dark:hover:border-violet-600"
+              )}
+            >
+              {/* Subtle gradient backdrop */}
+              <div className="absolute inset-0 bg-gradient-to-br from-violet-50/50 to-purple-50/50 dark:from-violet-950/20 dark:to-purple-950/20 pointer-events-none" />
+              <div className="relative">
+                <div className="h-12 w-12 rounded-xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center mb-4">
+                  <Rocket className="h-6 w-6 text-violet-600 dark:text-violet-400" />
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                    ✨ Autopilot Mode
+                  </h2>
+                  <span className="text-xs font-medium bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 px-2 py-0.5 rounded-full">
+                    Recommended
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed mb-4">
+                  I want AI to plan and post content automatically — brand-matched images, captions, and videos based on my brief.
+                </p>
+                <ul className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <li className="flex items-center gap-2"><Sparkles className="h-3.5 w-3.5 text-violet-500 flex-shrink-0" /> AI generates full campaigns</li>
+                  <li className="flex items-center gap-2"><Sparkles className="h-3.5 w-3.5 text-violet-500 flex-shrink-0" /> Brand-matched images & captions</li>
+                  <li className="flex items-center gap-2"><Sparkles className="h-3.5 w-3.5 text-violet-500 flex-shrink-0" /> Auto-posts on schedule</li>
+                </ul>
+                <div className="mt-5 flex items-center gap-1.5 text-sm font-medium text-violet-600 dark:text-violet-400">
+                  Set Up Brand Kit <ArrowRight className="h-4 w-4" />
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <p className="text-center text-xs text-gray-400 dark:text-gray-500">
+            You can use both modes at any time — this just sets your starting point.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Steps 1-5: Setup wizard ──────────────────────────────────────────────
   return (
     <div className="min-h-full bg-gray-50 dark:bg-gray-950 flex items-start justify-center p-6 pt-12">
       <div className="w-full max-w-2xl">
         {/* Progress indicator */}
         <div className="flex items-center justify-center gap-0 mb-10">
           {stepLabels.map((label, idx) => {
-            const stepNum = (idx + 1) as Step;
+            const stepNum = (idx + 1) as Exclude<Step, 0>;
             const isCompleted = step > stepNum;
             const isCurrent = step === stepNum;
             return (
@@ -256,6 +358,11 @@ export default function OnboardingPage() {
                 <p className="text-gray-500 dark:text-gray-400 text-sm">
                   Let&apos;s get your workspace set up in just a few steps.
                 </p>
+                {mode === "autopilot" && (
+                  <div className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800 px-3 py-1.5 rounded-full">
+                    <Sparkles className="h-3 w-3" /> Autopilot mode — Brand Kit setup comes after
+                  </div>
+                )}
               </div>
 
               <div className="space-y-4 max-w-md mx-auto">
@@ -288,7 +395,13 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              <div className="flex justify-center pt-2">
+              <div className="flex justify-between items-center pt-2">
+                <button
+                  onClick={() => setStep(0)}
+                  className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                >
+                  ← Back
+                </button>
                 <Button
                   className="bg-violet-600 hover:bg-violet-700 text-white px-8 gap-2"
                   onClick={handleStep1Continue}
@@ -577,28 +690,51 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              <div className="space-y-2 pt-2">
-                <div className="flex items-center gap-2 justify-center text-sm text-gray-600 dark:text-gray-400">
-                  <Sparkles className="h-4 w-4 text-violet-500" />
-                  <span>AI Studio is ready to help you create amazing content</span>
-                </div>
+              <div className="flex items-center gap-2 justify-center text-sm text-gray-600 dark:text-gray-400">
+                <Sparkles className="h-4 w-4 text-violet-500" />
+                <span>AI Studio is ready to help you create amazing content</span>
               </div>
 
-              <Button
-                className="bg-violet-600 hover:bg-violet-700 text-white px-10 gap-2 h-11 text-base"
-                onClick={() => router.push("/dashboard")}
-              >
-                Go to Dashboard
-                <ArrowRight className="h-5 w-5" />
-              </Button>
+              {/* CTA — context-aware by mode */}
+              <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+                {mode === "autopilot" ? (
+                  <>
+                    <Button
+                      className="bg-violet-600 hover:bg-violet-700 text-white px-8 gap-2 h-11 text-base"
+                      onClick={() => router.push("/brand-kit")}
+                    >
+                      <Sparkles className="h-5 w-5" />
+                      Set Up Brand Kit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-11 px-6 gap-2"
+                      onClick={() => router.push("/dashboard")}
+                    >
+                      Go to Dashboard
+                      <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    className="bg-violet-600 hover:bg-violet-700 text-white px-10 gap-2 h-11 text-base"
+                    onClick={() => router.push("/dashboard")}
+                  >
+                    Go to Dashboard
+                    <ArrowRight className="h-5 w-5" />
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </div>
 
         {/* Step indicator text */}
-        <p className="text-center text-xs text-gray-400 mt-4">
-          Step {step} of 5
-        </p>
+        {step > 0 && (
+          <p className="text-center text-xs text-gray-400 mt-4">
+            Step {step} of 5
+          </p>
+        )}
       </div>
     </div>
   );
