@@ -759,3 +759,118 @@ func (s *StripeWebhookEvent) BeforeCreate(_ *gorm.DB) error {
 	}
 	return nil
 }
+
+// ─── Brand Kit ────────────────────────────────────────────────────────────────
+
+type BrandKit struct {
+	Base
+	WorkspaceID    uuid.UUID   `gorm:"type:uuid;not null;index"        json:"workspace_id"`
+	CreatedBy      uuid.UUID   `gorm:"type:uuid;not null"              json:"created_by"`
+	Name           string      `gorm:"not null;size:255"               json:"name"`
+	IsDefault      bool        `gorm:"not null;default:false"          json:"is_default"`
+	Industry       string      `gorm:"size:100"                        json:"industry,omitempty"`
+	PrimaryColor   string      `gorm:"size:7"                          json:"primary_color,omitempty"`
+	SecondaryColor string      `gorm:"size:7"                          json:"secondary_color,omitempty"`
+	AccentColor    string      `gorm:"size:7"                          json:"accent_color,omitempty"`
+	LogoURL        string      `gorm:"size:2048"                       json:"logo_url,omitempty"`
+	LogoDarkURL    string      `gorm:"size:2048"                       json:"logo_dark_url,omitempty"`
+	BrandVoice     string      `gorm:"type:text"                       json:"brand_voice,omitempty"`
+	TargetAudience string      `gorm:"type:text"                       json:"target_audience,omitempty"`
+	ContentPillars StringSlice `gorm:"type:text;default:'[]'"          json:"content_pillars"`
+	BrandHashtags  StringSlice `gorm:"type:text;default:'[]'"          json:"brand_hashtags"`
+	Dos            StringSlice `gorm:"type:text;default:'[]'"          json:"dos"`
+	Donts          StringSlice `gorm:"type:text;default:'[]'"          json:"donts"`
+	ExamplePosts   StringSlice `gorm:"type:text;default:'[]'"          json:"example_posts"`
+	CTAPreferences JSONMap     `gorm:"type:text;default:'{}'"          json:"cta_preferences"`
+}
+
+func (BrandKit) TableName() string { return "brand_kits" }
+
+// ─── Campaign ─────────────────────────────────────────────────────────────────
+
+type CampaignStatus string
+
+const (
+	CampaignStatusDraft      CampaignStatus = "draft"
+	CampaignStatusGenerating CampaignStatus = "generating"
+	CampaignStatusReview     CampaignStatus = "review"
+	CampaignStatusScheduled  CampaignStatus = "scheduled"
+	CampaignStatusRunning    CampaignStatus = "running"
+	CampaignStatusPaused     CampaignStatus = "paused"
+	CampaignStatusCompleted  CampaignStatus = "completed"
+	CampaignStatusFailed     CampaignStatus = "failed"
+)
+
+type CampaignGoal string
+
+const (
+	CampaignGoalAwareness  CampaignGoal = "awareness"
+	CampaignGoalEngagement CampaignGoal = "engagement"
+	CampaignGoalSales      CampaignGoal = "sales"
+	CampaignGoalEducation  CampaignGoal = "education"
+	CampaignGoalEvent      CampaignGoal = "event_promotion"
+)
+
+type Campaign struct {
+	Base
+	WorkspaceID        uuid.UUID      `gorm:"type:uuid;not null;index"       json:"workspace_id"`
+	BrandKitID         *uuid.UUID     `gorm:"type:uuid;index"                json:"brand_kit_id,omitempty"`
+	CreatedBy          uuid.UUID      `gorm:"type:uuid;not null"             json:"created_by"`
+	Name               string         `gorm:"not null;size:255"              json:"name"`
+	Status             CampaignStatus `gorm:"not null;size:50;default:draft" json:"status"`
+	Goal               CampaignGoal   `gorm:"size:50"                        json:"goal,omitempty"`
+	Brief              string         `gorm:"type:text"                      json:"brief,omitempty"`
+	StartDate          *time.Time     `                                      json:"start_date,omitempty"`
+	EndDate            *time.Time     `                                      json:"end_date,omitempty"`
+	Platforms          StringSlice    `gorm:"type:text;default:'[]'"         json:"platforms"`
+	PostingFrequency   JSONMap        `gorm:"type:text;default:'{}'"         json:"posting_frequency"`
+	ContentMix         JSONMap        `gorm:"type:text;default:'{}'"         json:"content_mix"`
+	AutoApprove        bool           `gorm:"not null;default:false"         json:"auto_approve"`
+	CreditsEstimated   int            `gorm:"not null;default:0"             json:"credits_estimated"`
+	CreditsUsed        int            `gorm:"not null;default:0"             json:"credits_used"`
+	GenerationProgress JSONMap        `gorm:"type:text;default:'{}'"         json:"generation_progress"`
+	TotalPosts         int            `gorm:"not null;default:0"             json:"total_posts"`
+	PostsGenerated     int            `gorm:"not null;default:0"             json:"posts_generated"`
+	PostsApproved      int            `gorm:"not null;default:0"             json:"posts_approved"`
+	PostsPublished     int            `gorm:"not null;default:0"             json:"posts_published"`
+	Settings           JSONMap        `gorm:"type:text;default:'{}'"         json:"settings"`
+
+	BrandKit *BrandKit      `gorm:"foreignKey:BrandKitID" json:"brand_kit,omitempty"`
+	Posts    []CampaignPost `gorm:"foreignKey:CampaignID" json:"posts,omitempty"`
+}
+
+func (Campaign) TableName() string { return "campaigns" }
+
+// CampaignPostStatus tracks individual post generation lifecycle.
+type CampaignPostStatus string
+
+const (
+	CampaignPostPendingGeneration CampaignPostStatus = "pending_generation"
+	CampaignPostGenerating        CampaignPostStatus = "generating"
+	CampaignPostGenerated         CampaignPostStatus = "generated"
+	CampaignPostApproved          CampaignPostStatus = "approved"
+	CampaignPostRejected          CampaignPostStatus = "rejected"
+	CampaignPostScheduled         CampaignPostStatus = "scheduled"
+	CampaignPostPublished         CampaignPostStatus = "published"
+	CampaignPostFailed            CampaignPostStatus = "failed"
+)
+
+type CampaignPost struct {
+	Base
+	CampaignID        uuid.UUID          `gorm:"type:uuid;not null;index"                    json:"campaign_id"`
+	WorkspaceID       uuid.UUID          `gorm:"type:uuid;not null;index"                    json:"workspace_id"`
+	PostID            *uuid.UUID         `gorm:"type:uuid;index"                             json:"post_id,omitempty"`
+	ScheduledFor      time.Time          `                                                   json:"scheduled_for"`
+	Platform          PlatformType       `gorm:"not null;size:50"                            json:"platform"`
+	PostType          PostType           `gorm:"not null;size:50"                            json:"post_type"`
+	ContentPillar     string             `gorm:"size:100"                                    json:"content_pillar,omitempty"`
+	Status            CampaignPostStatus `gorm:"not null;size:50;default:pending_generation" json:"status"`
+	GeneratedCaption  string             `gorm:"type:text"                                   json:"generated_caption,omitempty"`
+	GeneratedHashtags StringSlice        `gorm:"type:text;default:'[]'"                      json:"generated_hashtags"`
+	MediaURLs         StringSlice        `gorm:"type:text;default:'[]'"                      json:"media_urls"`
+	AIPromptsUsed     JSONMap            `gorm:"type:text;default:'{}'"                      json:"ai_prompts_used,omitempty"`
+	ErrorMessage      string             `gorm:"type:text"                                   json:"error_message,omitempty"`
+	SortOrder         int                `gorm:"not null;default:0"                          json:"sort_order"`
+}
+
+func (CampaignPost) TableName() string { return "campaign_posts" }

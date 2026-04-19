@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -47,17 +48,26 @@ type NotificationSender interface {
 	SendRaw(ctx context.Context, to, subject, htmlBody string) error
 }
 
+// ─── CampaignOrchestrator interface ──────────────────────────────────────────
+
+// CampaignOrchestrator handles AI-driven campaign and post generation.
+type CampaignOrchestrator interface {
+	GenerateCampaign(ctx context.Context, campaignID, workspaceID uuid.UUID) error
+	GenerateCampaignPost(ctx context.Context, campaignPostID, campaignID, workspaceID uuid.UUID) error
+}
+
 // ─── WorkerDeps ───────────────────────────────────────────────────────────────
 
 // WorkerDeps bundles all dependencies needed by the queue handlers.
 type WorkerDeps struct {
-	DB                 *gorm.DB
-	Logger             *zap.Logger
-	Publisher          Publisher
-	AIService          AIService
-	RepurposeService   RepurposeService
-	OAuthRefresher     OAuthRefresher
-	NotificationSender NotificationSender
+	DB                    *gorm.DB
+	Logger                *zap.Logger
+	Publisher             Publisher
+	AIService             AIService
+	RepurposeService      RepurposeService
+	OAuthRefresher        OAuthRefresher
+	NotificationSender    NotificationSender
+	CampaignOrchestrator  CampaignOrchestrator
 }
 
 // ─── PublishPostHandler ───────────────────────────────────────────────────────
@@ -507,6 +517,29 @@ func NewServer(redisClient *redis.Client, deps WorkerDeps, cfg ServerConfig) (*a
 	mux.HandleFunc(TypeRefreshTokens, refreshHandler.ProcessTask)
 	mux.HandleFunc(TypeSendNotification, notifHandler.ProcessTask)
 	mux.HandleFunc(TypeRunAutomation, automationHandler.ProcessTask)
+
+	mux.HandleFunc(TypeGenerateCampaign, func(ctx context.Context, t *asynq.Task) error {
+		if deps.CampaignOrchestrator == nil {
+			deps.Logger.Warn("TypeGenerateCampaign: campaign orchestrator not configured")
+			return nil
+		}
+		var p GenerateCampaignPayload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil {
+			return fmt.Errorf("TypeGenerateCampaign: unmarshal payload: %w", err)
+		}
+		return deps.CampaignOrchestrator.GenerateCampaign(ctx, p.CampaignID, p.WorkspaceID)
+	})
+	mux.HandleFunc(TypeGenerateCampaignPost, func(ctx context.Context, t *asynq.Task) error {
+		if deps.CampaignOrchestrator == nil {
+			deps.Logger.Warn("TypeGenerateCampaignPost: campaign orchestrator not configured")
+			return nil
+		}
+		var p GenerateCampaignPostPayload
+		if err := json.Unmarshal(t.Payload(), &p); err != nil {
+			return fmt.Errorf("TypeGenerateCampaignPost: unmarshal payload: %w", err)
+		}
+		return deps.CampaignOrchestrator.GenerateCampaignPost(ctx, p.CampaignPostID, p.CampaignID, p.WorkspaceID)
+	})
 
 	return srv, mux
 }

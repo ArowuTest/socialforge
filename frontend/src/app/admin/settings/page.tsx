@@ -5,19 +5,20 @@ import {
   Settings, Key, Shield, Wrench, Save, Eye, EyeOff,
   CheckCircle2, AlertTriangle, Trash2, RefreshCw,
   AlertCircle, ToggleLeft, ToggleRight, Gift, Search, X, Plus,
-  Zap, DollarSign, Package, Edit2,
+  Zap, DollarSign, Package, Edit2, Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { adminApi } from "@/lib/api";
 import { toast } from "sonner";
 
-type TabId = "general" | "integrations" | "security" | "ai-costs" | "maintenance";
+type TabId = "general" | "integrations" | "security" | "ai-costs" | "autopilot" | "maintenance";
 
 const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "integrations", label: "Integrations", icon: Key },
   { id: "security", label: "Security", icon: Shield },
   { id: "ai-costs", label: "AI Costs", icon: Zap },
+  { id: "autopilot", label: "Autopilot", icon: Bot },
   { id: "maintenance", label: "Maintenance", icon: Wrench },
 ];
 
@@ -1010,6 +1011,125 @@ export default function SettingsPage() {
             </p>
           </div>
 
+        </div>
+      )}
+
+      {/* AI Autopilot Limits tab */}
+      {activeTab === "autopilot" && (
+        <div className="space-y-6 max-w-4xl">
+          <div>
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Bot className="h-4 w-4 text-violet-400" /> AI Autopilot Limits
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Campaign limits enforced per plan tier. These are informational — adjust in code to change enforcement.
+            </p>
+          </div>
+
+          {/* Campaign limits by plan */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-800">
+              <h4 className="text-sm font-semibold text-white">Campaign Limits by Plan</h4>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-800/40 text-xs text-slate-400">
+                  <th className="text-left px-4 py-3 font-medium">Plan</th>
+                  <th className="text-left px-4 py-3 font-medium">Max Active Campaigns</th>
+                  <th className="text-left px-4 py-3 font-medium">Max Duration (weeks)</th>
+                  <th className="text-left px-4 py-3 font-medium">Video in Campaigns</th>
+                  <th className="text-left px-4 py-3 font-medium">Auto-approve</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { plan: "Free",    maxActive: 0,  maxWeeks: "—", video: false, autoApprove: false },
+                  { plan: "Starter", maxActive: 1,  maxWeeks: 4,   video: false, autoApprove: false },
+                  { plan: "Pro",     maxActive: 3,  maxWeeks: 12,  video: true,  autoApprove: true  },
+                  { plan: "Agency",  maxActive: 10, maxWeeks: 52,  video: true,  autoApprove: true  },
+                ].map((row) => (
+                  <tr key={row.plan} className="border-t border-slate-800/60 hover:bg-slate-800/20 transition-colors">
+                    <td className="px-4 py-3">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded-full text-xs font-medium border",
+                        row.plan === "Agency" ? "bg-violet-900/40 text-violet-300 border-violet-800" :
+                        row.plan === "Pro"    ? "bg-blue-900/40 text-blue-300 border-blue-800" :
+                        row.plan === "Starter"? "bg-emerald-900/40 text-emerald-300 border-emerald-800" :
+                        "bg-slate-800 text-slate-400 border-slate-700"
+                      )}>
+                        {row.plan}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-300 font-mono">{row.maxActive}</td>
+                    <td className="px-4 py-3 text-sm text-slate-300 font-mono">{row.maxWeeks}</td>
+                    <td className="px-4 py-3">
+                      {row.video ? (
+                        <span className="flex items-center gap-1 text-xs text-emerald-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Enabled
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-600">Disabled</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {row.autoApprove ? (
+                        <span className="flex items-center gap-1 text-xs text-emerald-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Available
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-600">Not available</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Credit costs for campaign generation */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-white">Credit Costs for Campaign Generation</h4>
+              <p className="text-xs text-slate-500">Adjust via AI Job Costs config above</p>
+            </div>
+            <div className="divide-y divide-slate-800/60">
+              {[
+                { label: "Caption generation",  unit: "per post",     credits: 1,  jobType: "caption" },
+                { label: "Image generation",     unit: "per image",    credits: 5,  jobType: "image" },
+                { label: "Video generation",     unit: "per video",    credits: 20, jobType: "video" },
+                { label: "Content strategy",     unit: "per campaign", credits: 3,  jobType: "carousel" },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center justify-between px-4 py-3 hover:bg-slate-800/20 transition-colors">
+                  <div>
+                    <p className="text-sm text-white">{item.label}</p>
+                    <p className="text-xs text-slate-500 font-mono mt-0.5">{item.jobType}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-mono text-violet-300">{item.credits} credits</p>
+                    <p className="text-xs text-slate-500">{item.unit}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-4 py-3 border-t border-slate-800 bg-slate-800/20">
+              <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                <Zap className="h-3 w-3 text-violet-400" />
+                Credit values are sourced from the AI Job Costs table. Navigate to the AI Costs tab to update them.
+              </p>
+            </div>
+          </div>
+
+          {/* Enforcement note */}
+          <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-4">
+            <p className="text-xs text-slate-500">
+              <span className="text-slate-300 font-medium">Enforcement note:</span> Plan limits are checked at campaign creation time in the backend.
+              To change them, update the constants in{" "}
+              <code className="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">
+                backend/internal/api/handlers/campaigns.go
+              </code>
+              {" "}and redeploy.
+            </p>
+          </div>
         </div>
       )}
 

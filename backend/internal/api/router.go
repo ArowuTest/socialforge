@@ -188,6 +188,31 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Delete("/automations/:id", automationsH.DeleteAutomation)
 	ws.Post("/automations/:id/toggle", automationsH.ToggleAutomation)
 
+	// Brand Kit
+	brandKitH := handlers.NewBrandKitHandler(deps.DB, deps.Log)
+	ws.Get("/brand-kits", brandKitH.ListBrandKits)
+	ws.Post("/brand-kits", brandKitH.CreateBrandKit)
+	ws.Get("/brand-kits/:id", brandKitH.GetBrandKit)
+	ws.Patch("/brand-kits/:id", brandKitH.UpdateBrandKit)
+	ws.Delete("/brand-kits/:id", brandKitH.DeleteBrandKit)
+	ws.Post("/brand-kits/:id/set-default", brandKitH.SetDefault)
+
+	// Campaigns
+	campaignsH := handlers.NewCampaignsHandler(deps.DB, deps.AsynqClient, deps.Log)
+	ws.Get("/campaigns", campaignsH.ListCampaigns)
+	ws.Post("/campaigns", campaignsH.CreateCampaign)
+	ws.Get("/campaigns/:id", campaignsH.GetCampaign)
+	ws.Patch("/campaigns/:id", campaignsH.UpdateCampaign)
+	ws.Delete("/campaigns/:id", campaignsH.DeleteCampaign)
+	ws.Post("/campaigns/:id/generate", campaignsH.GenerateCampaign)
+	ws.Post("/campaigns/:id/pause", campaignsH.PauseCampaign)
+	ws.Post("/campaigns/:id/resume", campaignsH.ResumeCampaign)
+	ws.Get("/campaigns/:id/posts", campaignsH.ListCampaignPosts)
+	ws.Patch("/campaigns/:id/posts/:pid", campaignsH.UpdateCampaignPost)
+	ws.Post("/campaigns/:id/posts/:pid/approve", campaignsH.ApproveCampaignPost)
+	ws.Post("/campaigns/:id/posts/:pid/reject", campaignsH.RejectCampaignPost)
+	ws.Post("/campaigns/:id/approve-all", campaignsH.ApproveAllPosts)
+
 	// Whitelabel (member-readable, admin-writable)
 	ws.Get("/whitelabel", whitelabelH.GetWhitelabelConfig)
 	ws.Patch("/whitelabel", mw.RequireRole(models.WorkspaceRoleAdmin), whitelabelH.UpdateWhitelabelConfig)
@@ -214,6 +239,11 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	admin.Post("/grant-plan", adminH.GrantPlanAccess)
 	admin.Post("/broadcast", adminH.SendBroadcast)
 	admin.Get("/broadcasts", adminH.ListBroadcasts)
+
+	// Admin campaigns
+	admin.Get("/campaigns", campaignsH.AdminListCampaigns)
+	admin.Get("/campaigns/:id", campaignsH.AdminGetCampaign)
+	admin.Post("/campaigns/:id/force-pause", campaignsH.AdminForcePause)
 
 	// Cost configuration (admin-only)
 	admin.Get("/cost-config/ai-jobs",         costConfigH.GetAIJobCosts)

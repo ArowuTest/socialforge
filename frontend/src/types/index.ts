@@ -458,3 +458,119 @@ export interface FilterOption {
   label: string;
   value: string;
 }
+
+// ============================================================
+// Brand Kit
+// ============================================================
+
+export interface BrandKit {
+  id: string
+  workspace_id: string
+  created_by: string
+  name: string
+  is_default: boolean
+  industry?: string
+  primary_color?: string
+  secondary_color?: string
+  accent_color?: string
+  logo_url?: string
+  logo_dark_url?: string
+  brand_voice?: string
+  target_audience?: string
+  content_pillars: string[]
+  brand_hashtags: string[]
+  dos: string[]
+  donts: string[]
+  example_posts: string[]
+  cta_preferences: Record<string, string>
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateBrandKitRequest {
+  name: string
+  is_default?: boolean
+  industry?: string
+  primary_color?: string
+  secondary_color?: string
+  accent_color?: string
+  logo_url?: string
+  logo_dark_url?: string
+  brand_voice?: string
+  target_audience?: string
+  content_pillars?: string[]
+  brand_hashtags?: string[]
+  dos?: string[]
+  donts?: string[]
+  example_posts?: string[]
+  cta_preferences?: Record<string, string>
+}
+
+// ============================================================
+// Campaigns
+// ============================================================
+
+export type CampaignStatus = 'draft' | 'generating' | 'review' | 'scheduled' | 'running' | 'paused' | 'completed' | 'failed'
+export type CampaignGoal = 'awareness' | 'engagement' | 'sales' | 'education' | 'event_promotion'
+export type CampaignPostStatus = 'pending_generation' | 'generating' | 'generated' | 'approved' | 'rejected' | 'scheduled' | 'published' | 'failed'
+
+export interface Campaign {
+  id: string
+  workspace_id: string
+  brand_kit_id?: string
+  created_by: string
+  name: string
+  status: CampaignStatus
+  goal?: CampaignGoal
+  brief?: string
+  start_date?: string
+  end_date?: string
+  platforms: string[]
+  posting_frequency: Record<string, number>
+  content_mix: Record<string, number>
+  auto_approve: boolean
+  credits_estimated: number
+  credits_used: number
+  generation_progress: Record<string, unknown>
+  total_posts: number
+  posts_generated: number
+  posts_approved: number
+  posts_published: number
+  settings: Record<string, unknown>
+  brand_kit?: BrandKit
+  created_at: string
+  updated_at: string
+}
+
+export interface CampaignPost {
+  id: string
+  campaign_id: string
+  workspace_id: string
+  post_id?: string
+  scheduled_for: string
+  platform: string
+  post_type: string
+  content_pillar?: string
+  status: CampaignPostStatus
+  generated_caption?: string
+  generated_hashtags: string[]
+  media_urls: string[]
+  error_message?: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateCampaignRequest {
+  name: string
+  brand_kit_id?: string
+  goal?: CampaignGoal
+  brief?: string
+  start_date?: string
+  end_date?: string
+  platforms?: string[]
+  posting_frequency?: Record<string, number>
+  content_mix?: Record<string, number>
+  auto_approve?: boolean
+  settings?: Record<string, unknown>
+}

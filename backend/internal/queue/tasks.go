@@ -213,3 +213,47 @@ func NewRunAutomationTask(payload RunAutomationPayload, opts ...asynq.Option) (*
 	}
 	return asynq.NewTask(TypeRunAutomation, b, append(defaults, opts...)...), nil
 }
+
+// ─── Campaign Generation ──────────────────────────────────────────────────────
+
+const TypeGenerateCampaign     = "campaign:generate"
+const TypeGenerateCampaignPost = "campaign:generate_post"
+
+// GenerateCampaignPayload carries the data required for the campaign generation task.
+type GenerateCampaignPayload struct {
+	CampaignID  uuid.UUID `json:"campaign_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+// NewGenerateCampaignTask creates an asynq.Task for generating a campaign's posts.
+func NewGenerateCampaignTask(payload GenerateCampaignPayload, opts ...asynq.Option) (*asynq.Task, error) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("queue: marshal GenerateCampaignPayload: %w", err)
+	}
+	return asynq.NewTask(TypeGenerateCampaign, b, append([]asynq.Option{
+		asynq.MaxRetry(1),
+		asynq.Timeout(30 * time.Minute),
+		asynq.Queue("default"),
+	}, opts...)...), nil
+}
+
+// GenerateCampaignPostPayload carries the data required for generating a single campaign post.
+type GenerateCampaignPostPayload struct {
+	CampaignPostID uuid.UUID `json:"campaign_post_id"`
+	CampaignID     uuid.UUID `json:"campaign_id"`
+	WorkspaceID    uuid.UUID `json:"workspace_id"`
+}
+
+// NewGenerateCampaignPostTask creates an asynq.Task for generating a single campaign post.
+func NewGenerateCampaignPostTask(payload GenerateCampaignPostPayload, opts ...asynq.Option) (*asynq.Task, error) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("queue: marshal GenerateCampaignPostPayload: %w", err)
+	}
+	return asynq.NewTask(TypeGenerateCampaignPost, b, append([]asynq.Option{
+		asynq.MaxRetry(2),
+		asynq.Timeout(10 * time.Minute),
+		asynq.Queue("default"),
+	}, opts...)...), nil
+}

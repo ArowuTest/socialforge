@@ -1,0 +1,858 @@
+// Package campaign implements the AI Campaign Orchestrator — the backend
+// pipeline that takes a campaign brief + brand kit and generates a full content
+// calendar (captions, images, videos) using OpenAI and fal.ai.
+package campaign
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+
+	"github.com/socialforge/backend/internal/crypto"
+	"github.com/socialforge/backend/internal/models"
+	"github.com/socialforge/backend/internal/queue"
+)
+
+// ─── OpenAI wire types ────────────────────────────────────────────────────────
+
+type openAIRequest struct {
+	Model       string      `json:"model"`
+	Messages    []openAIMsg `json:"messages"`
+	Temperature float64     `json:"temperature"`
+	MaxTokens   int         `json:"max_tokens"`
+}
+
+type openAIMsg struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type openAIResponse struct {
+	Choices []struct {
+		Message openAIMsg `json:"message"`
+	} `json:"choices"`
+}
+
+// ─── PostSlot ─────────────────────────────────────────────────────────────────
+
+// PostSlot is an internal representation of a single content slot returned by
+// the content strategy step.
+type PostSlot struct {
+	ScheduledFor  time.Time `json:"scheduled_for"`
+	Platform      string    `json:"platform"`
+	PostType      string    `json:"post_type"`    // "image", "video", "text", "carousel"
+	ContentPillar string    `json:"content_pillar"`
+	KeyMessage    string    `json:"key_message"`
+	VisualStyle   string    `json:"visual_style"`
+}
+
+// ─── Orchestrator ─────────────────────────────────────────────────────────────
+
+// Orchestrator handles end-to-end AI campaign generation.
+type Orchestrator struct {
+	db            *gorm.DB
+	asynq         *asynq.Client
+	encryptSecret string
+	fallbackOpenAI string
+	fallbackFal    string
+	httpClient    *http.Client
+	log           *zap.Logger
+}
+
+// New creates a new Orchestrator. openaiKey and falKey are env-variable fallbacks;
+// the real keys are read from platform_settings (encrypted with encryptSecret).
+func New(db *gorm.DB, asynqClient *asynq.Client, openaiKey, falKey, encryptSecret string, log *zap.Logger) *Orchestrator {
+	return &Orchestrator{
+		db:             db,
+		asynq:          asynqClient,
+		encryptSecret:  encryptSecret,
+		fallbackOpenAI: openaiKey,
+		fallbackFal:    falKey,
+		httpClient:     &http.Client{Timeout: 120 * time.Second},
+		log:            log,
+	}
+}
+
+// ─── Key loading ──────────────────────────────────────────────────────────────
+
+// loadAPIKeys reads openai_api_key and fal_api_key from platform_settings,
+// decrypts them, and falls back to the constructor-provided values.
+func (o *Orchestrator) loadAPIKeys(ctx context.Context) (openaiKey, falKey string) {
+	openaiKey = o.fallbackOpenAI
+	falKey = o.fallbackFal
+
+	var settings []struct {
+		Key   string `gorm:"column:key"`
+		Value string `gorm:"column:value"`
+	}
+	if err := o.db.WithContext(ctx).Table("platform_settings").
+		Where("key IN ?", []string{"openai_api_key", "fal_api_key"}).
+		Find(&settings).Error; err != nil {
+		o.log.Warn("loadAPIKeys: failed to query platform_settings", zap.Error(err))
+		return
+	}
+	for _, row := range settings {
+		if row.Value == "" {
+			continue
+		}
+		decrypted, err := crypto.Decrypt(row.Value, o.encryptSecret)
+		if err != nil {
+			o.log.Warn("loadAPIKeys: failed to decrypt key", zap.String("key", row.Key), zap.Error(err))
+			continue
+		}
+		switch row.Key {
+		case "openai_api_key":
+			openaiKey = decrypted
+		case "fal_api_key":
+			falKey = decrypted
+		}
+	}
+	return
+}
+
+// ─── GenerateCampaign ─────────────────────────────────────────────────────────
+
+// GenerateCampaign is the top-level orchestration step.
+// It builds the content strategy, creates CampaignPost records, and enqueues
+// individual generate_post tasks.
+func (o *Orchestrator) GenerateCampaign(ctx context.Context, campaignID, workspaceID uuid.UUID) error {
+	log := o.log.With(
+		zap.String("campaign_id", campaignID.String()),
+		zap.String("workspace_id", workspaceID.String()),
+	)
+	log.Info("GenerateCampaign: starting")
+
+	// 1. Load campaign (with BrandKit).
+	var campaign models.Campaign
+	if err := o.db.WithContext(ctx).
+		Preload("BrandKit").
+		First(&campaign, "id = ? AND workspace_id = ?", campaignID, workspaceID).Error; err != nil {
+		return fmt.Errorf("GenerateCampaign: load campaign: %w", err)
+	}
+
+	// 2. Validate status.
+	if campaign.Status != models.CampaignStatusGenerating {
+		return fmt.Errorf("GenerateCampaign: campaign %s is not in 'generating' state (got %s)", campaignID, campaign.Status)
+	}
+
+	// Helper to mark campaign as failed.
+	failCampaign := func(reason string) {
+		o.db.WithContext(ctx).Model(&campaign).Updates(map[string]interface{}{
+			"status":              models.CampaignStatusFailed,
+			"generation_progress": models.JSONMap{"error": reason, "step": "failed"},
+		})
+		log.Error("GenerateCampaign: marked as failed", zap.String("reason", reason))
+	}
+
+	// 3. Update progress: step 1 — building strategy.
+	if err := o.db.WithContext(ctx).Model(&campaign).Update("generation_progress", models.JSONMap{
+		"step":        "strategy",
+		"step_num":    1,
+		"total_steps": 3,
+	}).Error; err != nil {
+		log.Warn("GenerateCampaign: failed to update progress", zap.Error(err))
+	}
+
+	// 4. Generate content strategy via OpenAI.
+	log.Info("GenerateCampaign: generating content strategy")
+	slots, err := o.generateContentStrategy(ctx, &campaign)
+	if err != nil {
+		failCampaign(err.Error())
+		return fmt.Errorf("GenerateCampaign: strategy: %w", err)
+	}
+	log.Info("GenerateCampaign: strategy generated", zap.Int("slots", len(slots)))
+
+	// 5. Create CampaignPost records.
+	posts := make([]models.CampaignPost, 0, len(slots))
+	for i, slot := range slots {
+		post := models.CampaignPost{
+			CampaignID:    campaignID,
+			WorkspaceID:   workspaceID,
+			ScheduledFor:  slot.ScheduledFor,
+			Platform:      models.PlatformType(slot.Platform),
+			PostType:      models.PostType(slot.PostType),
+			ContentPillar: slot.ContentPillar,
+			Status:        models.CampaignPostPendingGeneration,
+			SortOrder:     i,
+			AIPromptsUsed: models.JSONMap{
+				"key_message":  slot.KeyMessage,
+				"visual_style": slot.VisualStyle,
+			},
+		}
+		if err := o.db.WithContext(ctx).Create(&post).Error; err != nil {
+			failCampaign(fmt.Sprintf("create post record %d: %v", i, err))
+			return fmt.Errorf("GenerateCampaign: create post %d: %w", i, err)
+		}
+		posts = append(posts, post)
+	}
+
+	// 6. Update campaign: total_posts + progress step 2.
+	if err := o.db.WithContext(ctx).Model(&campaign).Updates(map[string]interface{}{
+		"total_posts": len(slots),
+		"generation_progress": models.JSONMap{
+			"step":        "posts_created",
+			"step_num":    2,
+			"total_steps": 3,
+		},
+	}).Error; err != nil {
+		log.Warn("GenerateCampaign: failed to update total_posts", zap.Error(err))
+	}
+
+	// 7. Enqueue generate_post tasks for each post.
+	for _, post := range posts {
+		payload := queue.GenerateCampaignPostPayload{
+			CampaignPostID: post.ID,
+			CampaignID:     campaignID,
+			WorkspaceID:    workspaceID,
+		}
+		task, err := queue.NewGenerateCampaignPostTask(payload)
+		if err != nil {
+			log.Error("GenerateCampaign: failed to create task", zap.String("post_id", post.ID.String()), zap.Error(err))
+			continue
+		}
+		if _, err := o.asynq.EnqueueContext(ctx, task); err != nil {
+			log.Error("GenerateCampaign: failed to enqueue task", zap.String("post_id", post.ID.String()), zap.Error(err))
+		}
+	}
+
+	// 8. Update progress step 3.
+	if err := o.db.WithContext(ctx).Model(&campaign).Update("generation_progress", models.JSONMap{
+		"step":        "posts_enqueued",
+		"step_num":    3,
+		"total_steps": 3,
+	}).Error; err != nil {
+		log.Warn("GenerateCampaign: failed to update progress step 3", zap.Error(err))
+	}
+
+	log.Info("GenerateCampaign: complete", zap.Int("posts_enqueued", len(posts)))
+	return nil
+}
+
+// ─── generateContentStrategy ──────────────────────────────────────────────────
+
+func (o *Orchestrator) generateContentStrategy(ctx context.Context, campaign *models.Campaign) ([]PostSlot, error) {
+	openaiKey, _ := o.loadAPIKeys(ctx)
+	if openaiKey == "" {
+		return nil, fmt.Errorf("OpenAI API key not configured")
+	}
+
+	systemPrompt := `You are an expert social media content strategist. Generate a structured content calendar as a JSON array.
+Each item must have: scheduled_for (ISO8601), platform, post_type (image/video/text/carousel), content_pillar, key_message, visual_style.
+Distribute posts according to the specified frequency and content mix.
+Ensure variety: no same content pillar two days in a row, mix post types, align with brand guidelines.
+Only output valid JSON array, no markdown, no explanation.`
+
+	userPrompt := buildStrategyPrompt(campaign)
+
+	req := openAIRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openAIMsg{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Temperature: 0.7,
+		MaxTokens:   4096,
+	}
+
+	raw, err := o.callOpenAI(ctx, openaiKey, req)
+	if err != nil {
+		return nil, fmt.Errorf("generateContentStrategy: openai: %w", err)
+	}
+
+	// Strip possible markdown fences.
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "```json")
+	raw = strings.TrimPrefix(raw, "```")
+	raw = strings.TrimSuffix(raw, "```")
+	raw = strings.TrimSpace(raw)
+
+	var slots []PostSlot
+	if err := json.Unmarshal([]byte(raw), &slots); err != nil {
+		return nil, fmt.Errorf("generateContentStrategy: parse JSON: %w (raw: %.200s)", err, raw)
+	}
+	return slots, nil
+}
+
+// buildStrategyPrompt assembles the user-facing prompt for content strategy.
+func buildStrategyPrompt(c *models.Campaign) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("Campaign Name: %s\n", c.Name))
+	sb.WriteString(fmt.Sprintf("Goal: %s\n", c.Goal))
+	sb.WriteString(fmt.Sprintf("Brief: %s\n", c.Brief))
+
+	if c.StartDate != nil {
+		sb.WriteString(fmt.Sprintf("Start Date: %s\n", c.StartDate.Format("2006-01-02")))
+	}
+	if c.EndDate != nil {
+		sb.WriteString(fmt.Sprintf("End Date: %s\n", c.EndDate.Format("2006-01-02")))
+	}
+
+	if len(c.Platforms) > 0 {
+		sb.WriteString(fmt.Sprintf("Platforms: %s\n", strings.Join(c.Platforms, ", ")))
+	}
+
+	if len(c.PostingFrequency) > 0 {
+		if b, err := json.Marshal(c.PostingFrequency); err == nil {
+			sb.WriteString(fmt.Sprintf("Posting Frequency (posts per platform per week): %s\n", string(b)))
+		}
+	}
+
+	if len(c.ContentMix) > 0 {
+		if b, err := json.Marshal(c.ContentMix); err == nil {
+			sb.WriteString(fmt.Sprintf("Content Mix (percentage by type): %s\n", string(b)))
+		}
+	}
+
+	if c.BrandKit != nil {
+		bk := c.BrandKit
+		if bk.Industry != "" {
+			sb.WriteString(fmt.Sprintf("Industry: %s\n", bk.Industry))
+		}
+		if bk.BrandVoice != "" {
+			sb.WriteString(fmt.Sprintf("Brand Voice: %s\n", bk.BrandVoice))
+		}
+		if bk.TargetAudience != "" {
+			sb.WriteString(fmt.Sprintf("Target Audience: %s\n", bk.TargetAudience))
+		}
+		if len(bk.ContentPillars) > 0 {
+			sb.WriteString(fmt.Sprintf("Content Pillars: %s\n", strings.Join(bk.ContentPillars, ", ")))
+		}
+		if len(bk.Dos) > 0 {
+			sb.WriteString(fmt.Sprintf("Brand Do's: %s\n", strings.Join(bk.Dos, "; ")))
+		}
+		if len(bk.Donts) > 0 {
+			sb.WriteString(fmt.Sprintf("Brand Don'ts: %s\n", strings.Join(bk.Donts, "; ")))
+		}
+	}
+
+	sb.WriteString("\nGenerate the full content calendar as a JSON array of post slots.")
+	return sb.String()
+}
+
+// ─── GenerateCampaignPost ─────────────────────────────────────────────────────
+
+// GenerateCampaignPost generates caption, hashtags, and media for a single post.
+func (o *Orchestrator) GenerateCampaignPost(ctx context.Context, campaignPostID, campaignID, workspaceID uuid.UUID) error {
+	log := o.log.With(
+		zap.String("campaign_post_id", campaignPostID.String()),
+		zap.String("campaign_id", campaignID.String()),
+	)
+	log.Info("GenerateCampaignPost: starting")
+
+	// 1. Load post + campaign + brand kit.
+	var post models.CampaignPost
+	if err := o.db.WithContext(ctx).
+		First(&post, "id = ? AND campaign_id = ? AND workspace_id = ?", campaignPostID, campaignID, workspaceID).Error; err != nil {
+		return fmt.Errorf("GenerateCampaignPost: load post: %w", err)
+	}
+
+	var campaign models.Campaign
+	if err := o.db.WithContext(ctx).
+		Preload("BrandKit").
+		First(&campaign, "id = ? AND workspace_id = ?", campaignID, workspaceID).Error; err != nil {
+		return fmt.Errorf("GenerateCampaignPost: load campaign: %w", err)
+	}
+
+	// 2. Update post status → generating.
+	if err := o.db.WithContext(ctx).Model(&post).Update("status", models.CampaignPostGenerating).Error; err != nil {
+		log.Warn("GenerateCampaignPost: failed to set status=generating", zap.Error(err))
+	}
+
+	// Helper to mark post as failed.
+	failPost := func(reason string) {
+		o.db.WithContext(ctx).Model(&post).Updates(map[string]interface{}{
+			"status":        models.CampaignPostFailed,
+			"error_message": reason,
+		})
+		log.Error("GenerateCampaignPost: marked as failed", zap.String("reason", reason))
+	}
+
+	// Extract stored slot context from ai_prompts_used.
+	keyMessage, _ := post.AIPromptsUsed["key_message"].(string)
+	visualStyle, _ := post.AIPromptsUsed["visual_style"].(string)
+
+	slot := PostSlot{
+		ScheduledFor:  post.ScheduledFor,
+		Platform:      string(post.Platform),
+		PostType:      string(post.PostType),
+		ContentPillar: post.ContentPillar,
+		KeyMessage:    keyMessage,
+		VisualStyle:   visualStyle,
+	}
+
+	openaiKey, falKey := o.loadAPIKeys(ctx)
+
+	// 3. Generate caption.
+	caption, err := o.generateCaption(ctx, openaiKey, slot, &campaign, campaign.BrandKit)
+	if err != nil {
+		failPost(fmt.Sprintf("caption: %v", err))
+		return fmt.Errorf("GenerateCampaignPost: %w", err)
+	}
+
+	// 4. Generate hashtags.
+	hashtags := o.generateHashtags(ctx, openaiKey, caption, slot, &campaign, campaign.BrandKit)
+
+	// 5. Media generation.
+	var mediaURLs []string
+	switch slot.PostType {
+	case "image":
+		imageURL, err := o.generateImage(ctx, falKey, slot, &campaign, campaign.BrandKit)
+		if err != nil {
+			log.Warn("GenerateCampaignPost: image generation failed, continuing without media", zap.Error(err))
+		} else if imageURL != "" {
+			mediaURLs = append(mediaURLs, imageURL)
+		}
+	case "video":
+		videoURL, err := o.generateVideo(ctx, falKey, slot, &campaign, campaign.BrandKit)
+		if err != nil {
+			log.Warn("GenerateCampaignPost: video generation failed, continuing without media", zap.Error(err))
+		} else if videoURL != "" {
+			mediaURLs = append(mediaURLs, videoURL)
+		}
+	// "text" and "carousel" — no media generation
+	}
+
+	// 6. Update post: caption, hashtags, media, status=generated.
+	updates := map[string]interface{}{
+		"status":             models.CampaignPostGenerated,
+		"generated_caption":  caption,
+		"generated_hashtags": models.StringSlice(hashtags),
+		"error_message":      "",
+	}
+	if len(mediaURLs) > 0 {
+		updates["media_urls"] = models.StringSlice(mediaURLs)
+	}
+	if err := o.db.WithContext(ctx).Model(&post).Updates(updates).Error; err != nil {
+		failPost(fmt.Sprintf("persist post: %v", err))
+		return fmt.Errorf("GenerateCampaignPost: persist: %w", err)
+	}
+
+	// 7. Increment campaign.posts_generated atomically.
+	if err := o.db.WithContext(ctx).Model(&models.Campaign{}).
+		Where("id = ?", campaignID).
+		UpdateColumn("posts_generated", gorm.Expr("posts_generated + 1")).Error; err != nil {
+		log.Warn("GenerateCampaignPost: failed to increment posts_generated", zap.Error(err))
+	}
+
+	// 8. Check if all posts are done and update campaign status.
+	o.maybeFinalise(ctx, campaignID, workspaceID, log)
+
+	log.Info("GenerateCampaignPost: complete")
+	return nil
+}
+
+// maybeFinalise checks whether all posts have been generated and transitions the
+// campaign to "review" (or "scheduled" if auto_approve is set).
+func (o *Orchestrator) maybeFinalise(ctx context.Context, campaignID, workspaceID uuid.UUID, log *zap.Logger) {
+	var campaign models.Campaign
+	if err := o.db.WithContext(ctx).
+		First(&campaign, "id = ? AND workspace_id = ?", campaignID, workspaceID).Error; err != nil {
+		log.Warn("maybeFinalise: reload campaign failed", zap.Error(err))
+		return
+	}
+
+	if campaign.PostsGenerated < campaign.TotalPosts {
+		return // more posts still in flight
+	}
+
+	if campaign.AutoApprove {
+		// Approve all generated posts.
+		if err := o.db.WithContext(ctx).Model(&models.CampaignPost{}).
+			Where("campaign_id = ? AND status = ?", campaignID, models.CampaignPostGenerated).
+			Update("status", models.CampaignPostApproved).Error; err != nil {
+			log.Warn("maybeFinalise: auto-approve posts failed", zap.Error(err))
+		}
+		// Update campaign status → scheduled.
+		o.db.WithContext(ctx).Model(&campaign).Updates(map[string]interface{}{
+			"status": models.CampaignStatusScheduled,
+			"generation_progress": models.JSONMap{
+				"step": "complete",
+				"auto_approved": true,
+			},
+		})
+		log.Info("maybeFinalise: all posts generated + auto-approved → scheduled")
+	} else {
+		o.db.WithContext(ctx).Model(&campaign).Updates(map[string]interface{}{
+			"status": models.CampaignStatusReview,
+			"generation_progress": models.JSONMap{
+				"step": "complete",
+			},
+		})
+		log.Info("maybeFinalise: all posts generated → review")
+	}
+}
+
+// ─── generateCaption ──────────────────────────────────────────────────────────
+
+func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) (string, error) {
+	if openaiKey == "" {
+		return "", fmt.Errorf("generateCaption: OpenAI API key not configured")
+	}
+
+	platformGuide := captionPlatformGuide(slot.Platform)
+	brandVoice := ""
+	targetAudience := ""
+	dos := ""
+	donts := ""
+	if bk != nil {
+		brandVoice = bk.BrandVoice
+		targetAudience = bk.TargetAudience
+		if len(bk.Dos) > 0 {
+			dos = strings.Join(bk.Dos, "; ")
+		}
+		if len(bk.Donts) > 0 {
+			donts = strings.Join(bk.Donts, "; ")
+		}
+	}
+
+	systemPrompt := fmt.Sprintf(`You are an expert social media copywriter.
+Platform: %s
+%s
+Brand Voice: %s
+Target Audience: %s
+Do's: %s
+Don'ts: %s
+Write a compelling caption for the post. Return ONLY the caption text — no hashtags, no markdown, no JSON wrapper.`,
+		slot.Platform, platformGuide, brandVoice, targetAudience, dos, donts)
+
+	userPrompt := fmt.Sprintf(`Campaign Goal: %s
+Content Pillar: %s
+Key Message: %s
+Write the caption now.`, campaign.Goal, slot.ContentPillar, slot.KeyMessage)
+
+	req := openAIRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openAIMsg{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userPrompt},
+		},
+		Temperature: 0.75,
+		MaxTokens:   600,
+	}
+
+	return o.callOpenAI(ctx, openaiKey, req)
+}
+
+// captionPlatformGuide returns platform-specific writing guidance.
+func captionPlatformGuide(platform string) string {
+	guides := map[string]string{
+		"instagram": "Max 2200 chars (150-300 optimal). Hook in first line. Use line breaks. Strong CTA.",
+		"tiktok":    "Max 150 chars. Casual, authentic voice. Hook in first 2 seconds.",
+		"linkedin":  "Formal but personal. 1300-1500 chars optimal. Short paragraphs. End with a question.",
+		"twitter":   "STRICT 280 character limit. Every word counts. Lead with the most compelling part.",
+		"facebook":  "40-80 chars for highest engagement. Storytelling works. Ask questions.",
+		"youtube":   "Description: keyword-rich. First 150 chars appear in search. Include timestamps.",
+		"pinterest": "Up to 500 chars. SEO-first. Keyword-rich. Value proposition.",
+		"threads":   "Max 500 chars. Casual, conversational. Hot takes perform well.",
+		"bluesky":   "Max 300 chars. Authentic, community-first.",
+	}
+	if g, ok := guides[strings.ToLower(platform)]; ok {
+		return g
+	}
+	return ""
+}
+
+// ─── generateHashtags ─────────────────────────────────────────────────────────
+
+func (o *Orchestrator) generateHashtags(ctx context.Context, openaiKey, caption string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) []string {
+	// Start with brand hashtags if available.
+	var brandTags []string
+	if bk != nil {
+		brandTags = bk.BrandHashtags
+	}
+
+	if openaiKey == "" {
+		return brandTags
+	}
+
+	req := openAIRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openAIMsg{
+			{Role: "system", Content: fmt.Sprintf(`Generate 10-15 relevant hashtags for a %s post. Return a JSON object: {"hashtags": ["tag1","tag2",...]}. No # prefix.`, slot.Platform)},
+			{Role: "user", Content: fmt.Sprintf("Caption: %s\nContent Pillar: %s\nGoal: %s", caption, slot.ContentPillar, campaign.Goal)},
+		},
+		Temperature: 0.5,
+		MaxTokens:   200,
+	}
+
+	raw, err := o.callOpenAI(ctx, openaiKey, req)
+	if err != nil {
+		o.log.Warn("generateHashtags: openai failed", zap.Error(err))
+		return brandTags
+	}
+
+	var out struct {
+		Hashtags []string `json:"hashtags"`
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		// Try to extract from raw text.
+		return brandTags
+	}
+
+	// Merge brand tags first, then AI tags.
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(brandTags)+len(out.Hashtags))
+	for _, t := range brandTags {
+		if !seen[t] {
+			seen[t] = true
+			result = append(result, t)
+		}
+	}
+	for _, t := range out.Hashtags {
+		if !seen[t] {
+			seen[t] = true
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
+// ─── generateImage ────────────────────────────────────────────────────────────
+
+func (o *Orchestrator) generateImage(ctx context.Context, falKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) (string, error) {
+	if falKey == "" {
+		return "", fmt.Errorf("generateImage: fal.ai API key not configured")
+	}
+
+	// Build image prompt.
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Professional social media image for %s. ", slot.Platform))
+	sb.WriteString(fmt.Sprintf("Visual style: %s. ", slot.VisualStyle))
+	sb.WriteString(fmt.Sprintf("Key message: %s. ", slot.KeyMessage))
+	if bk != nil {
+		if bk.PrimaryColor != "" {
+			sb.WriteString(fmt.Sprintf("Use color palette: primary %s", bk.PrimaryColor))
+			if bk.SecondaryColor != "" {
+				sb.WriteString(fmt.Sprintf(", secondary %s", bk.SecondaryColor))
+			}
+			sb.WriteString(". ")
+		}
+	}
+	sb.WriteString("High quality, professional composition, no text overlays, no watermarks.")
+
+	imageSize := platformToImageSize(slot.Platform)
+
+	reqBody := map[string]interface{}{
+		"prompt":                sb.String(),
+		"image_size":            imageSize,
+		"num_images":            1,
+		"num_inference_steps":   4, // flux/schnell uses fewer steps
+		"enable_safety_checker": true,
+	}
+
+	result, err := o.falQueueRequest(ctx, falKey, "fal-ai/flux/schnell", reqBody)
+	if err != nil {
+		return "", fmt.Errorf("generateImage: fal.ai: %w", err)
+	}
+
+	return extractFirstImageURL(result), nil
+}
+
+// platformToImageSize maps a platform to a fal.ai image_size preset.
+func platformToImageSize(platform string) string {
+	switch strings.ToLower(platform) {
+	case "instagram":
+		return "square_hd" // 1:1 feed
+	case "tiktok", "reels", "stories":
+		return "portrait_4_3" // closest to 9:16 in fal presets
+	case "linkedin":
+		return "landscape_16_9" // 1.91:1 ≈ 16:9
+	case "twitter":
+		return "landscape_16_9" // 16:9
+	default:
+		return "square_hd"
+	}
+}
+
+// ─── generateVideo ────────────────────────────────────────────────────────────
+
+// generateVideo generates media for a video post slot.
+// TODO: Implement true video generation using Kling (fal-ai/kling-video).
+// Currently uses flux/schnell to generate a static image as a placeholder
+// because video generation is slow (~10min) and expensive per post.
+func (o *Orchestrator) generateVideo(ctx context.Context, falKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) (string, error) {
+	return o.generateImage(ctx, falKey, slot, campaign, bk)
+}
+
+// ─── fal.ai helpers ───────────────────────────────────────────────────────────
+
+// falQueueRequest submits a job to fal.ai's async queue and polls until done.
+// Mirrors the pattern from internal/services/ai/ai.go.
+func (o *Orchestrator) falQueueRequest(ctx context.Context, falKey, model string, body map[string]interface{}) (map[string]interface{}, error) {
+	// 1. Submit to queue.
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	submitURL := fmt.Sprintf("https://queue.fal.run/%s", model)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, submitURL, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Key "+falKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fal.ai queue submit: %w", err)
+	}
+	rawBody, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("fal.ai queue submit error %d: %s", resp.StatusCode, string(rawBody))
+	}
+
+	var submitResp map[string]interface{}
+	if err := json.Unmarshal(rawBody, &submitResp); err != nil {
+		return nil, fmt.Errorf("fal.ai queue submit decode: %w", err)
+	}
+
+	requestID, _ := submitResp["request_id"].(string)
+	if requestID == "" {
+		return nil, fmt.Errorf("fal.ai queue submit: no request_id in response: %s", string(rawBody))
+	}
+
+	statusURL, _ := submitResp["status_url"].(string)
+	if statusURL == "" {
+		statusURL = fmt.Sprintf("https://queue.fal.run/%s/requests/%s/status", model, requestID)
+	}
+	responseURL, _ := submitResp["response_url"].(string)
+	if responseURL == "" {
+		responseURL = fmt.Sprintf("https://queue.fal.run/%s/requests/%s", model, requestID)
+	}
+
+	o.log.Info("fal.ai queue submitted", zap.String("request_id", requestID), zap.String("model", model))
+
+	// 2. Poll until completed or failed.
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("fal.ai queue: context cancelled waiting for %s", requestID)
+		case <-ticker.C:
+			sreq, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
+			if err != nil {
+				return nil, err
+			}
+			sreq.Header.Set("Authorization", "Key "+falKey)
+			sresp, err := o.httpClient.Do(sreq)
+			if err != nil {
+				o.log.Warn("fal.ai queue poll network error", zap.String("request_id", requestID), zap.Error(err))
+				continue
+			}
+			sBody, _ := io.ReadAll(sresp.Body)
+			sresp.Body.Close()
+
+			if sresp.StatusCode >= 400 {
+				return nil, fmt.Errorf("fal.ai queue status error %d: %s", sresp.StatusCode, string(sBody))
+			}
+
+			var statusResp map[string]interface{}
+			if err := json.Unmarshal(sBody, &statusResp); err != nil {
+				o.log.Warn("fal.ai queue poll decode error", zap.Error(err))
+				continue
+			}
+
+			status := strings.ToUpper(fmt.Sprintf("%v", statusResp["status"]))
+			o.log.Info("fal.ai queue status", zap.String("request_id", requestID), zap.String("status", status))
+
+			switch status {
+			case "COMPLETED":
+				// 3. Fetch result.
+				rreq, err := http.NewRequestWithContext(ctx, http.MethodGet, responseURL, nil)
+				if err != nil {
+					return nil, err
+				}
+				rreq.Header.Set("Authorization", "Key "+falKey)
+				rresp, err := o.httpClient.Do(rreq)
+				if err != nil {
+					return nil, fmt.Errorf("fal.ai queue result fetch: %w", err)
+				}
+				rBody, _ := io.ReadAll(rresp.Body)
+				rresp.Body.Close()
+				if rresp.StatusCode >= 400 {
+					return nil, fmt.Errorf("fal.ai queue result error %d: %s", rresp.StatusCode, string(rBody))
+				}
+				var result map[string]interface{}
+				if err := json.Unmarshal(rBody, &result); err != nil {
+					return nil, fmt.Errorf("fal.ai queue result decode: %w", err)
+				}
+				return result, nil
+
+			case "FAILED":
+				errMsg, _ := statusResp["error"].(string)
+				if errMsg == "" {
+					errMsg, _ = statusResp["error_message"].(string)
+				}
+				return nil, fmt.Errorf("fal.ai queue job failed: %s", errMsg)
+			}
+			// IN_QUEUE, IN_PROGRESS — keep polling
+		}
+	}
+}
+
+// extractFirstImageURL extracts the URL of the first image from a fal.ai response.
+func extractFirstImageURL(raw map[string]interface{}) string {
+	images, _ := raw["images"].([]interface{})
+	if len(images) > 0 {
+		if img, ok := images[0].(map[string]interface{}); ok {
+			url, _ := img["url"].(string)
+			return url
+		}
+	}
+	return ""
+}
+
+// ─── callOpenAI ───────────────────────────────────────────────────────────────
+
+// callOpenAI makes a synchronous call to the OpenAI chat completions endpoint
+// using net/http (no SDK dependency) and returns the assistant message content.
+func (o *Orchestrator) callOpenAI(ctx context.Context, apiKey string, req openAIRequest) (string, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("callOpenAI: marshal: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.openai.com/v1/chat/completions", bytes.NewReader(b))
+	if err != nil {
+		return "", fmt.Errorf("callOpenAI: build request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := o.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("callOpenAI: http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("callOpenAI: read body: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("callOpenAI: API error %d: %s", resp.StatusCode, string(rawBody))
+	}
+
+	var oaiResp openAIResponse
+	if err := json.Unmarshal(rawBody, &oaiResp); err != nil {
+		return "", fmt.Errorf("callOpenAI: decode: %w", err)
+	}
+	if len(oaiResp.Choices) == 0 {
+		return "", fmt.Errorf("callOpenAI: no choices in response")
+	}
+	return strings.TrimSpace(oaiResp.Choices[0].Message.Content), nil
+}

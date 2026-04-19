@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Building2, CreditCard, Share2,
   Sparkles, FileText, Settings, Zap, LogOut, Menu, X, Shield,
-  TrendingUp, Megaphone,
+  TrendingUp, Megaphone, Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminAuthStore } from "@/lib/stores/admin-auth";
@@ -18,6 +18,7 @@ const adminNav = [
   { href: "/admin/subscriptions", icon: CreditCard, label: "Subscriptions" },
   { href: "/admin/platforms", icon: Share2, label: "Platforms" },
   { href: "/admin/ai-jobs", icon: Sparkles, label: "AI Jobs" },
+  { href: "/admin/campaigns", icon: Bot, label: "Campaigns" },
   { href: "/admin/audit-logs", icon: FileText, label: "Audit Logs" },
   { href: "/admin/revenue", icon: TrendingUp, label: "Revenue" },
   { href: "/admin/broadcast", icon: Megaphone, label: "Broadcast" },
@@ -128,7 +129,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return null;
   }
 
-  const pageTitle = adminNav.find((n) => n.href === pathname)?.label ?? "Admin";
+  const pageTitle = adminNav.find((n) => n.href === pathname || (n.href !== "/admin" && pathname.startsWith(n.href)))?.label ?? "Admin";
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950">

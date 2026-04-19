@@ -29,7 +29,17 @@ import {
   CreditTopUpSession,
   Automation,
   CreateAutomationRequest,
+  BrandKit,
+  CreateBrandKitRequest,
+  Campaign,
+  CampaignPost,
+  CreateCampaignRequest,
 } from "@/types";
+
+// AdminCampaign extends Campaign with workspace_name from the JOIN query.
+export interface AdminCampaign extends Campaign {
+  workspace_name: string;
+}
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -756,6 +766,46 @@ export const automationsApi = {
 };
 
 // ============================================================
+// Brand Kits
+// ============================================================
+
+export const brandKitApi = {
+  list: () => request<{ data: BrandKit[] }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/brand-kits`),
+  create: (data: CreateBrandKitRequest) => request<{ data: BrandKit }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/brand-kits`, { method: 'POST', body: JSON.stringify(data) }),
+  get: (id: string) => request<{ data: BrandKit }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/brand-kits/${id}`),
+  update: (id: string, data: Partial<CreateBrandKitRequest>) => request<{ data: BrandKit }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/brand-kits/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id: string) => request<void>(`/api/v1/workspaces/${getActiveWorkspaceId()}/brand-kits/${id}`, { method: 'DELETE' }),
+  setDefault: (id: string) => request<{ data: BrandKit }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/brand-kits/${id}/set-default`, { method: 'POST' }),
+};
+
+// ============================================================
+// Campaigns
+// ============================================================
+
+export const campaignsApi = {
+  list: (status?: string) => {
+    const qs2 = status ? `?status=${status}` : ''
+    return request<{ data: Campaign[]; meta: { total: number } }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns${qs2}`)
+  },
+  create: (data: CreateCampaignRequest) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns`, { method: 'POST', body: JSON.stringify(data) }),
+  get: (id: string) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}`),
+  update: (id: string, data: Partial<CreateCampaignRequest>) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id: string) => request<void>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}`, { method: 'DELETE' }),
+  generate: (id: string) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/generate`, { method: 'POST' }),
+  pause: (id: string) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/pause`, { method: 'POST' }),
+  resume: (id: string) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/resume`, { method: 'POST' }),
+  listPosts: (id: string, status?: string) => {
+    const qs2 = status ? `?status=${status}` : ''
+    return request<{ data: CampaignPost[] }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts${qs2}`)
+  },
+  updatePost: (id: string, pid: string, data: { generated_caption?: string; generated_hashtags?: string[] }) =>
+    request<{ data: CampaignPost }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts/${pid}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  approvePost: (id: string, pid: string) => request<{ data: CampaignPost }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts/${pid}/approve`, { method: 'POST' }),
+  rejectPost: (id: string, pid: string) => request<{ data: CampaignPost }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts/${pid}/reject`, { method: 'POST' }),
+  approveAll: (id: string) => request<{ approved: number }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/approve-all`, { method: 'POST' }),
+}
+
+// ============================================================
 // Admin (super-admin only)
 // ============================================================
 
@@ -906,4 +956,25 @@ export const adminApi = {
       total_accounts: number;
       failed_posts_today: number;
     }>("/api/v1/admin/platforms"),
+
+  // ── Admin Campaigns ──────────────────────────────────────────────────────────
+  listAllCampaigns: (params?: { status?: string; page?: number; search?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.status) q.set('status', params.status)
+    if (params?.page) q.set('page', String(params.page))
+    if (params?.search) q.set('search', params.search)
+    const qs2 = q.toString() ? `?${q.toString()}` : ''
+    return adminReq<{ data: AdminCampaign[]; meta: { total: number; page: number; limit: number; total_pages: number } }>(
+      `/api/v1/admin/campaigns${qs2}`
+    )
+  },
+
+  forcePauseCampaign: (id: string) =>
+    adminReq<void>(`/api/v1/admin/campaigns/${id}/force-pause`, { method: 'POST' }),
+
+  adminGetCampaign: (id: string) =>
+    adminReq<{ data: AdminCampaign }>(`/api/v1/admin/campaigns/${id}`),
+
+  adminListCampaignPosts: (id: string) =>
+    adminReq<{ data: CampaignPost[] }>(`/api/v1/admin/campaigns/${id}/posts`),
 };

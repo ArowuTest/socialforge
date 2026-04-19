@@ -29,6 +29,7 @@ import (
 	analyticssvc "github.com/socialforge/backend/internal/services/analytics"
 	authsvc "github.com/socialforge/backend/internal/services/auth"
 	billingsvc "github.com/socialforge/backend/internal/services/billing"
+	campaignsvc "github.com/socialforge/backend/internal/services/campaign"
 	"github.com/socialforge/backend/internal/services/notifications"
 	"github.com/socialforge/backend/internal/services/publishing"
 	"github.com/socialforge/backend/internal/services/scheduling"
@@ -157,15 +158,19 @@ func main() {
 	asynqClient := asynq.NewClient(redisOpt)
 	defer asynqClient.Close()
 
+	// ── Campaign orchestrator ─────────────────────────────────────────────────
+	campaignOrchestrator := campaignsvc.New(db, asynqClient, cfg.OpenAI.APIKey, cfg.FalAI.APIKey, encryptionSecret, log)
+
 	// ── Asynq server + worker deps ────────────────────────────────────────────
 	workerDeps := queue.WorkerDeps{
-		DB:                 db,
-		Logger:             log,
-		Publisher:          publishService,
-		AIService:          aiService,
-		RepurposeService:   &repurposeAdapter{svc: aiService},
-		OAuthRefresher:     publishService,
-		NotificationSender: notificationsService,
+		DB:                   db,
+		Logger:               log,
+		Publisher:            publishService,
+		AIService:            aiService,
+		RepurposeService:     &repurposeAdapter{svc: aiService},
+		OAuthRefresher:       publishService,
+		NotificationSender:   notificationsService,
+		CampaignOrchestrator: campaignOrchestrator,
 	}
 	queueSrv, mux := queue.NewServer(rdb, workerDeps, queue.DefaultServerConfig())
 

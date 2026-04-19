@@ -24,6 +24,8 @@ import {
   Code2,
   BookTemplate,
   CreditCard,
+  Palette,
+  Rocket,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
@@ -39,35 +41,63 @@ import { getInitials } from "@/lib/utils";
 import { PlanType } from "@/types";
 import { toast } from "sonner";
 
-const navItems = [
-  { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/calendar", icon: CalendarDays, label: "Calendar" },
-  { href: "/compose", icon: PenSquare, label: "Compose" },
-  { href: "/accounts", icon: Share2, label: "Accounts" },
-  { href: "/ai", icon: Sparkles, label: "AI Studio" },
-  { href: "/analytics", icon: BarChart3, label: "Analytics" },
-  { href: "/clients", icon: Users, label: "Clients" },
-  { href: "/automations", icon: Zap, label: "Automations" },
-  { href: "/repurpose", icon: RefreshCw, label: "Repurpose" },
-  { href: "/media", icon: Image, label: "Media Library" },
-  { href: "/templates", icon: BookTemplate, label: "Templates" },
-  { href: "/developer", icon: Code2, label: "Developer API" },
-  { href: "/billing", icon: CreditCard, label: "Billing" },
-  { href: "/settings", icon: Settings2, label: "Settings" },
+const navSections = [
+  {
+    label: "OVERVIEW",
+    autopilot: false,
+    items: [
+      { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+      { href: "/analytics", icon: BarChart3, label: "Analytics" },
+      { href: "/calendar", icon: CalendarDays, label: "Calendar" },
+    ],
+  },
+  {
+    label: "MANUAL",
+    autopilot: false,
+    items: [
+      { href: "/compose", icon: PenSquare, label: "Compose Post" },
+      { href: "/ai", icon: Sparkles, label: "AI Studio" },
+      { href: "/repurpose", icon: RefreshCw, label: "Repurpose" },
+      { href: "/media", icon: Image, label: "Media Library" },
+      { href: "/templates", icon: BookTemplate, label: "Templates" },
+    ],
+  },
+  {
+    label: "AI AUTOPILOT",
+    autopilot: true,
+    items: [
+      { href: "/brand-kit", icon: Palette, label: "Brand Kit" },
+      { href: "/campaigns", icon: Rocket, label: "Campaigns" },
+      { href: "/automations", icon: Zap, label: "Automations" },
+    ],
+  },
+  {
+    label: "WORKSPACE",
+    autopilot: false,
+    items: [
+      { href: "/accounts", icon: Share2, label: "Accounts" },
+      { href: "/clients", icon: Users, label: "Clients" },
+      { href: "/developer", icon: Code2, label: "Developer API" },
+      { href: "/billing", icon: CreditCard, label: "Billing" },
+      { href: "/settings", icon: Settings2, label: "Settings" },
+    ],
+  },
 ];
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
+  "/analytics": "Analytics",
   "/calendar": "Content Calendar",
   "/compose": "Compose Post",
-  "/accounts": "Connected Accounts",
   "/ai": "AI Studio",
-  "/analytics": "Analytics",
-  "/clients": "Client Workspaces",
-  "/automations": "Automations",
   "/repurpose": "Content Repurpose",
   "/media": "Media Library",
   "/templates": "Templates",
+  "/brand-kit": "Brand Kit",
+  "/campaigns": "Campaigns",
+  "/automations": "Automations",
+  "/accounts": "Connected Accounts",
+  "/clients": "Client Workspaces",
   "/developer": "Developer API",
   "/billing": "Billing",
   "/settings": "Settings",
@@ -136,33 +166,67 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
 
       {/* Nav items */}
       <ScrollArea className="flex-1 px-3">
-        <nav className="space-y-0.5 py-2">
-          {navItems.map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onNavClick}
+        <nav className="py-2">
+          {navSections.map((section, sectionIdx) => (
+            <div key={section.label}>
+              {/* Section label */}
+              <p
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150",
-                  isActive
-                    ? "bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300"
-                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
+                  "px-3 py-2 text-[10px] font-semibold tracking-widest uppercase",
+                  sectionIdx === 0 ? "" : "mt-3",
+                  section.autopilot
+                    ? ""
+                    : "text-gray-400 dark:text-gray-500"
                 )}
               >
-                <item.icon
-                  className={cn(
-                    "h-4 w-4 flex-shrink-0",
-                    isActive
-                      ? "text-violet-600 dark:text-violet-400"
-                      : "text-gray-400 dark:text-gray-500"
-                  )}
-                />
-                {item.label}
-              </Link>
-            );
-          })}
+                {section.autopilot ? (
+                  <span className="bg-gradient-to-r from-violet-600 to-purple-500 bg-clip-text text-transparent">
+                    ✨ {section.label}
+                  </span>
+                ) : (
+                  section.label
+                )}
+              </p>
+
+              {/* Items */}
+              <div className="space-y-0.5">
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={onNavClick}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                        section.autopilot
+                          ? isActive
+                            ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300"
+                            : "text-violet-600/70 dark:text-violet-400/70 hover:bg-violet-50 dark:hover:bg-violet-900/10"
+                          : isActive
+                            ? "bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300"
+                            : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
+                      )}
+                    >
+                      <item.icon
+                        className={cn(
+                          "h-4 w-4 flex-shrink-0",
+                          section.autopilot
+                            ? isActive
+                              ? "text-violet-600 dark:text-violet-400"
+                              : "text-violet-400/70 dark:text-violet-500/70"
+                            : isActive
+                              ? "text-violet-600 dark:text-violet-400"
+                              : "text-gray-400 dark:text-gray-500"
+                        )}
+                      />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
       </ScrollArea>
 

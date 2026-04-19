@@ -2,39 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "Frontend (Next.js dev)",
+      "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "cwd": "./frontend",
       "port": 3000
     },
     {
-      "name": "Backend API (Go/Fiber)",
+      "name": "backend",
       "runtimeExecutable": "go",
       "runtimeArgs": ["run", "./cmd/api"],
-      "cwd": "./backend",
       "port": 8080
-    },
-    {
-      "name": "DB Migrations (go run migrate)",
-      "runtimeExecutable": "go",
-      "runtimeArgs": ["run", "./cmd/migrate"],
-      "cwd": "./backend",
-      "port": 0
-    },
-    {
-      "name": "DB Seed (go run seed)",
-      "runtimeExecutable": "go",
-      "runtimeArgs": ["run", "./cmd/seed"],
-      "cwd": "./backend",
-      "port": 0
-    },
-    {
-      "name": "Frontend Tests (Vitest)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "test"],
-      "cwd": "./frontend",
-      "port": 51204
     }
   ]
 }
