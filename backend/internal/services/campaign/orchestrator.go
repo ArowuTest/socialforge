@@ -330,6 +330,10 @@ func buildStrategyPrompt(c *models.Campaign) string {
 
 	if c.BrandKit != nil {
 		bk := c.BrandKit
+		// Brand description (website-derived) gives the model the richest product/mission context.
+		if bk.BrandDescription != "" {
+			sb.WriteString(fmt.Sprintf("About this brand: %s\n", bk.BrandDescription))
+		}
 		if bk.Industry != "" {
 			sb.WriteString(fmt.Sprintf("Industry: %s\n", bk.Industry))
 		}
@@ -407,8 +411,22 @@ func (o *Orchestrator) GenerateCampaignPost(ctx context.Context, campaignPostID,
 
 	openaiKey, falKey := o.loadAPIKeys(ctx)
 
+	// Collect hook openings already used in this campaign to prevent repetition.
+	var usedHooks []string
+	var existingCaptions []string
+	o.db.WithContext(ctx).Model(&models.CampaignPost{}).
+		Where("campaign_id = ? AND generated_caption IS NOT NULL AND generated_caption != ''", campaignID).
+		Pluck("generated_caption", &existingCaptions)
+	for _, cap := range existingCaptions {
+		lines := strings.SplitN(cap, "\n", 2)
+		hook := strings.TrimSpace(lines[0])
+		if hook != "" && len(hook) <= 200 {
+			usedHooks = append(usedHooks, hook)
+		}
+	}
+
 	// 3. Generate caption.
-	caption, err := o.generateCaption(ctx, openaiKey, slot, &campaign, campaign.BrandKit)
+	caption, err := o.generateCaption(ctx, openaiKey, slot, &campaign, campaign.BrandKit, usedHooks)
 	if err != nil {
 		failPost(fmt.Sprintf("caption: %v", err))
 		return fmt.Errorf("GenerateCampaignPost: %w", err)
@@ -516,7 +534,7 @@ func (o *Orchestrator) maybeFinalise(ctx context.Context, campaignID, workspaceI
 
 // ─── generateCaption ──────────────────────────────────────────────────────────
 
-func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit) (string, error) {
+func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, slot PostSlot, campaign *models.Campaign, bk *models.BrandKit, usedHooks []string) (string, error) {
 	if openaiKey == "" {
 		return "", fmt.Errorf("generateCaption: OpenAI API key not configured")
 	}
@@ -526,6 +544,7 @@ func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, sl
 	targetAudience := "general audience"
 	dos := ""
 	donts := ""
+	var brandDescriptionSection string
 	if bk != nil {
 		if bk.BrandVoice != "" {
 			brandVoice = bk.BrandVoice
@@ -538,6 +557,10 @@ func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, sl
 		}
 		if len(bk.Donts) > 0 {
 			donts = strings.Join(bk.Donts, "; ")
+		}
+		// Website-derived brand description gives the model rich product/mission context.
+		if bk.BrandDescription != "" {
+			brandDescriptionSection = fmt.Sprintf("\nAbout this brand: %s", bk.BrandDescription)
 		}
 	}
 
@@ -569,27 +592,68 @@ func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, sl
 		dontsRule = fmt.Sprintf("\nBrand Don'ts (NEVER do these): %s", donts)
 	}
 
+	// Dedup rule — prevent repetitive hooks across the campaign.
+	var dedupRule string
+	if len(usedHooks) > 0 {
+		hooks := usedHooks
+		if len(hooks) > 10 {
+			hooks = hooks[len(hooks)-10:] // keep the 10 most recent
+		}
+		var sb strings.Builder
+		sb.WriteString("\n⛔ DIVERSITY REQUIRED — these opening lines are ALREADY USED in this campaign. Your hook MUST use a completely different angle, sentence structure, and emotional trigger:\n")
+		for _, h := range hooks {
+			sb.WriteString(fmt.Sprintf("  • %s\n", h))
+		}
+		dedupRule = sb.String()
+	}
+
+	// CTA preferences from BrandKit — override generic CTAs with brand-specific ones.
+	var ctaRule string
+	if bk != nil && len(bk.CTAPreferences) > 0 {
+		var ctaParts []string
+		for k, v := range bk.CTAPreferences {
+			ctaParts = append(ctaParts, fmt.Sprintf("%s: %s", k, v))
+		}
+		ctaRule = fmt.Sprintf("\nPreferred CTAs (use these, not generic ones): %s", strings.Join(ctaParts, "; "))
+	}
+
+	// Few-shot examples — the most powerful brand voice signal.
+	var examplesSection string
+	if bk != nil && len(bk.ExamplePosts) > 0 {
+		examples := bk.ExamplePosts
+		if len(examples) > 2 {
+			examples = examples[:2]
+		}
+		var sb strings.Builder
+		sb.WriteString("\n\n── BRAND VOICE EXAMPLES (match this style precisely) ──")
+		for i, ex := range examples {
+			sb.WriteString(fmt.Sprintf("\n[Example %d] %s", i+1, ex))
+		}
+		sb.WriteString("\n── Write with the same voice, energy, and structure ──")
+		examplesSection = sb.String()
+	}
+
 	systemPrompt := fmt.Sprintf(
 		`You are an elite social media strategist who has grown 100+ accounts to 1M+ followers.
 %s
 PLATFORM GUIDANCE:
 %s
-
+%s
 YOUR TASK: Write a high-converting, scroll-stopping caption that drives maximum engagement.
-
+%s
 RULES:
 1. Hook first — the opening line must stop the scroll. Use a bold claim, surprising stat, counter-intuitive take, or relatable pain point.
 2. Structure for readability — use short paragraphs, line breaks, and strategic formatting.
 3. Match the platform's native voice — don't sound like an ad. Sound like a top creator on this platform.
-4. Include a strong CTA — tell readers exactly what to do (save, share, comment, follow).
+4. Include a strong CTA — tell readers exactly what to do (save, share, comment, follow).%s
 5. Be specific and concrete — avoid generic advice. Use numbers, examples, and vivid language.
 6. Write for EMOTION — content that triggers curiosity, surprise, or "I need to save this" performs best.
 7. NEVER use clichés like "In today's fast-paced world", "Game-changer", "Unlock your potential", "Dive into".
-8. Tone: %s
-9. Target audience: %s%s%s%s
+8. Tone / brand voice: %s
+9. Target audience: %s%s%s%s%s
 
 Return ONLY the caption text — no hashtags, no JSON, no markdown wrapper. Just the caption.`,
-		hardLimitRule, platformGuide, brandVoice, targetAudience, linkedinHashtagRule, dosRule, dontsRule,
+		hardLimitRule, platformGuide, examplesSection, brandDescriptionSection, ctaRule, brandVoice, targetAudience, linkedinHashtagRule, dosRule, dontsRule, dedupRule,
 	)
 
 	userPrompt := fmt.Sprintf(`Campaign Goal: %s

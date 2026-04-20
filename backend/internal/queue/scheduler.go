@@ -8,6 +8,7 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
+	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -142,6 +143,20 @@ func (s *Scheduler) registerJobs() error {
 		}
 	}
 
+	// ── Every minute: check for schedule-based automation triggers ───────────
+	{
+		task, err := NewCheckScheduledAutomationsTask()
+		if err != nil {
+			return err
+		}
+		if _, err := s.inner.Register("* * * * *", task,
+			asynq.Queue("default"),
+			asynq.Unique(55*time.Second),
+		); err != nil {
+			return fmt.Errorf("register check_scheduled_automations: %w", err)
+		}
+	}
+
 	s.log.Info("scheduler: all recurring jobs registered")
 	return nil
 }
@@ -209,6 +224,7 @@ func (sw *SchedulerWorker) RegisterHandlers(mux *asynq.ServeMux) {
 	mux.HandleFunc(TypeCleanupAuditLogs, sw.handleCleanupAuditLogs)
 	mux.HandleFunc(TypeRetryFailedPosts, sw.handleRetryFailedPosts)
 	mux.HandleFunc(TypeExpireAIJobs, sw.handleExpireAIJobs)
+	mux.HandleFunc(TypeCheckScheduledAutomations, sw.handleCheckScheduledAutomations)
 }
 
 // handleExpireAIJobs marks AI jobs that have been stuck in pending/processing
@@ -314,6 +330,164 @@ func (sw *SchedulerWorker) handleCleanupAuditLogs(ctx context.Context, _ *asynq.
 	}
 	sw.log.Info("cleanup_audit_logs: deleted rows", zap.Int64("count", result.RowsAffected))
 	return nil
+}
+
+// handleCheckScheduledAutomations fires all enabled schedule-based automations
+// whose trigger_config matches the current UTC time. Runs every minute.
+//
+// trigger_config schema (all optional):
+//
+//	interval    : "hourly" | "daily" | "weekly" | "custom"  (default "daily")
+//	hour        : 0-23   — UTC hour to fire (used for daily/weekly)
+//	minute      : 0-59   — UTC minute to fire (default 0)
+//	day_of_week : 0-6    — 0=Sunday … 6=Saturday (used for weekly only)
+func (sw *SchedulerWorker) handleCheckScheduledAutomations(ctx context.Context, _ *asynq.Task) error {
+	now := time.Now().UTC()
+	sw.log.Info("check_scheduled_automations: scanning", zap.Time("at", now))
+
+	var automations []models.Automation
+	if err := sw.db.WithContext(ctx).
+		Where("trigger_type = ? AND is_enabled = true", models.TriggerSchedule).
+		Find(&automations).Error; err != nil {
+		return fmt.Errorf("check_scheduled_automations: query: %w", err)
+	}
+
+	sw.log.Info("check_scheduled_automations: evaluating automations", zap.Int("count", len(automations)))
+	var enqueued int
+	for _, a := range automations {
+		if !scheduledAutomationFires(a, now) {
+			continue
+		}
+
+		payload := RunAutomationPayload{
+			AutomationID: a.ID,
+			WorkspaceID:  a.WorkspaceID,
+			TriggerData: map[string]interface{}{
+				"trigger_type": "schedule",
+				"fired_at":     now.Format(time.RFC3339),
+			},
+		}
+		task, err := NewRunAutomationTask(payload,
+			// De-duplicate: at most one fire per automation per minute.
+			asynq.Unique(55*time.Second),
+		)
+		if err != nil {
+			sw.log.Error("check_scheduled_automations: create task", zap.String("automation_id", a.ID.String()), zap.Error(err))
+			continue
+		}
+		if _, err := sw.client.EnqueueContext(ctx, task, asynq.Queue("default")); err != nil {
+			if !errors.Is(err, asynq.ErrDuplicateTask) && !errors.Is(err, asynq.ErrTaskIDConflict) {
+				sw.log.Warn("check_scheduled_automations: enqueue failed",
+					zap.String("automation_id", a.ID.String()),
+					zap.Error(err),
+				)
+			}
+			continue
+		}
+		enqueued++
+		sw.log.Info("check_scheduled_automations: automation enqueued",
+			zap.String("automation_id", a.ID.String()),
+			zap.String("name", a.Name),
+		)
+	}
+
+	sw.log.Info("check_scheduled_automations: done", zap.Int("enqueued", enqueued))
+	return nil
+}
+
+// scheduledAutomationFires returns true if the automation's schedule matches the
+// given UTC time (truncated to the current minute). It supports two formats:
+//
+//  1. trigger_config.cron: a standard 5-field cron expression (preferred — used by
+//     the frontend). Evaluated using robfig/cron so users get the full cron spec.
+//
+//  2. Legacy key-based config:
+//     interval    : "hourly" | "daily" | "weekly"
+//     hour        : 0-23
+//     minute      : 0-59
+//     day_of_week : 0-6  (Sunday=0)
+func scheduledAutomationFires(a models.Automation, now time.Time) bool {
+	cfg := a.TriggerConfig
+
+	// ── cron expression (primary format) ────────────────────────────────────
+	if cronExpr, ok := cfg["cron"].(string); ok && cronExpr != "" {
+		return cronExpressionFires(cronExpr, now)
+	}
+
+	// ── Legacy interval-based format ─────────────────────────────────────────
+	interval := "daily"
+	if v, ok := cfg["interval"].(string); ok && v != "" {
+		interval = v
+	}
+
+	wantMinute := 0
+	if v, ok := cfg["minute"]; ok {
+		switch m := v.(type) {
+		case float64:
+			wantMinute = int(m)
+		case int:
+			wantMinute = m
+		}
+	}
+
+	switch interval {
+	case "hourly":
+		return now.Minute() == wantMinute
+
+	case "daily":
+		wantHour := 9
+		if v, ok := cfg["hour"]; ok {
+			switch h := v.(type) {
+			case float64:
+				wantHour = int(h)
+			case int:
+				wantHour = h
+			}
+		}
+		return now.Hour() == wantHour && now.Minute() == wantMinute
+
+	case "weekly":
+		wantHour := 9
+		if v, ok := cfg["hour"]; ok {
+			switch h := v.(type) {
+			case float64:
+				wantHour = int(h)
+			case int:
+				wantHour = h
+			}
+		}
+		wantDOW := 1
+		if v, ok := cfg["day_of_week"]; ok {
+			switch d := v.(type) {
+			case float64:
+				wantDOW = int(d)
+			case int:
+				wantDOW = d
+			}
+		}
+		return int(now.Weekday()) == wantDOW && now.Hour() == wantHour && now.Minute() == wantMinute
+
+	default:
+		return false
+	}
+}
+
+// cronExpressionFires returns true when the given 5-field cron expression would
+// have fired during the minute containing `now`. It works by checking whether
+// the scheduler would schedule a run in the interval [truncatedNow, truncatedNow+1min).
+func cronExpressionFires(expr string, now time.Time) bool {
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(expr)
+	if err != nil {
+		// Malformed expression — don't fire.
+		return false
+	}
+	// The canonical check: the next scheduled time after (now - 1 minute) must
+	// fall within the current minute window.
+	minuteStart := now.Truncate(time.Minute)
+	prev := minuteStart.Add(-time.Second) // one second before this minute
+	next := schedule.Next(prev)
+	return !next.IsZero() && next.Before(minuteStart.Add(time.Minute))
 }
 
 // handleRetryFailedPosts re-enqueues failed posts that have not exceeded the

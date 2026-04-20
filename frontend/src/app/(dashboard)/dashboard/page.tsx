@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
-import { postsApi } from "@/lib/api";
+import { postsApi, campaignsApi, billingApi } from "@/lib/api";
 import { Post } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -151,16 +151,22 @@ export default function DashboardPage() {
       const now = new Date();
       const todayStr = now.toISOString().slice(0, 10);
 
-      const [allPostsRes, todayPostsRes] = await Promise.all([
+      const [allPostsRes, todayPostsRes, campaignsRes, creditsRes] = await Promise.all([
         postsApi.list({ pageSize: 50 }).catch(() => null),
         postsApi
           .list({ from: todayStr, to: todayStr, pageSize: 100 })
           .catch(() => null),
+        campaignsApi.list('running').catch(() => null),
+        billingApi.getCreditBalance().catch(() => null),
       ]);
       if (cancelled) return;
 
       const allPosts: Post[] = allPostsRes?.data || [];
       const todayPosts: Post[] = todayPostsRes?.data || [];
+      const activeCampaigns = campaignsRes?.data?.length ?? 0;
+      const creditsRemaining = creditsRes?.data
+        ? (creditsRes.data.plan_credits_limit - creditsRes.data.plan_credits_used + creditsRes.data.credit_balance)
+        : null;
 
       // Posts this week (Mon–Sun)
       const weekStart = new Date(now);
@@ -191,15 +197,13 @@ export default function DashboardPage() {
         },
         {
           label: "Credits Remaining",
-          // Credits fetched separately below — placeholder until billing API is called
-          value: "—",
+          value: creditsRemaining !== null ? creditsRemaining : "—",
           icon: Sparkles,
           color: "amber",
         },
         {
           label: "Active Campaigns",
-          // TODO: replace with real campaigns API when available
-          value: "—",
+          value: activeCampaigns,
           icon: Rocket,
           color: "blue",
         },

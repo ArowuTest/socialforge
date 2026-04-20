@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -43,6 +44,8 @@ type generateCaptionRequest struct {
 	Platform       string `json:"platform"`
 	Tone           string `json:"tone"`
 	TargetAudience string `json:"target_audience"`
+	BrandKitID     string `json:"brand_kit_id"` // optional — loads brand context when provided
+	Variations     int    `json:"variations"`    // 1–5; defaults to 1 when omitted or 0
 }
 
 // GenerateCaption generates a platform-optimised caption.
@@ -76,23 +79,86 @@ func (h *AIHandler) GenerateCaption(c *fiber.Ctx) error {
 		req.TargetAudience = "general audience"
 	}
 
-	result, _, err := h.ai.GenerateCaption(c.Context(), wid, user.ID, req.Prompt, req.Platform, req.Tone, req.TargetAudience)
-	if err != nil {
-		if errors.Is(err, ai.ErrInsufficientCredits) {
-			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
-				"error": "insufficient AI credits",
-				"code":  "INSUFFICIENT_CREDITS",
-			})
-		}
-		h.log.Error("GenerateCaption: ai.GenerateCaption", zap.Error(err))
-		return internalError(c, "failed to generate caption")
+	// Load BrandKit when brand_kit_id is provided; fall back to workspace default.
+	bk := loadBrandKit(c.Context(), h.db, wid, req.BrandKitID)
+
+	n := req.Variations
+	if n <= 0 {
+		n = 1
+	}
+	if n > 5 {
+		n = 5
 	}
 
+	type captionVar struct {
+		Caption        string   `json:"caption"`
+		Hashtags       []string `json:"hashtags"`
+		CharacterCount int      `json:"character_count"`
+	}
+
+	if n == 1 {
+		result, _, err := h.ai.GenerateCaption(c.Context(), wid, user.ID, req.Prompt, req.Platform, req.Tone, req.TargetAudience, bk)
+		if err != nil {
+			if errors.Is(err, ai.ErrInsufficientCredits) {
+				return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+					"error": "insufficient AI credits",
+					"code":  "INSUFFICIENT_CREDITS",
+				})
+			}
+			h.log.Error("GenerateCaption: ai.GenerateCaption", zap.Error(err))
+			return internalError(c, "failed to generate caption")
+		}
+		return c.JSON(fiber.Map{
+			"data": fiber.Map{
+				"caption":         result.Caption,
+				"hashtags":        result.Hashtags,
+				"character_count": len([]rune(result.Caption)),
+				"variations":      []captionVar{{Caption: result.Caption, Hashtags: result.Hashtags, CharacterCount: len([]rune(result.Caption))}},
+			},
+		})
+	}
+
+	// Multiple variations — run concurrently, each deducts credits independently.
+	results := make([]captionVar, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			r, _, e := h.ai.GenerateCaption(c.Context(), wid, user.ID, req.Prompt, req.Platform, req.Tone, req.TargetAudience, bk)
+			errs[i] = e
+			if e == nil {
+				results[i] = captionVar{Caption: r.Caption, Hashtags: r.Hashtags, CharacterCount: len([]rune(r.Caption))}
+			}
+		}()
+	}
+	wg.Wait()
+
+	var variations []captionVar
+	for i, e := range errs {
+		if e != nil {
+			if errors.Is(e, ai.ErrInsufficientCredits) {
+				return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+					"error": "insufficient AI credits",
+					"code":  "INSUFFICIENT_CREDITS",
+				})
+			}
+			h.log.Warn("GenerateCaption variation failed", zap.Int("index", i), zap.Error(e))
+			continue
+		}
+		variations = append(variations, results[i])
+	}
+	if len(variations) == 0 {
+		return internalError(c, "failed to generate captions")
+	}
 	return c.JSON(fiber.Map{
 		"data": fiber.Map{
-			"caption":         result.Caption,
-			"hashtags":        result.Hashtags,
-			"character_count": len([]rune(result.Caption)),
+			"caption":         variations[0].Caption,
+			"hashtags":        variations[0].Hashtags,
+			"character_count": variations[0].CharacterCount,
+			"variations":      variations,
 		},
 	})
 }
@@ -328,10 +394,12 @@ func (h *AIHandler) GetAIJobStatus(c *fiber.Ctx) error {
 type repurposeRequest struct {
 	SourceURL       string   `json:"source_url"`
 	Content         string   `json:"content"`
+	SourceType      string   `json:"source_type"`      // "text" | "url" | "youtube" | "tiktok"
 	TargetPlatforms []string `json:"target_platforms"`
+	BrandKitID      string   `json:"brand_kit_id"`     // optional — loads brand context when provided
 }
 
-// RepurposeContent repurposes content for multiple platforms.
+// RepurposeContent repurposes content for multiple platforms using brand-aware prompts.
 // POST /api/v1/workspaces/:wid/ai/repurpose
 func (h *AIHandler) RepurposeContent(c *fiber.Ctx) error {
 	wid, err := resolveWorkspaceID(c)
@@ -356,6 +424,16 @@ func (h *AIHandler) RepurposeContent(c *fiber.Ctx) error {
 		return badRequest(c, "target_platforms is required", "VALIDATION_ERROR")
 	}
 
+	// Infer source type when not provided.
+	sourceType := req.SourceType
+	if sourceType == "" {
+		if req.SourceURL != "" {
+			sourceType = "url"
+		} else {
+			sourceType = "text"
+		}
+	}
+
 	// Check credits.
 	if err := h.ai.DeductCredits(c.Context(), wid, ai.CreditCostRepurpose); err != nil {
 		if errors.Is(err, ai.ErrInsufficientCredits) {
@@ -367,37 +445,62 @@ func (h *AIHandler) RepurposeContent(c *fiber.Ctx) error {
 		return internalError(c, "failed to check credits")
 	}
 
-	// Source content: use provided content or URL.
-	sourceContent := req.Content
-	if sourceContent == "" {
-		sourceContent = "Content from URL: " + req.SourceURL
+	// Load BrandKit — use specified ID or fall back to workspace default.
+	bk := loadBrandKit(c.Context(), h.db, wid, req.BrandKitID)
+
+	drafts, err := h.ai.Repurpose(c.Context(), ai.RepurposeInput{
+		SourceType:    sourceType,
+		SourceURL:     req.SourceURL,
+		SourceText:    req.Content,
+		Platforms:     req.TargetPlatforms,
+		BrandKit:      bk,
+	})
+	if err != nil {
+		h.log.Error("RepurposeContent: ai.Repurpose", zap.Error(err))
+		return internalError(c, "failed to repurpose content")
 	}
 
-	// Generate captions for each target platform.
-	results := make(map[string]interface{})
-	for _, platform := range req.TargetPlatforms {
-		result, _, err := h.ai.GenerateCaption(
-			c.Context(), wid, user.ID,
-			sourceContent, platform,
-			"engaging", "general audience",
-		)
-		if err != nil {
-			h.log.Warn("RepurposeContent: GenerateCaption failed",
-				zap.String("platform", platform),
-				zap.Error(err),
-			)
-			results[platform] = fiber.Map{"error": err.Error()}
-			continue
-		}
+	// Reshape to a map of platform → draft for the API response.
+	results := make(map[string]interface{}, len(drafts))
+	for platform, draft := range drafts {
 		results[platform] = fiber.Map{
-			"content":  result.Caption,
-			"hashtags": result.Hashtags,
+			"content":      draft.Content,
+			"hashtags":     draft.Hashtags,
+			"char_count":   draft.CharCount,
+			"media_prompt": draft.MediaPrompt,
 		}
 	}
+
+	_ = user // workspace member identity confirmed above; not needed for Repurpose
 
 	return c.JSON(fiber.Map{
 		"data": fiber.Map{"results": results},
 	})
+}
+
+// loadBrandKit loads a BrandKit from the database. When brandKitID is a non-empty
+// UUID string it loads that specific kit; otherwise it falls back to the workspace's
+// default kit (is_default = true). Returns nil when no kit is found so callers
+// can degrade gracefully without brand context.
+func loadBrandKit(ctx context.Context, db *gorm.DB, wid uuid.UUID, brandKitID string) *models.BrandKit {
+	var bk models.BrandKit
+	if brandKitID != "" {
+		kitID, err := uuid.Parse(brandKitID)
+		if err == nil {
+			if err := db.WithContext(ctx).
+				Where("id = ? AND workspace_id = ?", kitID, wid).
+				First(&bk).Error; err == nil {
+				return &bk
+			}
+		}
+	}
+	// Fall back to workspace default kit.
+	if err := db.WithContext(ctx).
+		Where("workspace_id = ? AND is_default = true", wid).
+		First(&bk).Error; err == nil {
+		return &bk
+	}
+	return nil
 }
 
 // ── AnalyseViralPotential ─────────────────────────────────────────────────────

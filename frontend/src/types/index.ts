@@ -486,6 +486,10 @@ export interface BrandKit {
   donts: string[]
   example_posts: string[]
   cta_preferences: Record<string, string>
+  /** Company website URL — triggers automatic AI brand context extraction on save */
+  website_url?: string
+  /** AI-extracted brand summary (mission, products, audience) injected into every AI prompt */
+  brand_description?: string
   created_at: string
   updated_at: string
 }
@@ -507,6 +511,7 @@ export interface CreateBrandKitRequest {
   donts?: string[]
   example_posts?: string[]
   cta_preferences?: Record<string, string>
+  website_url?: string
 }
 
 // ============================================================
@@ -578,4 +583,60 @@ export interface CreateCampaignRequest {
   auto_approve?: boolean
   credits_budget_cap?: number
   settings?: Record<string, unknown>
+}
+
+// ============================================================
+// In-App Notifications
+// ============================================================
+
+export interface InAppNotification {
+  id: string
+  workspace_id: string
+  user_id: string
+  title: string
+  body: string
+  action_url?: string
+  is_read: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface NotificationsListResponse {
+  data: InAppNotification[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+  unread_count: number
+}
+
+// ============================================================
+// Templates
+// ============================================================
+
+export interface Template {
+  id: string
+  workspace_id: string
+  created_by: string
+  name: string
+  platform: string
+  type: string
+  prompt: string
+  example_output: string
+  is_public: boolean
+  used_count: number
+  last_used_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTemplateRequest {
+  name: string
+  platform?: string
+  type?: string
+  prompt?: string
+  example_output?: string
+  is_public?: boolean
 }

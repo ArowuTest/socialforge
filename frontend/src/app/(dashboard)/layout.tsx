@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   CalendarDays,
@@ -18,7 +19,6 @@ import {
   LogOut,
   Menu,
   X,
-  ChevronDown,
   RefreshCw,
   Image,
   Code2,
@@ -26,6 +26,8 @@ import {
   CreditCard,
   Palette,
   Rocket,
+  CheckCheck,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
@@ -37,9 +39,15 @@ import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { getInitials } from "@/lib/utils";
 import { PlanType } from "@/types";
 import { toast } from "sonner";
+import { notificationsApi } from "@/lib/api";
 
 const navSections = [
   {
@@ -118,6 +126,157 @@ function PlanBadge({ plan }: { plan: PlanType }) {
     </span>
   );
 }
+
+// ─── NotificationBell ─────────────────────────────────────────────────────────
+
+function NotificationBell() {
+  const [open, setOpen] = React.useState(false);
+  const queryClient = useQueryClient();
+
+  const { data: countData } = useQuery({
+    queryKey: ["notifications", "unread-count"],
+    queryFn: () => notificationsApi.unreadCount(),
+    refetchInterval: 30_000, // poll every 30 s
+    refetchIntervalInBackground: false,
+  });
+
+  const { data: listData, isLoading } = useQuery({
+    queryKey: ["notifications", "list"],
+    queryFn: () => notificationsApi.list(1, 15),
+    enabled: open,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => notificationsApi.markRead(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+
+  const markAllMutation = useMutation({
+    mutationFn: () => notificationsApi.markAllRead(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      toast.success("All notifications marked as read");
+    },
+  });
+
+  const unreadCount = countData?.unread_count ?? 0;
+  const notifications = listData?.data ?? [];
+
+  function formatTime(dateStr: string) {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diff = (now.getTime() - d.getTime()) / 1000;
+    if (diff < 60) return "just now";
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors relative">
+          <Bell className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-violet-600 border-2 border-white dark:border-gray-900 flex items-center justify-center text-[9px] font-bold text-white">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0 shadow-lg" sideOffset={8}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+          <span className="text-sm font-semibold text-gray-900 dark:text-white">
+            Notifications
+            {unreadCount > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">
+                {unreadCount}
+              </Badge>
+            )}
+          </span>
+          {unreadCount > 0 && (
+            <button
+              onClick={() => markAllMutation.mutate()}
+              disabled={markAllMutation.isPending}
+              className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700 dark:text-violet-400 font-medium"
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              Mark all read
+            </button>
+          )}
+        </div>
+
+        {/* List */}
+        <ScrollArea className="max-h-80">
+          {isLoading ? (
+            <div className="p-4 text-center text-sm text-gray-400">Loading…</div>
+          ) : notifications.length === 0 ? (
+            <div className="p-6 text-center">
+              <Bell className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">No notifications yet</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50 dark:divide-gray-800">
+              {notifications.map((n) => (
+                <div
+                  key={n.id}
+                  className={cn(
+                    "px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer",
+                    !n.is_read && "bg-violet-50/50 dark:bg-violet-900/10"
+                  )}
+                  onClick={() => {
+                    if (!n.is_read) markReadMutation.mutate(n.id);
+                    if (n.action_url) window.open(n.action_url, "_blank");
+                  }}
+                >
+                  <div className="flex items-start gap-2">
+                    {!n.is_read && (
+                      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-violet-600 flex-shrink-0" />
+                    )}
+                    <div className={cn("flex-1 min-w-0", n.is_read && "pl-3.5")}>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white leading-tight truncate">
+                        {n.title}
+                      </p>
+                      {n.body && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                          {n.body}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[11px] text-gray-400">{formatTime(n.created_at)}</span>
+                        {n.action_url && (
+                          <span className="text-[11px] text-violet-500 flex items-center gap-0.5">
+                            <ExternalLink className="h-2.5 w-2.5" /> Open
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+
+        {notifications.length > 0 && (
+          <div className="px-4 py-2.5 border-t border-gray-100 dark:border-gray-800 text-center">
+            <button
+              onClick={() => setOpen(false)}
+              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              Close
+            </button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ─── SidebarContent ───────────────────────────────────────────────────────────
 
 function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
   const pathname = usePathname();
@@ -307,10 +466,7 @@ export default function DashboardLayout({
           {/* Actions */}
           <div className="flex items-center gap-2">
             {/* Notification bell */}
-            <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors relative">
-              <Bell className="h-5 w-5" />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-violet-600 border-2 border-white dark:border-gray-900" />
-            </button>
+            <NotificationBell />
 
             {/* New post button */}
             <Button

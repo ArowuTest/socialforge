@@ -34,6 +34,10 @@ import {
   Campaign,
   CampaignPost,
   CreateCampaignRequest,
+  InAppNotification,
+  NotificationsListResponse,
+  Template,
+  CreateTemplateRequest,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -766,6 +770,30 @@ export const automationsApi = {
 };
 
 // ============================================================
+// In-App Notifications
+// ============================================================
+
+export const notificationsApi = {
+  list: (page = 1, limit = 20, unread = false) =>
+    request<NotificationsListResponse>(
+      `${ws()}/notifications?page=${page}&limit=${limit}${unread ? "&unread=true" : ""}`,
+    ),
+
+  unreadCount: () =>
+    request<{ unread_count: number }>(`${ws()}/notifications/unread-count`),
+
+  markRead: (id: string) =>
+    request<{ success: boolean }>(`${ws()}/notifications/${id}/read`, {
+      method: "PATCH",
+    }),
+
+  markAllRead: () =>
+    request<{ success: boolean; marked: number }>(`${ws()}/notifications/read-all`, {
+      method: "POST",
+    }),
+};
+
+// ============================================================
 // Brand Kits
 // ============================================================
 
@@ -806,6 +834,25 @@ export const campaignsApi = {
   clone: (id: string) => request<{ data: Campaign }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/clone`, { method: 'POST' }),
   regeneratePost: (id: string, pid: string) => request<{ data: CampaignPost }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/posts/${pid}/regenerate`, { method: 'POST' }),
   launch: (id: string) => request<{ data: Campaign; message: string; meta: { scheduled_posts: number } }>(`/api/v1/workspaces/${getActiveWorkspaceId()}/campaigns/${id}/launch`, { method: 'POST' }),
+}
+
+// ============================================================
+// Templates
+// ============================================================
+
+export const templatesApi = {
+  list: (page = 1, limit = 50) =>
+    request<{ data: Template[]; meta: { total: number; page: number; limit: number } }>(
+      `${ws()}/templates?page=${page}&limit=${limit}`
+    ),
+  create: (data: CreateTemplateRequest) =>
+    request<{ data: Template }>(`${ws()}/templates`, { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<CreateTemplateRequest>) =>
+    request<{ data: Template }>(`${ws()}/templates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  delete: (id: string) =>
+    request<void>(`${ws()}/templates/${id}`, { method: 'DELETE' }),
+  use: (id: string) =>
+    request<void>(`${ws()}/templates/${id}/use`, { method: 'POST' }),
 }
 
 // ============================================================

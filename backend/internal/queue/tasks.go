@@ -191,7 +191,10 @@ func NewSendNotificationTask(payload SendNotificationPayload, opts ...asynq.Opti
 
 // ─── Run Automation ───────────────────────────────────────────────────────────
 
-const TypeRunAutomation = "automation:run"
+const (
+	TypeRunAutomation              = "automation:run"
+	TypeCheckScheduledAutomations  = "automation:check_scheduled"
+)
 
 // RunAutomationPayload carries the data needed to execute an automation rule.
 type RunAutomationPayload struct {
@@ -212,6 +215,17 @@ func NewRunAutomationTask(payload RunAutomationPayload, opts ...asynq.Option) (*
 		asynq.Queue("default"),
 	}
 	return asynq.NewTask(TypeRunAutomation, b, append(defaults, opts...)...), nil
+}
+
+// NewCheckScheduledAutomationsTask creates the meta-task that triggers scanning of
+// schedule-based automations. Payload is empty — the worker reads from the DB itself.
+func NewCheckScheduledAutomationsTask(opts ...asynq.Option) (*asynq.Task, error) {
+	defaults := []asynq.Option{
+		asynq.MaxRetry(1),
+		asynq.Timeout(30 * time.Second),
+		asynq.Queue("default"),
+	}
+	return asynq.NewTask(TypeCheckScheduledAutomations, nil, append(defaults, opts...)...), nil
 }
 
 // ─── Campaign Generation ──────────────────────────────────────────────────────

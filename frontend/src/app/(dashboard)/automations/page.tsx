@@ -198,6 +198,9 @@ interface FormState {
   platforms: string[];
   cron: string;
   notifMessage: string;
+  notifChannel: "email" | "in_app" | "webhook";
+  webhookUrl: string;
+  webhookSecret: string;
   targetPlatforms: string[];
   delayHours: number;
 }
@@ -212,6 +215,9 @@ const defaultForm = (): FormState => ({
   platforms: [],
   cron: "0 9 * * 1",
   notifMessage: "",
+  notifChannel: "email",
+  webhookUrl: "",
+  webhookSecret: "",
   targetPlatforms: [],
   delayHours: 24,
 });
@@ -226,7 +232,12 @@ function formToRequest(form: FormState): CreateAutomationRequest {
 
   const action_config: Record<string, unknown> = {};
   if (form.action_type === "send_notification") {
+    action_config.channel = form.notifChannel;
     action_config.message = form.notifMessage;
+    if (form.notifChannel === "webhook") {
+      action_config.url = form.webhookUrl;
+      if (form.webhookSecret) action_config.secret = form.webhookSecret;
+    }
   } else if (form.action_type === "auto_repurpose") {
     action_config.target_platforms = form.targetPlatforms;
   } else if (form.action_type === "republish_after_delay") {
@@ -256,6 +267,9 @@ function automationToForm(a: Automation): FormState {
     platforms: (tc.platforms as string[]) ?? [],
     cron: (tc.cron as string) ?? "0 9 * * 1",
     notifMessage: (ac.message as string) ?? "",
+    notifChannel: ((ac.channel as string) ?? "email") as "email" | "in_app" | "webhook",
+    webhookUrl: (ac.url as string) ?? "",
+    webhookSecret: (ac.secret as string) ?? "",
     targetPlatforms: (ac.target_platforms as string[]) ?? [],
     delayHours: (ac.delay_hours as number) ?? 24,
   };
@@ -429,15 +443,69 @@ function AutomationFormDialog({
 
           {/* Action Config */}
           {form.action_type === "send_notification" && (
-            <div className="space-y-1.5">
-              <Label htmlFor="auto-msg">Notification Message</Label>
-              <Textarea
-                id="auto-msg"
-                placeholder="Enter the notification message..."
-                rows={3}
-                value={form.notifMessage}
-                onChange={(e) => setField("notifMessage", e.target.value)}
-              />
+            <div className="space-y-3">
+              {/* Channel */}
+              <div className="space-y-1.5">
+                <Label>Notification Channel</Label>
+                <Select
+                  value={form.notifChannel}
+                  onValueChange={(v) => setField("notifChannel", v as "email" | "in_app" | "webhook")}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="email">Email</SelectItem>
+                    <SelectItem value="in_app">In-App</SelectItem>
+                    <SelectItem value="webhook">Webhook</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Webhook URL + Secret */}
+              {form.notifChannel === "webhook" && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="auto-webhook-url">Webhook URL *</Label>
+                    <Input
+                      id="auto-webhook-url"
+                      type="url"
+                      placeholder="https://your-server.com/webhook"
+                      value={form.webhookUrl}
+                      onChange={(e) => setField("webhookUrl", e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="auto-webhook-secret">Signing Secret (optional)</Label>
+                    <Input
+                      id="auto-webhook-secret"
+                      type="password"
+                      placeholder="Used for HMAC-SHA256 X-SocialForge-Signature header"
+                      value={form.webhookSecret}
+                      onChange={(e) => setField("webhookSecret", e.target.value)}
+                    />
+                    <p className="text-xs text-gray-500">Leave empty to disable payload signing.</p>
+                  </div>
+                </>
+              )}
+
+              {/* Message body */}
+              <div className="space-y-1.5">
+                <Label htmlFor="auto-msg">
+                  {form.notifChannel === "webhook" ? "Payload Note (optional)" : "Notification Message"}
+                </Label>
+                <Textarea
+                  id="auto-msg"
+                  placeholder={
+                    form.notifChannel === "webhook"
+                      ? "Optional message included in the webhook payload..."
+                      : "Enter the notification message..."
+                  }
+                  rows={3}
+                  value={form.notifMessage}
+                  onChange={(e) => setField("notifMessage", e.target.value)}
+                />
+              </div>
             </div>
           )}
 

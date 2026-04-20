@@ -49,6 +49,9 @@ const platformFilterOptions = [
   { label: "LinkedIn", value: Platform.LINKEDIN },
   { label: "Twitter", value: Platform.TWITTER },
   { label: "Facebook", value: Platform.FACEBOOK },
+  { label: "Pinterest", value: Platform.PINTEREST },
+  { label: "Threads", value: Platform.THREADS },
+  { label: "Bluesky", value: Platform.BLUESKY },
 ];
 
 const platformColors: Record<string, string> = {
@@ -58,6 +61,9 @@ const platformColors: Record<string, string> = {
   [Platform.LINKEDIN]: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
   [Platform.TWITTER]: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
   [Platform.FACEBOOK]: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  [Platform.PINTEREST]: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  [Platform.THREADS]: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200",
+  [Platform.BLUESKY]: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300",
 };
 
 const platformDotColors: Record<string, string> = {
@@ -69,6 +75,7 @@ const platformDotColors: Record<string, string> = {
   [Platform.FACEBOOK]: "bg-blue-600",
   [Platform.PINTEREST]: "bg-red-600",
   [Platform.THREADS]: "bg-gray-900",
+  [Platform.BLUESKY]: "bg-sky-400",
 };
 
 type ViewMode = "month" | "week" | "list";

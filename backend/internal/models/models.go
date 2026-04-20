@@ -764,24 +764,27 @@ func (s *StripeWebhookEvent) BeforeCreate(_ *gorm.DB) error {
 
 type BrandKit struct {
 	Base
-	WorkspaceID    uuid.UUID   `gorm:"type:uuid;not null;index"        json:"workspace_id"`
-	CreatedBy      uuid.UUID   `gorm:"type:uuid;not null"              json:"created_by"`
-	Name           string      `gorm:"not null;size:255"               json:"name"`
-	IsDefault      bool        `gorm:"not null;default:false"          json:"is_default"`
-	Industry       string      `gorm:"size:100"                        json:"industry,omitempty"`
-	PrimaryColor   string      `gorm:"size:7"                          json:"primary_color,omitempty"`
-	SecondaryColor string      `gorm:"size:7"                          json:"secondary_color,omitempty"`
-	AccentColor    string      `gorm:"size:7"                          json:"accent_color,omitempty"`
-	LogoURL        string      `gorm:"size:2048"                       json:"logo_url,omitempty"`
-	LogoDarkURL    string      `gorm:"size:2048"                       json:"logo_dark_url,omitempty"`
-	BrandVoice     string      `gorm:"type:text"                       json:"brand_voice,omitempty"`
-	TargetAudience string      `gorm:"type:text"                       json:"target_audience,omitempty"`
-	ContentPillars StringSlice `gorm:"type:text;default:'[]'"          json:"content_pillars"`
-	BrandHashtags  StringSlice `gorm:"type:text;default:'[]'"          json:"brand_hashtags"`
-	Dos            StringSlice `gorm:"type:text;default:'[]'"          json:"dos"`
-	Donts          StringSlice `gorm:"type:text;default:'[]'"          json:"donts"`
-	ExamplePosts   StringSlice `gorm:"type:text;default:'[]'"          json:"example_posts"`
-	CTAPreferences JSONMap     `gorm:"type:text;default:'{}'"          json:"cta_preferences"`
+	WorkspaceID      uuid.UUID   `gorm:"type:uuid;not null;index"        json:"workspace_id"`
+	CreatedBy        uuid.UUID   `gorm:"type:uuid;not null"              json:"created_by"`
+	Name             string      `gorm:"not null;size:255"               json:"name"`
+	IsDefault        bool        `gorm:"not null;default:false"          json:"is_default"`
+	Industry         string      `gorm:"size:100"                        json:"industry,omitempty"`
+	PrimaryColor     string      `gorm:"size:7"                          json:"primary_color,omitempty"`
+	SecondaryColor   string      `gorm:"size:7"                          json:"secondary_color,omitempty"`
+	AccentColor      string      `gorm:"size:7"                          json:"accent_color,omitempty"`
+	LogoURL          string      `gorm:"size:2048"                       json:"logo_url,omitempty"`
+	LogoDarkURL      string      `gorm:"size:2048"                       json:"logo_dark_url,omitempty"`
+	BrandVoice       string      `gorm:"type:text"                       json:"brand_voice,omitempty"`
+	TargetAudience   string      `gorm:"type:text"                       json:"target_audience,omitempty"`
+	ContentPillars   StringSlice `gorm:"type:text;default:'[]'"          json:"content_pillars"`
+	BrandHashtags    StringSlice `gorm:"type:text;default:'[]'"          json:"brand_hashtags"`
+	Dos              StringSlice `gorm:"type:text;default:'[]'"          json:"dos"`
+	Donts            StringSlice `gorm:"type:text;default:'[]'"          json:"donts"`
+	ExamplePosts     StringSlice `gorm:"type:text;default:'[]'"          json:"example_posts"`
+	CTAPreferences   JSONMap     `gorm:"type:text;default:'{}'"          json:"cta_preferences"`
+	// Website-derived fields — populated asynchronously after the user saves a URL.
+	WebsiteURL       string      `gorm:"size:2048"                       json:"website_url,omitempty"`
+	BrandDescription string      `gorm:"type:text"                       json:"brand_description,omitempty"`
 }
 
 func (BrandKit) TableName() string { return "brand_kits" }
@@ -875,3 +878,46 @@ type CampaignPost struct {
 }
 
 func (CampaignPost) TableName() string { return "campaign_posts" }
+
+// ─── Notification ─────────────────────────────────────────────────────────────
+
+// Notification is a persistent in-app notification delivered to a single user.
+// Created by the SendNotificationHandler when channel = "in_app".
+type Notification struct {
+	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	WorkspaceID uuid.UUID  `gorm:"type:uuid;not null;index"                       json:"workspace_id"`
+	UserID      uuid.UUID  `gorm:"type:uuid;not null;index"                       json:"user_id"`
+	Title       string     `gorm:"not null;size:255"                              json:"title"`
+	Body        string     `gorm:"type:text"                                      json:"body"`
+	ActionURL   string     `gorm:"size:2048"                                      json:"action_url,omitempty"`
+	IsRead      bool       `gorm:"not null;default:false"                         json:"is_read"`
+	CreatedAt   time.Time  `gorm:"autoCreateTime"                                 json:"created_at"`
+	UpdatedAt   time.Time  `gorm:"autoUpdateTime"                                 json:"updated_at"`
+}
+
+func (Notification) TableName() string { return "notifications" }
+
+func (n *Notification) BeforeCreate(_ *gorm.DB) error {
+	if n.ID == uuid.Nil {
+		n.ID = uuid.New()
+	}
+	return nil
+}
+
+// ── Template ──────────────────────────────────────────────────────────────────
+
+type Template struct {
+	Base
+	WorkspaceID   uuid.UUID  `gorm:"type:uuid;not null;index"    json:"workspace_id"`
+	CreatedBy     uuid.UUID  `gorm:"type:uuid;not null"          json:"created_by"`
+	Name          string     `gorm:"size:255;not null"           json:"name"`
+	Platform      string     `gorm:"size:50"                     json:"platform"`
+	TemplateType  string     `gorm:"column:template_type;size:100" json:"type"`
+	Prompt        string     `gorm:"type:text"                   json:"prompt"`
+	ExampleOutput string     `gorm:"type:text"                   json:"example_output"`
+	IsPublic      bool       `gorm:"not null;default:false"      json:"is_public"`
+	UsedCount     int        `gorm:"not null;default:0"          json:"used_count"`
+	LastUsedAt    *time.Time `                                   json:"last_used_at,omitempty"`
+}
+
+func (Template) TableName() string { return "templates" }

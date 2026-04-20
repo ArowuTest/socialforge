@@ -19,6 +19,8 @@ import (
 	"time"
 
 	openai "github.com/sashabaranov/go-openai"
+
+	"github.com/socialforge/backend/internal/models"
 )
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -34,35 +36,162 @@ type PlatformDraft struct {
 
 // ─── platform system prompts ─────────────────────────────────────────────────
 
-// platformSystemPrompt returns the system prompt to use when repurposing
-// content for the given target platform.
-func platformSystemPrompt(platform string) string {
-	prompts := map[string]string{
-		"twitter": "Rewrite as a punchy tweet under 280 chars with 2-3 hashtags. Hook in first 5 words. " +
-			"Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
-		"linkedin": "Rewrite as a LinkedIn post 150-300 words. Professional tone. Line breaks for readability. " +
-			"3-5 hashtags. Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
-		"instagram": "Rewrite as an Instagram caption. Conversational, 150-200 words. Heavy emojis. " +
-			"10-15 hashtags at end. Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
-		"tiktok": "Rewrite as a TikTok video script/caption. Gen-Z tone, hook first, 100-150 words, 5 hashtags. " +
-			"Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
-		"facebook": "Rewrite as a Facebook post. Conversational, 100-200 words, encourage comments. " +
-			"Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
-		"youtube": "Rewrite as a YouTube video description. Include title suggestion, description 200 words, " +
-			"timestamps placeholder, tags. Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
-		"pinterest": "Rewrite as a Pinterest pin description. Keyword-rich, 100-150 words, include what it is + why it's useful. " +
-			"Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
-		"threads": "Rewrite as a Threads post. Conversational, under 500 chars, 1-3 hashtags. " +
-			"Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
+// buildBrandSection constructs the brand identity block injected into every
+// repurpose prompt. Returns an empty string when bk is nil.
+func buildBrandSection(bk *models.BrandKit) string {
+	if bk == nil {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("\n\n── BRAND IDENTITY (follow exactly) ──")
+	// Website-derived brand description is the richest context signal — put it first
+	// so the model reads what the company actually does before anything else.
+	if bk.BrandDescription != "" {
+		sb.WriteString(fmt.Sprintf("\nAbout this brand: %s", bk.BrandDescription))
+	}
+	if bk.Industry != "" {
+		sb.WriteString(fmt.Sprintf("\nIndustry: %s", bk.Industry))
+	}
+	if bk.BrandVoice != "" {
+		sb.WriteString(fmt.Sprintf("\nBrand voice: %s", bk.BrandVoice))
+	}
+	if bk.TargetAudience != "" {
+		sb.WriteString(fmt.Sprintf("\nTarget audience: %s", bk.TargetAudience))
+	}
+	if len(bk.Dos) > 0 {
+		sb.WriteString(fmt.Sprintf("\nAlways do: %s", strings.Join(bk.Dos, "; ")))
+	}
+	if len(bk.Donts) > 0 {
+		sb.WriteString(fmt.Sprintf("\nNEVER do: %s", strings.Join(bk.Donts, "; ")))
+	}
+	if len(bk.CTAPreferences) > 0 {
+		var ctaParts []string
+		for k, v := range bk.CTAPreferences {
+			ctaParts = append(ctaParts, fmt.Sprintf("%s: %s", k, v))
+		}
+		sb.WriteString(fmt.Sprintf("\nPreferred CTAs: %s", strings.Join(ctaParts, "; ")))
+	}
+	// Few-shot examples — the single highest-value signal for brand voice matching.
+	if len(bk.ExamplePosts) > 0 {
+		examples := bk.ExamplePosts
+		if len(examples) > 2 {
+			examples = examples[:2]
+		}
+		sb.WriteString("\nBrand voice examples (match this style precisely):")
+		for i, ex := range examples {
+			sb.WriteString(fmt.Sprintf("\n  [Example %d] %s", i+1, ex))
+		}
+	}
+	sb.WriteString("\n── END BRAND IDENTITY ──\n")
+	return sb.String()
+}
+
+// buildRepurposeSystemPrompt returns a detailed, brand-aware system prompt for
+// repurposing content on the given platform.
+func buildRepurposeSystemPrompt(platform string, bk *models.BrandKit) string {
+	brand := buildBrandSection(bk)
+
+	const jsonInstruction = "\n\nReturn ONLY a valid JSON object with exactly these keys:\n- \"content\": the complete post text (string)\n- \"hashtags\": array of hashtags without # prefix (string[])\n- \"media_prompt\": a vivid, wordless image description for this post (string)"
+
+	platformGuides := map[string]string{
+		"twitter": fmt.Sprintf(`You are an expert Twitter/X content strategist who turns long-form content into high-engagement tweets.%s
+
+PLATFORM RULES:
+- STRICT 280-character limit — count every character including spaces and emojis
+- Lead with the sharpest insight, stat, or take from the source content — make it impossible to scroll past
+- Strong opinions and counter-intuitive takes outperform neutral summaries
+- 1-2 hashtags maximum, woven inline — NOT stacked at the end
+- End with a hook question or punchy statement that invites replies
+- Sound like a knowledgeable human, not a press release%s`, brand, jsonInstruction),
+
+		"linkedin": fmt.Sprintf(`You are an expert LinkedIn content strategist who creates high-performing professional posts.%s
+
+PLATFORM RULES:
+- First line is EVERYTHING — appears before "...see more". Make it a bold claim, story opener, or surprising stat
+- Short paragraphs: 1-2 sentences max, with a blank line between each
+- Optimal length: 1,200-1,500 characters (longer gets the "see more" fold)
+- Write in first person — share a lesson, insight, or personal take from the source content
+- 3-5 relevant industry hashtags at the very end
+- End with a question that invites professional discussion
+- Storytelling > bullet points on this platform%s`, brand, jsonInstruction),
+
+		"instagram": fmt.Sprintf(`You are an expert Instagram content strategist who writes captions that stop the scroll.%s
+
+PLATFORM RULES:
+- Hook in the FIRST LINE (before the fold) — bold claim, relatable pain point, or curiosity gap
+- Conversational tone — write like you're texting a friend who happens to be your ideal customer
+- Use strategic line breaks and short paragraphs for mobile readability
+- Emojis: use purposefully to break up text and add personality (not excessively)
+- 150-300 words is optimal — long enough to build connection, short enough to hold attention
+- Strong CTA: "Save this for later", "Share with someone who needs this", "Drop your answer below"
+- 10-15 highly relevant hashtags at the end (mix of niche and broad)%s`, brand, jsonInstruction),
+
+		"tiktok": fmt.Sprintf(`You are an expert TikTok content strategist who writes captions that drive views and follows.%s
+
+PLATFORM RULES:
+- 150 characters MAX for the caption — anything longer gets truncated before the first tap
+- First line must be a pattern interrupt: a bold claim, shocking stat, or "wait for it" hook
+- Authentic, Gen-Z-adjacent voice — conversational, energetic, NO corporate speak
+- 3-5 hashtags: 1-2 trending (#fyp, #viral), 2-3 niche-specific
+- CTA: "Follow for more", "Save this", "Duet this", "Stitch this"
+- Write the media_prompt as a TikTok video concept description (what happens on screen, POV, transitions)%s`, brand, jsonInstruction),
+
+		"facebook": fmt.Sprintf(`You are an expert Facebook content strategist who drives comments and shares.%s
+
+PLATFORM RULES:
+- Storytelling posts outperform promotional posts — lead with a relatable situation or story
+- Optimal length: 80-200 words for feed posts; 300-500 for groups
+- Ask a direct question to invite comments — make it easy to answer
+- 0-3 hashtags max (Facebook de-prioritises hashtag-heavy posts)
+- Conversational, warm tone — write for communities, not broadcast audiences
+- Behind-the-scenes, personal stories, and "I learned this the hard way" format performs best%s`, brand, jsonInstruction),
+
+		"youtube": fmt.Sprintf(`You are an expert YouTube SEO strategist who writes descriptions that rank and drive clicks.%s
+
+PLATFORM RULES:
+- First 150 characters appear in search results — front-load the primary keyword naturally
+- Structure: 2-3 keyword-rich paragraphs describing the video value proposition
+- Include a placeholder for chapter timestamps: [0:00 Intro, X:XX Topic 1, ...]
+- Clear CTA: "Subscribe for more", "Watch next:", "Download the free guide:"
+- Total length: 500-1500 characters optimal for SEO
+- The media_prompt should be a compelling YouTube thumbnail concept%s`, brand, jsonInstruction),
+
+		"pinterest": fmt.Sprintf(`You are an expert Pinterest SEO strategist who writes descriptions that surface in search.%s
+
+PLATFORM RULES:
+- Pinterest is a visual search engine — write the description as if answering a search query
+- Front-load your most important keyword in the first sentence
+- 100-150 words optimal
+- Include "how to", "tips for", or "ideas for" framing — people save actionable content
+- 3-5 relevant keyword-rich hashtags
+- The media_prompt should describe a vertical (2:3 ratio) Pinterest-style image — text overlay friendly%s`, brand, jsonInstruction),
+
+		"threads": fmt.Sprintf(`You are an expert Threads content strategist who writes posts that spark genuine conversation.%s
+
+PLATFORM RULES:
+- STRICT 500-character limit — tight, punchy, every word earns its place
+- Casual, authentic tone — hot takes, personal opinions, and relatable observations outperform polished prose
+- 0-3 hashtags (the Threads community values authenticity over discoverability optimisation)
+- Reply-bait: end with a genuine question or debatable statement
+- Sound like a real person with actual opinions, not a brand account%s`, brand, jsonInstruction),
+
+		"bluesky": fmt.Sprintf(`You are an expert Bluesky content strategist who writes for a tech-savvy, authenticity-first community.%s
+
+PLATFORM RULES:
+- STRICT 300-character limit
+- Authentic, community-first tone — skip the marketing speak entirely
+- 0-2 hashtags (community conventions are still forming)
+- Link posts are welcome — no algorithm penalty
+- Thoughtful, genuinely useful takes perform best
+- Write as if contributing to a smart conversation, not broadcasting%s`, brand, jsonInstruction),
 	}
 
-	if p, ok := prompts[strings.ToLower(platform)]; ok {
-		return p
+	if guide, ok := platformGuides[strings.ToLower(platform)]; ok {
+		return guide
 	}
 	return fmt.Sprintf(
-		"Rewrite the content optimised for %s. "+
-			"Return JSON with keys: content (string), hashtags ([]string), media_prompt (string).",
-		platform,
+		"You are an expert social media strategist. Repurpose the source content for %s with an authentic, platform-native voice that drives maximum engagement.%s%s",
+		platform, brand, jsonInstruction,
 	)
 }
 
@@ -74,6 +203,7 @@ func RepurposeFromURL(
 	ctx context.Context,
 	rawURL string,
 	targetPlatforms []string,
+	bk *models.BrandKit,
 	openaiClient *openai.Client,
 ) (map[string]PlatformDraft, error) {
 	text, err := extractTextFromURL(ctx, rawURL)
@@ -85,7 +215,7 @@ func RepurposeFromURL(
 		return nil, fmt.Errorf("repurpose: could not extract enough text from %s", rawURL)
 	}
 
-	return repurposeText(ctx, text, targetPlatforms, openaiClient)
+	return repurposeText(ctx, text, targetPlatforms, bk, openaiClient)
 }
 
 // ─── RepurposeFromText ────────────────────────────────────────────────────────
@@ -97,12 +227,13 @@ func RepurposeFromText(
 	content string,
 	fromPlatform string,
 	targetPlatforms []string,
+	bk *models.BrandKit,
 	openaiClient *openai.Client,
 ) (map[string]PlatformDraft, error) {
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("repurpose: content must not be empty")
 	}
-	return repurposeText(ctx, content, targetPlatforms, openaiClient)
+	return repurposeText(ctx, content, targetPlatforms, bk, openaiClient)
 }
 
 // ─── RepurposeFromYouTube ─────────────────────────────────────────────────────
@@ -114,6 +245,7 @@ func RepurposeFromYouTube(
 	videoID string,
 	targetPlatforms []string,
 	youtubeAPIKey string,
+	bk *models.BrandKit,
 	openaiClient *openai.Client,
 ) (map[string]PlatformDraft, error) {
 	videoDetails, err := fetchYouTubeVideoDetails(ctx, videoID, youtubeAPIKey)
@@ -127,7 +259,7 @@ func RepurposeFromYouTube(
 		return nil, fmt.Errorf("repurpose: YouTube video %s has no usable description", videoID)
 	}
 
-	return repurposeText(ctx, sourceContent, targetPlatforms, openaiClient)
+	return repurposeText(ctx, sourceContent, targetPlatforms, bk, openaiClient)
 }
 
 // ─── repurposeText (core) ─────────────────────────────────────────────────────
@@ -138,6 +270,7 @@ func repurposeText(
 	ctx context.Context,
 	content string,
 	targetPlatforms []string,
+	bk *models.BrandKit,
 	openaiClient *openai.Client,
 ) (map[string]PlatformDraft, error) {
 	if len(targetPlatforms) == 0 {
@@ -147,10 +280,10 @@ func repurposeText(
 	results := make(map[string]PlatformDraft, len(targetPlatforms))
 
 	for _, platform := range targetPlatforms {
-		systemPrompt := platformSystemPrompt(platform)
+		systemPrompt := buildRepurposeSystemPrompt(platform, bk)
 
 		resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-			Model: "gpt-4o-mini",
+			Model: "gpt-4o",
 			Messages: []openai.ChatCompletionMessage{
 				{
 					Role:    openai.ChatMessageRoleSystem,
@@ -158,7 +291,7 @@ func repurposeText(
 				},
 				{
 					Role:    openai.ChatMessageRoleUser,
-					Content: content,
+					Content: "Repurpose the following content for " + platform + ":\n\n" + content,
 				},
 			},
 			ResponseFormat: &openai.ChatCompletionResponseFormat{
@@ -186,6 +319,23 @@ func repurposeText(
 			parsed.Content = strings.TrimSpace(raw)
 			parsed.Hashtags = []string{}
 			parsed.MediaPrompt = ""
+		}
+
+		// Merge brand hashtags first so brand tags always appear.
+		if bk != nil && len(bk.BrandHashtags) > 0 {
+			seen := make(map[string]bool, len(parsed.Hashtags))
+			for _, t := range parsed.Hashtags {
+				seen[t] = true
+			}
+			merged := make([]string, 0, len(bk.BrandHashtags)+len(parsed.Hashtags))
+			for _, t := range bk.BrandHashtags {
+				if !seen[t] {
+					merged = append(merged, t)
+					seen[t] = true
+				}
+			}
+			merged = append(merged, parsed.Hashtags...)
+			parsed.Hashtags = merged
 		}
 
 		results[platform] = PlatformDraft{

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"math"
 
 	"github.com/gofiber/fiber/v2"
@@ -9,57 +10,118 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/models"
+	ai "github.com/socialforge/backend/internal/services/ai"
 )
 
 // BrandKitHandler handles brand kit CRUD endpoints.
 type BrandKitHandler struct {
 	db  *gorm.DB
+	ai  *ai.Service
 	log *zap.Logger
 }
 
 // NewBrandKitHandler creates a new BrandKitHandler.
-func NewBrandKitHandler(db *gorm.DB, log *zap.Logger) *BrandKitHandler {
-	return &BrandKitHandler{db: db, log: log.Named("brand_kit_handler")}
+func NewBrandKitHandler(db *gorm.DB, aiService *ai.Service, log *zap.Logger) *BrandKitHandler {
+	return &BrandKitHandler{db: db, ai: aiService, log: log.Named("brand_kit_handler")}
+}
+
+// triggerWebsiteScrape asynchronously scrapes websiteURL and updates the brand
+// kit record with the AI-extracted brand context. Called after create/update when
+// a non-empty website_url is present.
+func (h *BrandKitHandler) triggerWebsiteScrape(kitID uuid.UUID, websiteURL string) {
+	go func() {
+		ctx := context.Background()
+		h.log.Info("BrandKit: scraping website for brand context",
+			zap.String("kit_id", kitID.String()),
+			zap.String("url", websiteURL),
+		)
+		result, err := h.ai.ScrapeBrandContext(ctx, websiteURL)
+		if err != nil {
+			h.log.Warn("BrandKit: website scrape failed",
+				zap.String("kit_id", kitID.String()),
+				zap.String("url", websiteURL),
+				zap.Error(err),
+			)
+			return
+		}
+
+		updates := map[string]interface{}{
+			"brand_description": result.BrandDescription,
+		}
+		// Only back-fill brand voice / target audience when the user hasn't set them yet.
+		var current models.BrandKit
+		if err := h.db.WithContext(ctx).Select("brand_voice", "target_audience").
+			First(&current, "id = ?", kitID).Error; err == nil {
+			if current.BrandVoice == "" && result.BrandVoice != "" {
+				updates["brand_voice"] = result.BrandVoice
+			}
+			if current.TargetAudience == "" && result.TargetAudience != "" {
+				updates["target_audience"] = result.TargetAudience
+			}
+		}
+
+		if err := h.db.WithContext(ctx).Model(&models.BrandKit{}).
+			Where("id = ?", kitID).
+			Updates(updates).Error; err != nil {
+			h.log.Error("BrandKit: failed to save scraped brand context",
+				zap.String("kit_id", kitID.String()),
+				zap.Error(err),
+			)
+			return
+		}
+		h.log.Info("BrandKit: website brand context saved",
+			zap.String("kit_id", kitID.String()),
+			zap.String("description_preview", func() string {
+				d := result.BrandDescription
+				if len(d) > 80 {
+					return d[:80] + "..."
+				}
+				return d
+			}()),
+		)
+	}()
 }
 
 // ─── request/response types ───────────────────────────────────────────────────
 
 type createBrandKitRequest struct {
-	Name           string          `json:"name"`
-	IsDefault      bool            `json:"is_default"`
-	Industry       string          `json:"industry,omitempty"`
-	PrimaryColor   string          `json:"primary_color,omitempty"`
-	SecondaryColor string          `json:"secondary_color,omitempty"`
-	AccentColor    string          `json:"accent_color,omitempty"`
-	LogoURL        string          `json:"logo_url,omitempty"`
-	LogoDarkURL    string          `json:"logo_dark_url,omitempty"`
-	BrandVoice     string          `json:"brand_voice,omitempty"`
-	TargetAudience string          `json:"target_audience,omitempty"`
+	Name           string             `json:"name"`
+	IsDefault      bool               `json:"is_default"`
+	Industry       string             `json:"industry,omitempty"`
+	PrimaryColor   string             `json:"primary_color,omitempty"`
+	SecondaryColor string             `json:"secondary_color,omitempty"`
+	AccentColor    string             `json:"accent_color,omitempty"`
+	LogoURL        string             `json:"logo_url,omitempty"`
+	LogoDarkURL    string             `json:"logo_dark_url,omitempty"`
+	BrandVoice     string             `json:"brand_voice,omitempty"`
+	TargetAudience string             `json:"target_audience,omitempty"`
 	ContentPillars models.StringSlice `json:"content_pillars,omitempty"`
 	BrandHashtags  models.StringSlice `json:"brand_hashtags,omitempty"`
 	Dos            models.StringSlice `json:"dos,omitempty"`
 	Donts          models.StringSlice `json:"donts,omitempty"`
 	ExamplePosts   models.StringSlice `json:"example_posts,omitempty"`
 	CTAPreferences models.JSONMap     `json:"cta_preferences,omitempty"`
+	WebsiteURL     string             `json:"website_url,omitempty"`
 }
 
 type updateBrandKitRequest struct {
-	Name           *string             `json:"name,omitempty"`
-	IsDefault      *bool               `json:"is_default,omitempty"`
-	Industry       *string             `json:"industry,omitempty"`
-	PrimaryColor   *string             `json:"primary_color,omitempty"`
-	SecondaryColor *string             `json:"secondary_color,omitempty"`
-	AccentColor    *string             `json:"accent_color,omitempty"`
-	LogoURL        *string             `json:"logo_url,omitempty"`
-	LogoDarkURL    *string             `json:"logo_dark_url,omitempty"`
-	BrandVoice     *string             `json:"brand_voice,omitempty"`
-	TargetAudience *string             `json:"target_audience,omitempty"`
-	ContentPillars models.StringSlice  `json:"content_pillars,omitempty"`
-	BrandHashtags  models.StringSlice  `json:"brand_hashtags,omitempty"`
-	Dos            models.StringSlice  `json:"dos,omitempty"`
-	Donts          models.StringSlice  `json:"donts,omitempty"`
-	ExamplePosts   models.StringSlice  `json:"example_posts,omitempty"`
-	CTAPreferences models.JSONMap      `json:"cta_preferences,omitempty"`
+	Name           *string            `json:"name,omitempty"`
+	IsDefault      *bool              `json:"is_default,omitempty"`
+	Industry       *string            `json:"industry,omitempty"`
+	PrimaryColor   *string            `json:"primary_color,omitempty"`
+	SecondaryColor *string            `json:"secondary_color,omitempty"`
+	AccentColor    *string            `json:"accent_color,omitempty"`
+	LogoURL        *string            `json:"logo_url,omitempty"`
+	LogoDarkURL    *string            `json:"logo_dark_url,omitempty"`
+	BrandVoice     *string            `json:"brand_voice,omitempty"`
+	TargetAudience *string            `json:"target_audience,omitempty"`
+	ContentPillars models.StringSlice `json:"content_pillars,omitempty"`
+	BrandHashtags  models.StringSlice `json:"brand_hashtags,omitempty"`
+	Dos            models.StringSlice `json:"dos,omitempty"`
+	Donts          models.StringSlice `json:"donts,omitempty"`
+	ExamplePosts   models.StringSlice `json:"example_posts,omitempty"`
+	CTAPreferences models.JSONMap     `json:"cta_preferences,omitempty"`
+	WebsiteURL     *string            `json:"website_url,omitempty"`
 }
 
 // ─── ListBrandKits ────────────────────────────────────────────────────────────
@@ -175,6 +237,7 @@ func (h *BrandKitHandler) CreateBrandKit(c *fiber.Ctx) error {
 		Donts:          req.Donts,
 		ExamplePosts:   req.ExamplePosts,
 		CTAPreferences: req.CTAPreferences,
+		WebsiteURL:     req.WebsiteURL,
 	}
 
 	if err := h.db.WithContext(c.Context()).Transaction(func(tx *gorm.DB) error {
@@ -190,6 +253,11 @@ func (h *BrandKitHandler) CreateBrandKit(c *fiber.Ctx) error {
 	}); err != nil {
 		h.log.Error("CreateBrandKit: create", zap.Error(err))
 		return internalError(c, "failed to create brand kit")
+	}
+
+	// Trigger async website scrape when a URL is provided.
+	if kit.WebsiteURL != "" && h.ai != nil {
+		h.triggerWebsiteScrape(kit.ID, kit.WebsiteURL)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": kit})
@@ -304,6 +372,13 @@ func (h *BrandKitHandler) UpdateBrandKit(c *fiber.Ctx) error {
 	if req.CTAPreferences != nil {
 		updates["cta_preferences"] = req.CTAPreferences
 	}
+	if req.WebsiteURL != nil {
+		updates["website_url"] = *req.WebsiteURL
+		// Clear stale brand_description so it gets re-extracted for the new URL.
+		if *req.WebsiteURL != kit.WebsiteURL {
+			updates["brand_description"] = ""
+		}
+	}
 
 	if len(updates) == 0 {
 		return c.JSON(fiber.Map{"data": kit})
@@ -324,6 +399,12 @@ func (h *BrandKitHandler) UpdateBrandKit(c *fiber.Ctx) error {
 	}); err != nil {
 		h.log.Error("UpdateBrandKit: update", zap.Error(err))
 		return internalError(c, "failed to update brand kit")
+	}
+
+	// Trigger async website scrape when URL was added or changed.
+	newURL, _ := updates["website_url"].(string)
+	if newURL != "" && newURL != kit.WebsiteURL && h.ai != nil {
+		h.triggerWebsiteScrape(kit.ID, newURL)
 	}
 
 	return c.JSON(fiber.Map{"data": kit})

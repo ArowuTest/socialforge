@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -354,6 +355,33 @@ func (h *CampaignsHandler) GenerateCampaign(c *fiber.Ctx) error {
 
 	if campaign.Status != models.CampaignStatusDraft && campaign.Status != models.CampaignStatusFailed {
 		return badRequest(c, "campaign must be in draft or failed status to generate", "INVALID_STATUS")
+	}
+
+	// ── Credit pre-flight check ───────────────────────────────────────────────
+	// Only enforce when the campaign has a non-zero estimated cost. Generation
+	// itself will fail gracefully on individual post errors, but blocking here
+	// gives the user an actionable message before any tokens are consumed.
+	if campaign.CreditsEstimated > 0 {
+		var ws models.Workspace
+		if err := h.db.WithContext(c.Context()).Select("ai_credits_used, ai_credits_limit, credit_balance").
+			First(&ws, "id = ?", wid).Error; err != nil {
+			h.log.Warn("GenerateCampaign: credit pre-flight workspace lookup failed", zap.Error(err))
+			// Don't block on lookup failure — let generation proceed.
+		} else {
+			available := (ws.AICreditsLimit - ws.AICreditsUsed) + ws.CreditBalance
+			if available <= 0 {
+				return c.Status(402).JSON(fiber.Map{
+					"error":   "INSUFFICIENT_CREDITS",
+					"message": "You have no AI credits remaining. Purchase a top-up or upgrade your plan to generate this campaign.",
+				})
+			}
+			if campaign.CreditsEstimated > available {
+				return c.Status(402).JSON(fiber.Map{
+					"error":   "INSUFFICIENT_CREDITS",
+					"message": fmt.Sprintf("This campaign requires ~%d credits but only %d are available. Consider reducing the campaign size or purchasing more credits.", campaign.CreditsEstimated, available),
+				})
+			}
+		}
 	}
 
 	if err := h.db.WithContext(c.Context()).Model(&campaign).

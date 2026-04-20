@@ -868,17 +868,19 @@ export default function NewCampaignPage() {
 
   async function handleGenerateNow() {
     setSubmitting(true);
+    let campaignId: string | null = null;
     try {
       const created = await campaignsApi.create(buildRequest());
-      await campaignsApi.generate(created.data.id);
+      campaignId = created.data.id;
+      await campaignsApi.generate(campaignId);
       toast.success("Campaign created! AI is generating your content calendar.");
-      // Redirect to the specific campaign page so the user can watch generation
-      // progress and review posts in real time.
-      router.push(`/campaigns/${created.data.id}`);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to create campaign");
+      const msg = err instanceof Error ? err.message : "Failed to start campaign generation";
+      toast.error(msg);
     } finally {
       setSubmitting(false);
+      // Always redirect to the campaign page so the user can retry / top up credits.
+      if (campaignId) router.push(`/campaigns/${campaignId}`);
     }
   }
 

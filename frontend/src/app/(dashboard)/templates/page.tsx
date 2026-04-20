@@ -1,10 +1,9 @@
-﻿"use client";
+"use client";
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Plus,
   Edit2,
@@ -20,20 +19,10 @@ import {
   Globe,
   FileText,
 } from "lucide-react";
+import { templatesApi } from "@/lib/api";
+import { Template } from "@/types";
 
 type SubTab = "mine" | "public";
-
-interface Template {
-  id: string;
-  name: string;
-  platform: string;
-  type: string;
-  usedCount: number;
-  lastUsed: string;
-  prompt: string;
-  exampleOutput: string;
-  createdAt: string;
-}
 
 interface PublicTemplate {
   id: number;
@@ -46,25 +35,7 @@ interface PublicTemplate {
   exampleOutput: string;
 }
 
-// --- localStorage persistence ---
-
-const STORAGE_KEY = "sf-templates";
-
-function loadTemplates(): Template[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveTemplates(templates: Template[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
-}
-
-// --- Read-only starter templates that users can copy ---
+// --- Curated starter templates (platform-managed, not stored in DB) ---
 
 const publicTemplates: PublicTemplate[] = [
   {
@@ -186,7 +157,7 @@ function PlatformBadge({ platform }: { platform: string }) {
   );
 }
 
-interface CreateFormState {
+interface FormState {
   name: string;
   platform: string;
   type: string;
@@ -195,7 +166,7 @@ interface CreateFormState {
   isPublic: boolean;
 }
 
-const defaultForm: CreateFormState = {
+const defaultForm: FormState = {
   name: "",
   platform: "Instagram",
   type: "Caption",
@@ -208,46 +179,52 @@ export default function TemplatesPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<SubTab>("mine");
   const [showCreateForm, setShowCreateForm] = React.useState(false);
-  const [form, setForm] = React.useState<CreateFormState>(defaultForm);
+  const [form, setForm] = React.useState<FormState>(defaultForm);
   const [templates, setTemplates] = React.useState<Template[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
   const [copiedIds, setCopiedIds] = React.useState<Set<number>>(new Set());
   const [editingId, setEditingId] = React.useState<string | null>(null);
-  const [editForm, setEditForm] = React.useState<CreateFormState>(defaultForm);
-  const [isLoaded, setIsLoaded] = React.useState(false);
+  const [editForm, setEditForm] = React.useState<FormState>(defaultForm);
 
-  // Load templates from localStorage on mount
+  // Load templates from API on mount.
   React.useEffect(() => {
-    setTemplates(loadTemplates());
-    setIsLoaded(true);
+    templatesApi.list().then((res) => {
+      setTemplates(res?.data ?? []);
+    }).catch(() => {
+      setTemplates([]);
+    }).finally(() => setLoading(false));
   }, []);
 
-  // Persist templates to localStorage whenever they change (after initial load)
-  React.useEffect(() => {
-    if (isLoaded) {
-      saveTemplates(templates);
+  const handleCreate = async () => {
+    if (!form.name.trim() || saving) return;
+    setSaving(true);
+    try {
+      const res = await templatesApi.create({
+        name: form.name,
+        platform: form.platform,
+        type: form.type,
+        prompt: form.prompt,
+        example_output: form.exampleOutput,
+        is_public: form.isPublic,
+      });
+      if (res?.data) {
+        setTemplates((prev) => [res.data, ...prev]);
+      }
+      setForm(defaultForm);
+      setShowCreateForm(false);
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setSaving(false);
     }
-  }, [templates, isLoaded]);
-
-  const handleCreate = () => {
-    if (!form.name.trim()) return;
-    const newTemplate: Template = {
-      id: crypto.randomUUID(),
-      name: form.name,
-      platform: form.platform,
-      type: form.type,
-      usedCount: 0,
-      lastUsed: "Never",
-      prompt: form.prompt,
-      exampleOutput: form.exampleOutput,
-      createdAt: new Date().toISOString(),
-    };
-    setTemplates([newTemplate, ...templates]);
-    setForm(defaultForm);
-    setShowCreateForm(false);
   };
 
-  const handleDelete = (id: string) => {
-    setTemplates(templates.filter((t) => t.id !== id));
+  const handleDelete = async (id: string) => {
+    setTemplates((prev) => prev.filter((t) => t.id !== id));
+    templatesApi.delete(id).catch(() => {
+      // Revert optimistic removal if needed — for now just log silently
+    });
   };
 
   const handleStartEdit = (template: Template) => {
@@ -257,20 +234,33 @@ export default function TemplatesPage() {
       platform: template.platform,
       type: template.type,
       prompt: template.prompt,
-      exampleOutput: template.exampleOutput,
-      isPublic: false,
+      exampleOutput: template.example_output,
+      isPublic: template.is_public,
     });
   };
 
-  const handleSaveEdit = () => {
-    if (!editingId || !editForm.name.trim()) return;
-    setTemplates(templates.map((t) =>
-      t.id === editingId
-        ? { ...t, name: editForm.name, platform: editForm.platform, type: editForm.type, prompt: editForm.prompt, exampleOutput: editForm.exampleOutput }
-        : t
-    ));
-    setEditingId(null);
-    setEditForm(defaultForm);
+  const handleSaveEdit = async () => {
+    if (!editingId || !editForm.name.trim() || saving) return;
+    setSaving(true);
+    try {
+      const res = await templatesApi.update(editingId, {
+        name: editForm.name,
+        platform: editForm.platform,
+        type: editForm.type,
+        prompt: editForm.prompt,
+        example_output: editForm.exampleOutput,
+        is_public: editForm.isPublic,
+      });
+      if (res?.data) {
+        setTemplates((prev) => prev.map((t) => (t.id === editingId ? res.data : t)));
+      }
+      setEditingId(null);
+      setEditForm(defaultForm);
+    } catch {
+      // silently fail
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancelEdit = () => {
@@ -279,49 +269,48 @@ export default function TemplatesPage() {
   };
 
   const handleUseTemplate = (template: Template) => {
-    // Increment usedCount and update lastUsed timestamp
+    // Optimistic UI — increment locally, fire-and-forget to backend.
     setTemplates((prev) =>
       prev.map((t) =>
         t.id === template.id
-          ? { ...t, usedCount: t.usedCount + 1, lastUsed: new Date().toLocaleDateString() }
+          ? { ...t, used_count: t.used_count + 1, last_used_at: new Date().toISOString() }
           : t
       )
     );
-    // Navigate to compose with prompt pre-filled
+    templatesApi.use(template.id).catch(() => {});
     const params = new URLSearchParams({ prompt: template.prompt });
     router.push(`/compose?${params.toString()}`);
   };
 
-  const handleCopyPublic = (pubTemplate: PublicTemplate) => {
-    // Copy the public template into user's personal templates
-    const newTemplate: Template = {
-      id: crypto.randomUUID(),
-      name: pubTemplate.name,
-      platform: pubTemplate.platform,
-      type: pubTemplate.type,
-      usedCount: 0,
-      lastUsed: "Never",
-      prompt: pubTemplate.prompt,
-      exampleOutput: pubTemplate.exampleOutput,
-      createdAt: new Date().toISOString(),
-    };
-    setTemplates((prev) => [newTemplate, ...prev]);
-    setCopiedIds((prev) => new Set(prev).add(pubTemplate.id));
-    setTimeout(() => {
-      setCopiedIds((prev) => { const s = new Set(prev); s.delete(pubTemplate.id); return s; });
-    }, 2000);
+  const handleCopyPublic = async (pubTemplate: PublicTemplate) => {
+    try {
+      const res = await templatesApi.create({
+        name: pubTemplate.name,
+        platform: pubTemplate.platform,
+        type: pubTemplate.type,
+        prompt: pubTemplate.prompt,
+        example_output: pubTemplate.exampleOutput,
+        is_public: false,
+      });
+      if (res?.data) {
+        setTemplates((prev) => [res.data, ...prev]);
+      }
+      setCopiedIds((prev) => new Set(prev).add(pubTemplate.id));
+      setTimeout(() => {
+        setCopiedIds((prev) => { const s = new Set(prev); s.delete(pubTemplate.id); return s; });
+      }, 2000);
+    } catch {
+      // silently fail
+    }
+  };
+
+  const formatLastUsed = (t: Template) => {
+    if (!t.last_used_at) return "Never";
+    return new Date(t.last_used_at).toLocaleDateString();
   };
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* Local-storage notice */}
-      {activeTab === "mine" && (
-        <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2">
-          <span className="flex-shrink-0 mt-0.5">⚠️</span>
-          <span>Your templates are saved locally on this device and browser. They will not sync across devices.</span>
-        </div>
-      )}
-
       {/* Sub-tab header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-1">
@@ -450,8 +439,9 @@ export default function TemplatesPage() {
               size="sm"
               className="bg-violet-600 hover:bg-violet-700 text-white"
               onClick={handleCreate}
+              disabled={saving}
             >
-              Create Template
+              {saving ? "Creating..." : "Create Template"}
             </Button>
           </div>
         </div>
@@ -460,9 +450,15 @@ export default function TemplatesPage() {
       {/* My Templates grid */}
       {activeTab === "mine" && (
         <>
-          {!isLoaded ? (
-            <div className="flex items-center justify-center py-16 text-gray-400">
-              <span className="text-sm">Loading templates...</span>
+          {loading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 animate-pulse">
+                  <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded w-20 mb-3" />
+                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-2" />
+                  <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
+                </div>
+              ))}
             </div>
           ) : templates.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16">
@@ -486,7 +482,6 @@ export default function TemplatesPage() {
                   className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 hover:border-violet-200 dark:hover:border-violet-800 transition-colors group"
                 >
                   {editingId === template.id ? (
-                    /* Inline edit form */
                     <div className="space-y-3">
                       <input
                         type="text"
@@ -512,7 +507,9 @@ export default function TemplatesPage() {
                       />
                       <div className="flex justify-end gap-1.5">
                         <Button variant="outline" size="sm" className="text-xs h-6 px-2" onClick={handleCancelEdit}>Cancel</Button>
-                        <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white text-xs h-6 px-2" onClick={handleSaveEdit}>Save</Button>
+                        <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white text-xs h-6 px-2" onClick={handleSaveEdit} disabled={saving}>
+                          {saving ? "Saving..." : "Save"}
+                        </Button>
                       </div>
                     </div>
                   ) : (
@@ -539,17 +536,17 @@ export default function TemplatesPage() {
                         {template.name}
                       </h3>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                        {template.type} · Used {template.usedCount}x
+                        {template.type} · Used {template.used_count}x
                       </p>
 
-                      {template.exampleOutput && (
+                      {template.example_output && (
                         <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-3 italic">
-                          &ldquo;{template.exampleOutput}&rdquo;
+                          &ldquo;{template.example_output}&rdquo;
                         </p>
                       )}
 
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-400">Last used: {template.lastUsed}</span>
+                        <span className="text-xs text-gray-400">Last used: {formatLastUsed(template)}</span>
                         <Button
                           size="sm"
                           className="bg-violet-600 hover:bg-violet-700 text-white text-xs h-7 px-3"
@@ -573,7 +570,7 @@ export default function TemplatesPage() {
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="h-4 w-4 text-violet-500" />
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Curated by ChiselPost — copy any template to your library and customize it.
+              Curated starter templates — copy any to your library and customize it.
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

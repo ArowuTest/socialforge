@@ -70,6 +70,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	mediaH := handlers.NewMediaHandler(deps.DB, storageSvc, deps.Log)
 	repurposeH := handlers.NewRepurposeHandler(deps.AIService, deps.Log)
 	automationsH := handlers.NewAutomationsHandler(deps.DB, deps.Log)
+	notificationsH := handlers.NewNotificationsHandler(deps.DB, deps.Log)
 	costConfigH := handlers.NewCostConfigHandler(deps.DB, deps.Config.JWT.Secret, deps.Log)
 	membersH := handlers.NewMembersHandler(deps.DB, deps.RDB, repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)
 	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
@@ -180,6 +181,12 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	// Repurpose
 	ws.Post("/repurpose", repurposeH.RepurposeContent)
 
+	// In-app Notifications
+	ws.Get("/notifications", notificationsH.ListNotifications)
+	ws.Get("/notifications/unread-count", notificationsH.UnreadCount)
+	ws.Post("/notifications/read-all", notificationsH.MarkAllRead)
+	ws.Patch("/notifications/:id/read", notificationsH.MarkRead)
+
 	// Automations
 	ws.Get("/automations", automationsH.ListAutomations)
 	ws.Post("/automations", automationsH.CreateAutomation)
@@ -188,8 +195,16 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Delete("/automations/:id", automationsH.DeleteAutomation)
 	ws.Post("/automations/:id/toggle", automationsH.ToggleAutomation)
 
+	// Templates
+	templatesH := handlers.NewTemplatesHandler(deps.DB, deps.Log)
+	ws.Get("/templates", templatesH.ListTemplates)
+	ws.Post("/templates", templatesH.CreateTemplate)
+	ws.Patch("/templates/:id", templatesH.UpdateTemplate)
+	ws.Delete("/templates/:id", templatesH.DeleteTemplate)
+	ws.Post("/templates/:id/use", templatesH.UseTemplate)
+
 	// Brand Kit
-	brandKitH := handlers.NewBrandKitHandler(deps.DB, deps.Log)
+	brandKitH := handlers.NewBrandKitHandler(deps.DB, deps.AIService, deps.Log)
 	ws.Get("/brand-kits", brandKitH.ListBrandKits)
 	ws.Post("/brand-kits", brandKitH.CreateBrandKit)
 	ws.Get("/brand-kits/:id", brandKitH.GetBrandKit)

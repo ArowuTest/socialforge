@@ -18,11 +18,13 @@ import (
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/api"
 	"github.com/socialforge/backend/internal/api/handlers"
 	"github.com/socialforge/backend/internal/config"
 	"github.com/socialforge/backend/internal/database"
+	"github.com/socialforge/backend/internal/models"
 	"github.com/socialforge/backend/internal/queue"
 	"github.com/socialforge/backend/internal/repository"
 	"github.com/socialforge/backend/internal/services/ai"
@@ -51,14 +53,26 @@ import (
 // the output as a models.JSONMap without importing the ai package.
 type repurposeAdapter struct {
 	svc *ai.Service
+	db  *gorm.DB
 }
 
 func (a *repurposeAdapter) ProcessRepurpose(ctx context.Context, payload queue.RepurposeContentPayload) (map[string]interface{}, error) {
+	// Load workspace default BrandKit so automation-triggered repurposing is
+	// brand-aware without any manual configuration by the user.
+	var bk *models.BrandKit
+	var kit models.BrandKit
+	if err := a.db.WithContext(ctx).
+		Where("workspace_id = ? AND is_default = true", payload.WorkspaceID).
+		First(&kit).Error; err == nil {
+		bk = &kit
+	}
+
 	input := ai.RepurposeInput{
 		SourceType: string(payload.Source),
 		SourceURL:  payload.SourceURL,
 		SourceText: payload.PostContent,
 		Platforms:  payload.TargetPlatforms,
+		BrandKit:   bk,
 	}
 	drafts, err := a.svc.Repurpose(ctx, input)
 	if err != nil {
@@ -167,10 +181,11 @@ func main() {
 		Logger:               log,
 		Publisher:            publishService,
 		AIService:            aiService,
-		RepurposeService:     &repurposeAdapter{svc: aiService},
+		RepurposeService:     &repurposeAdapter{svc: aiService, db: db},
 		OAuthRefresher:       publishService,
 		NotificationSender:   notificationsService,
 		CampaignOrchestrator: campaignOrchestrator,
+		AsynqClient:          asynqClient,
 	}
 	queueSrv, mux := queue.NewServer(rdb, workerDeps, queue.DefaultServerConfig())
 

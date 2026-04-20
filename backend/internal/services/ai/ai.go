@@ -361,10 +361,13 @@ type CaptionResult struct {
 }
 
 // GenerateCaption calls GPT-4o to produce a platform-optimised caption.
+// bk is optional; when non-nil, brand voice, dos/donts, and example posts are
+// injected into the prompt for brand-consistent output.
 func (s *Service) GenerateCaption(
 	ctx context.Context,
 	workspaceID, userID uuid.UUID,
 	prompt, platform, tone, targetAudience string,
+	bk *models.BrandKit,
 ) (*CaptionResult, *models.AIJob, error) {
 	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("caption", CreditCostCaption)); err != nil {
 		return nil, nil, err
@@ -375,12 +378,21 @@ func (s *Service) GenerateCaption(
 		guidance = platform
 	}
 
+	// Override tone and audience from BrandKit when available.
+	if bk != nil {
+		if bk.BrandVoice != "" {
+			tone = bk.BrandVoice
+		}
+		if bk.TargetAudience != "" {
+			targetAudience = bk.TargetAudience
+		}
+	}
+
 	// Hard character limits for platforms that enforce them strictly.
-	// These must appear as a top-priority rule so the model doesn't exceed them.
 	platformHardLimits := map[string]int{
-		"twitter":  280,
-		"bluesky":  300,
-		"threads":  500,
+		"twitter": 280,
+		"bluesky": 300,
+		"threads": 500,
 	}
 	var hardLimitRule string
 	if limit, ok := platformHardLimits[platform]; ok {
@@ -389,11 +401,45 @@ func (s *Service) GenerateCaption(
 `, limit, limit, limit)
 	}
 
-	// LinkedIn-specific hashtag reminder: the platform guidance says 3-5 hashtags
-	// but GPT tends to omit them from the caption body. Remind it explicitly.
 	var linkedinHashtagRule string
 	if platform == "linkedin" {
 		linkedinHashtagRule = "\n10. LinkedIn hashtags: add 3-5 relevant industry hashtags at the very end of the caption body (e.g. #FitnessGoals #Nutrition #AthleteLife)."
+	}
+
+	// Brand identity section — injected when BrandKit is provided.
+	var brandSection strings.Builder
+	if bk != nil {
+		brandSection.WriteString("\n\n── BRAND IDENTITY (follow exactly) ──")
+		if bk.BrandDescription != "" {
+			brandSection.WriteString(fmt.Sprintf("\nAbout this brand: %s", bk.BrandDescription))
+		}
+		if bk.Industry != "" {
+			brandSection.WriteString(fmt.Sprintf("\nIndustry: %s", bk.Industry))
+		}
+		if len(bk.Dos) > 0 {
+			brandSection.WriteString(fmt.Sprintf("\nBrand Do's: %s", strings.Join(bk.Dos, "; ")))
+		}
+		if len(bk.Donts) > 0 {
+			brandSection.WriteString(fmt.Sprintf("\nBrand Don'ts (NEVER): %s", strings.Join(bk.Donts, "; ")))
+		}
+		if len(bk.CTAPreferences) > 0 {
+			var ctaParts []string
+			for k, v := range bk.CTAPreferences {
+				ctaParts = append(ctaParts, fmt.Sprintf("%s: %s", k, fmt.Sprint(v)))
+			}
+			brandSection.WriteString(fmt.Sprintf("\nPreferred CTAs: %s", strings.Join(ctaParts, "; ")))
+		}
+		if len(bk.ExamplePosts) > 0 {
+			examples := bk.ExamplePosts
+			if len(examples) > 2 {
+				examples = examples[:2]
+			}
+			brandSection.WriteString("\nBrand voice examples (match this style precisely):")
+			for i, ex := range examples {
+				brandSection.WriteString(fmt.Sprintf("\n  [Example %d] %s", i+1, ex))
+			}
+		}
+		brandSection.WriteString("\n── END BRAND IDENTITY ──")
 	}
 
 	systemPrompt := fmt.Sprintf(
@@ -401,7 +447,7 @@ func (s *Service) GenerateCaption(
 %s
 PLATFORM:
 %s
-
+%s
 YOUR TASK: Write a high-converting, scroll-stopping caption that drives maximum engagement.
 
 RULES:
@@ -412,7 +458,7 @@ RULES:
 5. Be specific and concrete — avoid generic advice. Use numbers, examples, and vivid language.
 6. Write for EMOTION — content that triggers curiosity, surprise, or "I need to save this" performs best.
 7. NEVER use clichés like "In today's fast-paced world", "Game-changer", "Unlock your potential".
-8. Tone: %s
+8. Tone / brand voice: %s
 9. Target audience: %s%s
 
 Return a JSON object with exactly two keys:
@@ -420,7 +466,7 @@ Return a JSON object with exactly two keys:
 - "hashtags": array of relevant hashtags without # prefix (string[])
 
 Make the caption feel like it was written by a human who genuinely cares about helping their audience, not by AI.`,
-		hardLimitRule, guidance, tone, targetAudience, linkedinHashtagRule,
+		hardLimitRule, guidance, brandSection.String(), tone, targetAudience, linkedinHashtagRule,
 	)
 
 	openaiClient, err := s.requireOpenAIClient()
@@ -987,7 +1033,7 @@ func (s *Service) ProcessJob(ctx context.Context, p interface{}) (map[string]int
 	switch payload.JobType {
 	case "caption":
 		result, _, err := s.GenerateCaption(ctx, payload.WorkspaceID, payload.UserID,
-			payload.Prompt, payload.Platform, tone, audience)
+			payload.Prompt, payload.Platform, tone, audience, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1251,11 +1297,12 @@ func extractImageResult(raw map[string]interface{}) *ImageResult {
 
 // RepurposeInput describes a repurpose request from the API layer.
 type RepurposeInput struct {
-	SourceType  string   // "text" | "url" | "youtube" | "tiktok"
-	SourceURL   string
-	SourceText  string
-	Platforms   []string
+	SourceType    string   // "text" | "url" | "youtube" | "tiktok"
+	SourceURL     string
+	SourceText    string
+	Platforms     []string
 	YoutubeAPIKey string
+	BrandKit      *models.BrandKit // optional; nil = no brand context
 }
 
 // Repurpose dispatches to the appropriate package-level repurpose function and
@@ -1267,11 +1314,11 @@ func (s *Service) Repurpose(ctx context.Context, input RepurposeInput) (map[stri
 	}
 	switch input.SourceType {
 	case "url", "tiktok":
-		return RepurposeFromURL(ctx, input.SourceURL, input.Platforms, oaiClient)
+		return RepurposeFromURL(ctx, input.SourceURL, input.Platforms, input.BrandKit, oaiClient)
 	case "youtube":
-		return RepurposeFromYouTube(ctx, input.SourceURL, input.Platforms, input.YoutubeAPIKey, oaiClient)
+		return RepurposeFromYouTube(ctx, input.SourceURL, input.Platforms, input.YoutubeAPIKey, input.BrandKit, oaiClient)
 	default: // "text" or anything else
-		return RepurposeFromText(ctx, input.SourceText, input.SourceType, input.Platforms, oaiClient)
+		return RepurposeFromText(ctx, input.SourceText, input.SourceType, input.Platforms, input.BrandKit, oaiClient)
 	}
 }
 

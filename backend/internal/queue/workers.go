@@ -1,9 +1,14 @@
 package queue
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,6 +73,10 @@ type WorkerDeps struct {
 	OAuthRefresher        OAuthRefresher
 	NotificationSender    NotificationSender
 	CampaignOrchestrator  CampaignOrchestrator
+	// AsynqClient is used by handlers that need to enqueue follow-up tasks
+	// (e.g. automation actions, delayed republishing). Optional: handlers guard
+	// nil before use so the server still starts without it.
+	AsynqClient *asynq.Client
 }
 
 // ─── PublishPostHandler ───────────────────────────────────────────────────────
@@ -127,11 +136,74 @@ func (h *PublishPostHandler) ProcessTask(ctx context.Context, t *asynq.Task) err
 		return fmt.Errorf("publishPostHandler: set status published: %w", err)
 	}
 
+	// Sync CampaignPost status → published (if this post was launched from a campaign).
+	h.deps.DB.WithContext(ctx).
+		Table("campaign_posts").
+		Where("post_id = ?", post.ID).
+		Updates(map[string]interface{}{"status": "published", "updated_at": now})
+
+	// Fire post_published automations for this workspace.
+	h.dispatchAutomations(ctx, post.WorkspaceID, models.TriggerPostPublished, map[string]interface{}{
+		"post_id":      post.ID.String(),
+		"platforms":    []string(post.Platforms),
+		"content":      post.Content,
+		"title":        post.Title,
+		"external_url": externalURL,
+		"external_id":  externalID,
+	})
+
 	log.Info("post published successfully",
 		zap.String("external_id", externalID),
 		zap.String("external_url", externalURL),
 	)
 	return nil
+}
+
+// dispatchAutomations finds all enabled automations matching the given trigger
+// for the workspace and enqueues a RunAutomationTask for each. Errors are logged
+// but never returned — automation dispatch must not block the main publish flow.
+func (h *PublishPostHandler) dispatchAutomations(
+	ctx context.Context,
+	workspaceID uuid.UUID,
+	trigger models.AutomationTriggerType,
+	triggerData map[string]interface{},
+) {
+	if h.deps.AsynqClient == nil {
+		return
+	}
+	var automations []models.Automation
+	if err := h.deps.DB.WithContext(ctx).
+		Where("workspace_id = ? AND trigger_type = ? AND is_enabled = true", workspaceID, trigger).
+		Find(&automations).Error; err != nil {
+		h.deps.Logger.Warn("dispatchAutomations: query failed",
+			zap.String("trigger", string(trigger)),
+			zap.Error(err),
+		)
+		return
+	}
+	for _, a := range automations {
+		payload := RunAutomationPayload{
+			AutomationID: a.ID,
+			WorkspaceID:  a.WorkspaceID,
+			TriggerData:  triggerData,
+		}
+		task, err := NewRunAutomationTask(payload)
+		if err != nil {
+			h.deps.Logger.Error("dispatchAutomations: create task", zap.Error(err))
+			continue
+		}
+		if _, err := h.deps.AsynqClient.EnqueueContext(ctx, task, asynq.Queue("default")); err != nil {
+			h.deps.Logger.Error("dispatchAutomations: enqueue",
+				zap.String("automation_id", a.ID.String()),
+				zap.Error(err),
+			)
+		} else {
+			h.deps.Logger.Info("dispatchAutomations: automation queued",
+				zap.String("automation_id", a.ID.String()),
+				zap.String("trigger", string(trigger)),
+			)
+		}
+	}
 }
 
 // failPost marks a post as failed and returns the original error wrapped so asynq
@@ -148,6 +220,22 @@ func (h *PublishPostHandler) failPost(ctx context.Context, post *models.Post, re
 			zap.Error(err),
 		)
 	}
+
+	// Sync CampaignPost status → failed (if this post was launched from a campaign).
+	h.deps.DB.WithContext(ctx).
+		Table("campaign_posts").
+		Where("post_id = ?", post.ID).
+		Updates(map[string]interface{}{"status": "failed", "updated_at": time.Now().UTC()})
+
+	// Fire post_failed automations for this workspace.
+	h.dispatchAutomations(ctx, post.WorkspaceID, models.TriggerPostFailed, map[string]interface{}{
+		"post_id":   post.ID.String(),
+		"platforms": []string(post.Platforms),
+		"content":   post.Content,
+		"title":     post.Title,
+		"error":     reason,
+	})
+
 	return fmt.Errorf("publishPostHandler: %s", reason)
 }
 
@@ -291,12 +379,68 @@ func (h *SendNotificationHandler) ProcessTask(ctx context.Context, t *asynq.Task
 		}
 		log.Info("notification email sent", zap.String("to", row.Email))
 	case ChannelInApp:
-		// In-app notifications are stored in a separate table or pushed via WebSocket.
-		// Current implementation is a no-op placeholder.
-		log.Info("in-app notification processed (no persistent store yet)")
+		// Persist to the notifications table so the frontend bell can display it.
+		notif := models.Notification{
+			WorkspaceID: p.WorkspaceID,
+			UserID:      p.UserID,
+			Title:       p.Subject,
+			Body:        p.Body,
+		}
+		if err := h.deps.DB.WithContext(ctx).Create(&notif).Error; err != nil {
+			return fmt.Errorf("sendNotificationHandler: create in-app notification: %w", err)
+		}
+		log.Info("in-app notification stored", zap.String("notification_id", notif.ID.String()))
+
 	case ChannelWebhook:
-		// Webhook delivery not yet implemented.
-		log.Info("webhook notification processed (no-op)")
+		// POST the notification payload to the user-configured webhook URL.
+		// action_config (passed through Data map) carries: url, secret (optional).
+		webhookURL, _ := p.Data["url"]
+		if webhookURL == "" {
+			log.Warn("webhook notification: no url configured, skipping")
+			break
+		}
+
+		body := map[string]interface{}{
+			"event":        "notification",
+			"workspace_id": p.WorkspaceID.String(),
+			"subject":      p.Subject,
+			"body":         p.Body,
+			"sent_at":      time.Now().UTC().Format(time.RFC3339),
+		}
+		bodyBytes, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("sendNotificationHandler: marshal webhook body: %w", err)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhookURL, bytes.NewReader(bodyBytes))
+		if err != nil {
+			return fmt.Errorf("sendNotificationHandler: build webhook request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "SocialForge-Webhook/1.0")
+
+		// Sign the payload with HMAC-SHA256 when a secret is supplied.
+		if secret, ok := p.Data["secret"]; ok && secret != "" {
+			mac := hmac.New(sha256.New, []byte(secret))
+			mac.Write(bodyBytes)
+			sig := hex.EncodeToString(mac.Sum(nil))
+			req.Header.Set("X-SocialForge-Signature", "sha256="+sig)
+		}
+
+		webhookClient := &http.Client{Timeout: 10 * time.Second}
+		resp, err := webhookClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("sendNotificationHandler: webhook delivery to %s: %w", webhookURL, err)
+		}
+		resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return fmt.Errorf("sendNotificationHandler: webhook %s returned status %d", webhookURL, resp.StatusCode)
+		}
+		log.Info("webhook notification delivered",
+			zap.String("url", webhookURL),
+			zap.Int("status", resp.StatusCode),
+		)
 	default:
 		log.Warn("unknown notification channel, skipping", zap.String("channel", string(p.Channel)))
 	}
@@ -357,6 +501,57 @@ func (h *RefreshTokensHandler) ProcessTask(ctx context.Context, _ *asynq.Task) e
 	return nil
 }
 
+// buildAutomationNotificationBody constructs a human-readable notification body
+// for the send_notification automation action. It prefers a custom message from
+// action_config, falling back to a contextual summary derived from trigger_data.
+func buildAutomationNotificationBody(automationName string, actionConfig models.JSONMap, triggerData map[string]interface{}) string {
+	// Prefer a user-supplied message.
+	if msg, ok := actionConfig["message"].(string); ok && msg != "" {
+		return msg
+	}
+
+	body := fmt.Sprintf("Your automation \"%s\" was triggered.\n\n", automationName)
+
+	if postID, ok := triggerData["post_id"].(string); ok && postID != "" {
+		body += fmt.Sprintf("Post ID: %s\n", postID)
+	}
+	if title, ok := triggerData["title"].(string); ok && title != "" {
+		body += fmt.Sprintf("Title: %s\n", title)
+	}
+	if platforms, ok := triggerData["platforms"].([]interface{}); ok && len(platforms) > 0 {
+		var pNames []string
+		for _, p := range platforms {
+			if s, ok := p.(string); ok {
+				pNames = append(pNames, s)
+			}
+		}
+		if len(pNames) > 0 {
+			body += fmt.Sprintf("Platforms: %s\n", joinStrings(pNames, ", "))
+		}
+	}
+	if url, ok := triggerData["external_url"].(string); ok && url != "" {
+		body += fmt.Sprintf("Published URL: %s\n", url)
+	}
+	if errMsg, ok := triggerData["error"].(string); ok && errMsg != "" {
+		body += fmt.Sprintf("\nFailure reason: %s\n", errMsg)
+	}
+
+	return body
+}
+
+// joinStrings is a minimal strings.Join alternative that avoids an import just
+// for one call inside this file (strings is already included in some builds).
+func joinStrings(parts []string, sep string) string {
+	result := ""
+	for i, p := range parts {
+		if i > 0 {
+			result += sep
+		}
+		result += p
+	}
+	return result
+}
+
 // ─── RunAutomationHandler ─────────────────────────────────────────────────────
 
 type RunAutomationHandler struct {
@@ -388,44 +583,171 @@ func (h *RunAutomationHandler) ProcessTask(ctx context.Context, t *asynq.Task) e
 	}
 
 	// Execute the action based on action_type.
+	var actionErr error
 	switch automation.ActionType {
+
+	// ── send_notification ────────────────────────────────────────────────────
+	// Delivers an email (or in-app) notification to the automation creator.
+	// action_config keys:
+	//   channel  : "email" | "in_app" | "webhook"  (default: "email")
+	//   subject  : custom subject line (optional)
+	//   message  : custom body text    (optional)
+	//   url      : webhook target URL  (required for channel=webhook)
+	//   secret   : HMAC-SHA256 signing secret (optional, for channel=webhook)
 	case models.ActionSendNotification:
-		msg := ""
-		if m, ok := automation.ActionConfig["message"]; ok {
-			if ms, ok := m.(string); ok {
-				msg = ms
+		channel := ChannelEmail
+		if ch, ok := automation.ActionConfig["channel"].(string); ok && ch != "" {
+			channel = NotificationChannel(ch)
+		}
+		subject := "Automation triggered: " + automation.Name
+		if s, ok := automation.ActionConfig["subject"].(string); ok && s != "" {
+			subject = s
+		}
+		body := buildAutomationNotificationBody(automation.Name, automation.ActionConfig, p.TriggerData)
+
+		// For webhook channel, pass url + secret via the Data map.
+		var extraData map[string]string
+		if channel == ChannelWebhook {
+			extraData = make(map[string]string)
+			if u, ok := automation.ActionConfig["url"].(string); ok {
+				extraData["url"] = u
+			}
+			if s, ok := automation.ActionConfig["secret"].(string); ok {
+				extraData["secret"] = s
 			}
 		}
-		if msg == "" {
-			msg = "Automation triggered: " + automation.Name
-		}
-		log.Info("send_notification action",
-			zap.String("message", msg),
-		)
-		// Enqueue a notification task for the automation creator.
+
 		notifPayload := SendNotificationPayload{
 			WorkspaceID: automation.WorkspaceID,
 			UserID:      automation.CreatedBy,
-			Channel:     ChannelInApp,
-			Subject:     automation.Name,
-			Body:        msg,
+			Channel:     channel,
+			Subject:     subject,
+			Body:        body,
+			Data:        extraData,
 		}
 		task, err := NewSendNotificationTask(notifPayload)
 		if err != nil {
-			log.Error("failed to create notification task", zap.Error(err))
-		} else if h.deps.DB != nil {
-			// Fire-and-forget: log errors but don't fail the automation run.
-			log.Info("notification task created for automation", zap.String("automation", automation.Name))
-			_ = task
+			actionErr = fmt.Errorf("send_notification: create task: %w", err)
+			break
+		}
+		if h.deps.AsynqClient == nil {
+			log.Warn("send_notification: no asynq client configured, skipping")
+			break
+		}
+		if _, err := h.deps.AsynqClient.EnqueueContext(ctx, task, asynq.Queue("low")); err != nil {
+			actionErr = fmt.Errorf("send_notification: enqueue: %w", err)
+		} else {
+			log.Info("send_notification: notification enqueued",
+				zap.String("channel", string(channel)),
+				zap.String("subject", subject),
+			)
 		}
 
+	// ── auto_repurpose ───────────────────────────────────────────────────────
+	// Repurposes the triggering post's content across target platforms via AI.
+	// action_config keys:
+	//   target_platforms : ["twitter","linkedin","instagram",…]
+	// trigger_data keys (set by publish handler):
+	//   post_id          : UUID of the published post
+	//   content          : caption / body of the post
 	case models.ActionAutoRepurpose:
-		// Full implementation requires source post context and AI service integration.
-		// For now, log the intent and update run metadata below.
-		log.Info("auto_repurpose action (queued for implementation)",
-			zap.Any("trigger_data", p.TriggerData),
-		)
+		postIDStr, _ := p.TriggerData["post_id"].(string)
+		postID, err := uuid.Parse(postIDStr)
+		if err != nil {
+			actionErr = fmt.Errorf("auto_repurpose: invalid post_id %q: %w", postIDStr, err)
+			break
+		}
 
+		var post models.Post
+		if err := h.deps.DB.WithContext(ctx).
+			First(&post, "id = ? AND workspace_id = ?", postID, automation.WorkspaceID).Error; err != nil {
+			actionErr = fmt.Errorf("auto_repurpose: load post %s: %w", postID, err)
+			break
+		}
+
+		// Resolve target platforms from action_config.
+		var targetPlatforms []string
+		if tp, ok := automation.ActionConfig["target_platforms"]; ok {
+			switch v := tp.(type) {
+			case []interface{}:
+				for _, item := range v {
+					if s, ok := item.(string); ok && s != "" {
+						targetPlatforms = append(targetPlatforms, s)
+					}
+				}
+			case []string:
+				targetPlatforms = append(targetPlatforms, v...)
+			}
+		}
+		if len(targetPlatforms) == 0 {
+			// Default: repurpose to all major text platforms.
+			targetPlatforms = []string{"twitter", "linkedin", "instagram", "facebook", "threads"}
+		}
+		// Remove the source platform to avoid identical repurposing.
+		fromPlatform := ""
+		if len(post.Platforms) > 0 {
+			fromPlatform = string(post.Platforms[0])
+			filtered := targetPlatforms[:0]
+			for _, tp := range targetPlatforms {
+				if tp != fromPlatform {
+					filtered = append(filtered, tp)
+				}
+			}
+			targetPlatforms = filtered
+		}
+		if len(targetPlatforms) == 0 {
+			log.Info("auto_repurpose: no target platforms after removing source, skipping")
+			break
+		}
+
+		// Create an AIJob record for tracking.
+		aiJob := models.AIJob{
+			WorkspaceID:   automation.WorkspaceID,
+			JobType:       models.AIJobRepurposeContent,
+			Status:        models.AIJobStatusPending,
+			RequestedByID: automation.CreatedBy,
+			InputData: models.JSONMap{
+				"prompt": fmt.Sprintf("Auto-repurpose via automation '%s'", automation.Name),
+			},
+		}
+		if err := h.deps.DB.WithContext(ctx).Create(&aiJob).Error; err != nil {
+			actionErr = fmt.Errorf("auto_repurpose: create ai_job: %w", err)
+			break
+		}
+
+		repurposePayload := RepurposeContentPayload{
+			JobID:           aiJob.ID,
+			WorkspaceID:     automation.WorkspaceID,
+			UserID:          automation.CreatedBy,
+			Source:          RepurposeSourcePost,
+			PostContent:     post.Content,
+			FromPlatform:    fromPlatform,
+			TargetPlatforms: targetPlatforms,
+		}
+		task, err := NewRepurposeContentTask(repurposePayload)
+		if err != nil {
+			actionErr = fmt.Errorf("auto_repurpose: create task: %w", err)
+			break
+		}
+		if h.deps.AsynqClient == nil {
+			log.Warn("auto_repurpose: no asynq client configured, skipping")
+			break
+		}
+		if _, err := h.deps.AsynqClient.EnqueueContext(ctx, task, asynq.Queue("default")); err != nil {
+			actionErr = fmt.Errorf("auto_repurpose: enqueue: %w", err)
+		} else {
+			log.Info("auto_repurpose: repurpose task enqueued",
+				zap.String("ai_job_id", aiJob.ID.String()),
+				zap.Strings("target_platforms", targetPlatforms),
+			)
+		}
+
+	// ── republish_after_delay ────────────────────────────────────────────────
+	// Clones the triggering post and schedules it to publish again after a delay.
+	// action_config keys:
+	//   delay_hours : int (default 24)
+	// trigger_data keys (set by publish handler):
+	//   post_id     : UUID of the published post
 	case models.ActionRepublishAfterDelay:
 		delayHours := 24
 		if d, ok := automation.ActionConfig["delay_hours"]; ok {
@@ -436,13 +758,83 @@ func (h *RunAutomationHandler) ProcessTask(ctx context.Context, t *asynq.Task) e
 				delayHours = v
 			}
 		}
-		log.Info("republish_after_delay action",
-			zap.Int("delay_hours", delayHours),
-			zap.Any("trigger_data", p.TriggerData),
-		)
+
+		postIDStr, _ := p.TriggerData["post_id"].(string)
+		postID, err := uuid.Parse(postIDStr)
+		if err != nil {
+			actionErr = fmt.Errorf("republish_after_delay: invalid post_id %q: %w", postIDStr, err)
+			break
+		}
+
+		var origPost models.Post
+		if err := h.deps.DB.WithContext(ctx).
+			First(&origPost, "id = ? AND workspace_id = ?", postID, automation.WorkspaceID).Error; err != nil {
+			actionErr = fmt.Errorf("republish_after_delay: load post %s: %w", postID, err)
+			break
+		}
+
+		delay := time.Duration(delayHours) * time.Hour
+		scheduledAt := time.Now().UTC().Add(delay)
+
+		// Clone the original post. The scheduler will pick it up when scheduled_at
+		// elapses; we also enqueue with ProcessAt so it fires even if the scheduler
+		// misses a tick.
+		clonedPost := models.Post{
+			WorkspaceID: origPost.WorkspaceID,
+			AuthorID:    origPost.AuthorID,
+			Content:     origPost.Content,
+			Title:       origPost.Title,
+			Type:        origPost.Type,
+			Status:      "scheduled",
+			Platforms:   origPost.Platforms,
+			MediaURLs:   origPost.MediaURLs,
+			Hashtags:    origPost.Hashtags,
+			AIGenerated: origPost.AIGenerated,
+		}
+		clonedPost.ScheduledAt = &scheduledAt
+		if err := h.deps.DB.WithContext(ctx).Create(&clonedPost).Error; err != nil {
+			actionErr = fmt.Errorf("republish_after_delay: create cloned post: %w", err)
+			break
+		}
+
+		task, err := NewPublishPostTask(PublishPostPayload{
+			PostID:      clonedPost.ID,
+			WorkspaceID: clonedPost.WorkspaceID,
+		}, asynq.ProcessAt(scheduledAt))
+		if err != nil {
+			actionErr = fmt.Errorf("republish_after_delay: create publish task: %w", err)
+			break
+		}
+		if h.deps.AsynqClient == nil {
+			log.Warn("republish_after_delay: no asynq client configured; post created but task not enqueued — scheduler will pick it up")
+			break
+		}
+		if _, err := h.deps.AsynqClient.EnqueueContext(ctx, task,
+			asynq.Queue("critical"),
+			asynq.ProcessAt(scheduledAt),
+		); err != nil {
+			// Task enqueue failure is non-fatal — the 1-minute scheduler sweep
+			// will pick up the cloned post via handleEnqueueDuePosts.
+			log.Warn("republish_after_delay: enqueue task (scheduler fallback active)",
+				zap.String("post_id", clonedPost.ID.String()),
+				zap.Error(err),
+			)
+		} else {
+			log.Info("republish_after_delay: post cloned and scheduled",
+				zap.String("cloned_post_id", clonedPost.ID.String()),
+				zap.Int("delay_hours", delayHours),
+				zap.Time("scheduled_at", scheduledAt),
+			)
+		}
 
 	default:
 		log.Warn("unknown action type", zap.String("action_type", string(automation.ActionType)))
+	}
+
+	if actionErr != nil {
+		log.Error("automation action failed", zap.Error(actionErr))
+		// Return the error so asynq can retry (up to MaxRetry).
+		return fmt.Errorf("runAutomationHandler: %w", actionErr)
 	}
 
 	// Update last_triggered_at and increment run_count.
