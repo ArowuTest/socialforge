@@ -764,34 +764,73 @@ func aspectRatioToOAISize(ar string) string {
 }
 
 // GenerateImagePremium calls OpenAI's gpt-image-2 model to produce a
-// high-quality image. It is fail-safe in the same way as GenerateImageRaw:
-// no DB side effects, returns (*ImageResult, error).
+// high-quality image. It uses a raw HTTP call because go-openai v1.20.4
+// serialises the field as "response_format", which gpt-image-2 rejects —
+// the correct parameter name is "output_format".
 func (s *Service) GenerateImagePremium(ctx context.Context, prompt, aspectRatio string) (*ImageResult, error) {
-	client, err := s.requireOpenAIClient()
-	if err != nil {
+	// Verify OpenAI is configured.
+	if _, err := s.requireOpenAIClient(); err != nil {
 		return nil, fmt.Errorf("GenerateImagePremium: %w", err)
 	}
 
-	resp, err := client.CreateImage(ctx, openai.ImageRequest{
-		Model:          "gpt-image-2",
-		Prompt:         prompt,
-		N:              1,
-		Quality:        "high",
-		Size:           aspectRatioToOAISize(aspectRatio),
-		ResponseFormat: "url",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("GenerateImagePremium: OpenAI: %w", err)
+	// Read key under lock.
+	s.mu.RLock()
+	apiKey := s.cachedOpenAIKey
+	s.mu.RUnlock()
+
+	reqBody := map[string]interface{}{
+		"model":         "gpt-image-2",
+		"prompt":        prompt,
+		"n":             1,
+		"quality":       "high",
+		"size":          aspectRatioToOAISize(aspectRatio),
+		"output_format": "url",
 	}
-	if len(resp.Data) == 0 {
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("GenerateImagePremium: marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.openai.com/v1/images/generations", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("GenerateImagePremium: build request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("GenerateImagePremium: HTTP: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("GenerateImagePremium: read body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GenerateImagePremium: OpenAI status %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	var oaiResp struct {
+		Data []struct {
+			URL     string `json:"url"`
+			B64JSON string `json:"b64_json"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBytes, &oaiResp); err != nil {
+		return nil, fmt.Errorf("GenerateImagePremium: parse response: %w", err)
+	}
+	if len(oaiResp.Data) == 0 {
 		return nil, fmt.Errorf("GenerateImagePremium: no images returned")
 	}
 
-	imageURL := resp.Data[0].URL
-	if imageURL == "" && resp.Data[0].B64JSON != "" {
-		// gpt-image-2 may return base64 when response_format is not honoured —
-		// encode as a data URL so the frontend can render it directly.
-		imageURL = "data:image/png;base64," + resp.Data[0].B64JSON
+	imageURL := oaiResp.Data[0].URL
+	if imageURL == "" && oaiResp.Data[0].B64JSON != "" {
+		// Fallback: model returned base64 — wrap as data URL so the frontend renders it.
+		imageURL = "data:image/png;base64," + oaiResp.Data[0].B64JSON
 	}
 	if imageURL == "" {
 		return nil, fmt.Errorf("GenerateImagePremium: empty URL and b64 in response")
