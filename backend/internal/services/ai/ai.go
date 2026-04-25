@@ -784,7 +784,7 @@ func (s *Service) GenerateImagePremium(ctx context.Context, prompt, aspectRatio 
 		"n":             1,
 		"quality":       "high",
 		"size":          aspectRatioToOAISize(aspectRatio),
-		"output_format": "url",
+		"output_format": "png", // gpt-image-2 accepts "png"|"webp"|"jpeg"; always returns b64_json
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
