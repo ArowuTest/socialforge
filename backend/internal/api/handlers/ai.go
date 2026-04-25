@@ -282,6 +282,13 @@ func (h *AIHandler) GenerateImage(c *fiber.Ctx) error {
 		return internalError(c, "failed to create AI job")
 	}
 
+	// Capture the resolved premium model name now (before goroutine) so
+	// input_data records which actual OpenAI model will run.
+	resolvedModel := req.Model
+	if req.Model == "premium" {
+		resolvedModel = h.ai.GetPremiumImageModel()
+	}
+
 	// Generate in a background goroutine using a detached context so the
 	// HTTP response returning does not cancel the generation call.
 	// Credits were already deducted and the job record created above.
@@ -291,16 +298,15 @@ func (h *AIHandler) GenerateImage(c *fiber.Ctx) error {
 		// Enrich the prompt with GPT-4o before sending to the generation model.
 		enrichedPrompt := h.ai.EnrichVisualPrompt(ctx, req.Prompt, "image", req.Style)
 
-		// Record enriched prompt in job's input_data for transparency.
-		if enrichedPrompt != req.Prompt {
-			h.db.WithContext(ctx).Model(job).Update("input_data", models.JSONMap{
-				"prompt":          req.Prompt,
-				"enriched_prompt": enrichedPrompt,
-				"style":           req.Style,
-				"aspect_ratio":    req.AspectRatio,
-				"model":           req.Model,
-			})
-		}
+		// Record enriched prompt + resolved model in job's input_data for transparency.
+		h.db.WithContext(ctx).Model(job).Update("input_data", models.JSONMap{
+			"prompt":          req.Prompt,
+			"enriched_prompt": enrichedPrompt,
+			"style":           req.Style,
+			"aspect_ratio":    req.AspectRatio,
+			"model":           req.Model,
+			"resolved_model":  resolvedModel,
+		})
 
 		// Route to the appropriate generation backend.
 		var result *ai.ImageResult

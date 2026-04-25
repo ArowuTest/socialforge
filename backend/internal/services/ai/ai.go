@@ -152,9 +152,10 @@ type Service struct {
 	fallbackFalKey    string
 	cachedOpenAIKey  string
 	cachedFalKey     string
-	openaiClient     *openai.Client
-	creditCosts      map[string]int
-	lastRefreshed    time.Time
+	openaiClient            *openai.Client
+	creditCosts             map[string]int
+	cachedPremiumImageModel string // "dall-e-3" | "gpt-image-2"; default "dall-e-3"
+	lastRefreshed           time.Time
 }
 
 // New creates a new AI Service. The encryptSecret is used to decrypt API keys
@@ -234,6 +235,18 @@ func (s *Service) refreshConfig() {
 			m[c.JobType] = c.Credits
 		}
 		s.creditCosts = m
+	}
+
+	// 3. Premium image model from platform_settings
+	var premiumModelRow struct {
+		Value string `gorm:"column:value"`
+	}
+	if err := s.db.Raw(
+		"SELECT value FROM platform_settings WHERE key = 'premium_image_model'",
+	).Scan(&premiumModelRow).Error; err == nil && premiumModelRow.Value != "" {
+		s.cachedPremiumImageModel = premiumModelRow.Value
+	} else {
+		s.cachedPremiumImageModel = "dall-e-3" // safe default while gpt-image-2 verification is pending
 	}
 
 	s.lastRefreshed = time.Now()
@@ -763,14 +776,75 @@ func aspectRatioToOAISize(ar string) string {
 	}
 }
 
-// GenerateImagePremium calls OpenAI's gpt-image-2 model to produce a
-// high-quality image. It uses a raw HTTP call because go-openai v1.20.4
-// serialises the field as "response_format", which gpt-image-2 rejects —
-// the correct parameter name is "output_format".
+// GetPremiumImageModel returns the currently configured backing model for the
+// Premium image tier ("dall-e-3" or "gpt-image-2"), refreshing the config cache
+// if stale. Defaults to "dall-e-3" until an admin explicitly sets gpt-image-2.
+func (s *Service) GetPremiumImageModel() string {
+	s.maybeRefresh()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.cachedPremiumImageModel == "" {
+		return "dall-e-3"
+	}
+	return s.cachedPremiumImageModel
+}
+
+// GenerateImagePremium routes to the admin-configured premium image model.
+// Currently supported: "dall-e-3" (default, HD quality) and "gpt-image-2"
+// (requires OpenAI org verification). The active model is set via Admin › Settings.
 func (s *Service) GenerateImagePremium(ctx context.Context, prompt, aspectRatio string) (*ImageResult, error) {
+	s.mu.RLock()
+	model := s.cachedPremiumImageModel
+	s.mu.RUnlock()
+	if model == "" {
+		model = "dall-e-3"
+	}
+	s.log.Info("GenerateImagePremium: routing", zap.String("model", model))
+	if model == "gpt-image-2" {
+		return s.generateImageGPT2(ctx, prompt, aspectRatio)
+	}
+	return s.generateImageDallE3(ctx, prompt, aspectRatio)
+}
+
+// generateImageDallE3 generates a high-quality image using DALL-E 3 (HD quality).
+// The go-openai library handles DALL-E 3 correctly (returns URLs via response_format=url).
+func (s *Service) generateImageDallE3(ctx context.Context, prompt, aspectRatio string) (*ImageResult, error) {
+	client, err := s.requireOpenAIClient()
+	if err != nil {
+		return nil, fmt.Errorf("generateImageDallE3: %w", err)
+	}
+	resp, err := client.CreateImage(ctx, openai.ImageRequest{
+		Model:          openai.CreateImageModelDallE3,
+		Prompt:         prompt,
+		N:              1,
+		Quality:        "hd",
+		Size:           aspectRatioToOAISize(aspectRatio),
+		ResponseFormat: openai.CreateImageResponseFormatURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("generateImageDallE3: %w", err)
+	}
+	if len(resp.Data) == 0 || resp.Data[0].URL == "" {
+		return nil, fmt.Errorf("generateImageDallE3: no image URL returned")
+	}
+	w, h := 1024, 1024
+	switch aspectRatioToOAISize(aspectRatio) {
+	case "1024x1792":
+		h = 1792
+	case "1792x1024":
+		w = 1792
+	}
+	return &ImageResult{URL: resp.Data[0].URL, Width: w, Height: h}, nil
+}
+
+// generateImageGPT2 calls OpenAI's gpt-image-2 model to produce a high-quality
+// image. It uses a raw HTTP call because go-openai v1.20.4 serialises the format
+// field as "response_format", which gpt-image-2 rejects — the correct parameter
+// name is "output_format". Requires OpenAI org identity verification.
+func (s *Service) generateImageGPT2(ctx context.Context, prompt, aspectRatio string) (*ImageResult, error) {
 	// Verify OpenAI is configured.
 	if _, err := s.requireOpenAIClient(); err != nil {
-		return nil, fmt.Errorf("GenerateImagePremium: %w", err)
+		return nil, fmt.Errorf("generateImageGPT2: %w", err)
 	}
 
 	// Read key under lock.
@@ -788,30 +862,30 @@ func (s *Service) GenerateImagePremium(ctx context.Context, prompt, aspectRatio 
 	}
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("GenerateImagePremium: marshal request: %w", err)
+		return nil, fmt.Errorf("generateImageGPT2: marshal request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		"https://api.openai.com/v1/images/generations", bytes.NewReader(bodyBytes))
 	if err != nil {
-		return nil, fmt.Errorf("GenerateImagePremium: build request: %w", err)
+		return nil, fmt.Errorf("generateImageGPT2: build request: %w", err)
 	}
 	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.httpClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("GenerateImagePremium: HTTP: %w", err)
+		return nil, fmt.Errorf("generateImageGPT2: HTTP: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("GenerateImagePremium: read body: %w", err)
+		return nil, fmt.Errorf("generateImageGPT2: read body: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GenerateImagePremium: OpenAI status %d: %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("generateImageGPT2: OpenAI status %d: %s", resp.StatusCode, string(respBytes))
 	}
 
 	var oaiResp struct {
@@ -821,19 +895,19 @@ func (s *Service) GenerateImagePremium(ctx context.Context, prompt, aspectRatio 
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(respBytes, &oaiResp); err != nil {
-		return nil, fmt.Errorf("GenerateImagePremium: parse response: %w", err)
+		return nil, fmt.Errorf("generateImageGPT2: parse response: %w", err)
 	}
 	if len(oaiResp.Data) == 0 {
-		return nil, fmt.Errorf("GenerateImagePremium: no images returned")
+		return nil, fmt.Errorf("generateImageGPT2: no images returned")
 	}
 
 	imageURL := oaiResp.Data[0].URL
 	if imageURL == "" && oaiResp.Data[0].B64JSON != "" {
-		// Fallback: model returned base64 — wrap as data URL so the frontend renders it.
+		// gpt-image-2 always returns base64 — wrap as data URL so the frontend renders it.
 		imageURL = "data:image/png;base64," + oaiResp.Data[0].B64JSON
 	}
 	if imageURL == "" {
-		return nil, fmt.Errorf("GenerateImagePremium: empty URL and b64 in response")
+		return nil, fmt.Errorf("generateImageGPT2: empty URL and b64 in response")
 	}
 
 	w, h := 1024, 1024

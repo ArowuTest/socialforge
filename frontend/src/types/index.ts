@@ -454,6 +454,17 @@ export interface CreditTopUpSession {
 }
 
 // ============================================================
+// Admin / Platform Settings
+// ============================================================
+
+export interface PlatformSetting {
+  key: string
+  value: string
+  description?: string
+  updated_at: string
+}
+
+// ============================================================
 // UI Helper Types
 // ============================================================
 

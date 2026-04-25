@@ -5,7 +5,7 @@ import {
   Settings, Key, Shield, Wrench, Save, Eye, EyeOff,
   CheckCircle2, AlertTriangle, Trash2, RefreshCw,
   AlertCircle, ToggleLeft, ToggleRight, Gift, Search, X, Plus,
-  Zap, DollarSign, Package, Edit2, Bot,
+  Zap, DollarSign, Package, Edit2, Bot, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { adminApi } from "@/lib/api";
@@ -153,6 +153,8 @@ export default function SettingsPage() {
   const [editingCostId, setEditingCostId] = React.useState<string | null>(null);
   const [editingPkgId, setEditingPkgId] = React.useState<string | null>(null);
   const [costSaving, setCostSaving] = React.useState(false);
+  const [premiumImageModel, setPremiumImageModel] = React.useState<"dall-e-3" | "gpt-image-2">("dall-e-3");
+  const [modelSaving, setModelSaving] = React.useState(false);
 
   const handleSaveGeneral = async () => {
     try {
@@ -194,6 +196,19 @@ export default function SettingsPage() {
     } catch {
       setMaintenanceMode(!newVal);
       toast.error("Failed to toggle maintenance mode");
+    }
+  };
+
+  const handleSavePremiumModel = async (model: "dall-e-3" | "gpt-image-2") => {
+    setPremiumImageModel(model);
+    setModelSaving(true);
+    try {
+      await adminApi.updatePlatformSetting("premium_image_model", model);
+      toast.success(`Premium image model set to ${model === "dall-e-3" ? "DALL-E 3 HD" : "GPT Image 2"}. Takes effect within 60 seconds.`);
+    } catch {
+      toast.error("Failed to update premium image model");
+    } finally {
+      setModelSaving(false);
     }
   };
 
@@ -333,6 +348,9 @@ export default function SettingsPage() {
         if (s.enforce_2fa) setEnforce2FA(s.enforce_2fa === "true");
         if (s.ip_allowlist) setIpAllowlist(s.ip_allowlist);
         if (s.maintenance_mode) setMaintenanceMode(s.maintenance_mode === "true");
+      if (s.premium_image_model === "gpt-image-2" || s.premium_image_model === "dall-e-3") {
+        setPremiumImageModel(s.premium_image_model);
+      }
       }
     }).catch(() => {});
 
@@ -751,6 +769,69 @@ export default function SettingsPage() {
       {/* AI Costs tab */}
       {activeTab === "ai-costs" && (
         <div className="space-y-6 max-w-4xl">
+
+          {/* ── Premium Image Model selector ────────────────────────────── */}
+          <div className="bg-slate-900 border border-violet-900/40 rounded-xl p-5 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-violet-400" /> Premium Image Model
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Controls which OpenAI model powers the &quot;Premium&quot; image generation tier (25 credits).
+                Change takes effect within 60 seconds — no redeploy needed.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([
+                {
+                  value: "dall-e-3" as const,
+                  label: "⚡ DALL-E 3 HD",
+                  sub: "Available now · ~$0.08/image · HD quality",
+                  badge: "Active",
+                  badgeClass: "bg-emerald-900/40 text-emerald-300 border-emerald-800",
+                },
+                {
+                  value: "gpt-image-2" as const,
+                  label: "✨ GPT Image 2",
+                  sub: "Requires org verification · ~$0.211/image",
+                  badge: "Pending Verification",
+                  badgeClass: "bg-amber-900/40 text-amber-300 border-amber-800",
+                },
+              ]).map(({ value, label, sub, badge, badgeClass }) => (
+                <button
+                  key={value}
+                  onClick={() => !modelSaving && handleSavePremiumModel(value)}
+                  disabled={modelSaving}
+                  className={cn(
+                    "p-4 rounded-xl border text-left transition-all disabled:opacity-60",
+                    premiumImageModel === value
+                      ? "bg-violet-900/20 border-violet-500"
+                      : "border-slate-700 hover:border-violet-400 hover:bg-slate-800/60"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <span className="text-sm font-semibold text-white">{label}</span>
+                    <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium flex-shrink-0", badgeClass)}>
+                      {badge}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">{sub}</p>
+                  {premiumImageModel === value && (
+                    <p className="text-xs text-violet-400 mt-2 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Currently active
+                    </p>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {modelSaving && (
+              <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                <RefreshCw className="h-3 w-3 animate-spin" /> Saving…
+              </p>
+            )}
+          </div>
 
           {/* Header */}
           <div className="flex items-center justify-between">
