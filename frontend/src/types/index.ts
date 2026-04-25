@@ -204,6 +204,14 @@ export interface AIJob {
     hashtags?: string[];
     repurposed?: Record<string, string>;
   };
+  /** Actual backend field: matches input_data JSON column */
+  input_data?: {
+    prompt?: string;
+    enriched_prompt?: string;
+    style?: string;
+    aspect_ratio?: string;
+    duration?: number;
+  };
   error?: string;
   error_message?: string;
   creditsUsed: number;
@@ -223,6 +231,7 @@ export interface GenerateImageRequest {
   prompt: string;
   style: "photorealistic" | "cartoon" | "minimalist" | "3d";
   aspectRatio: "1:1" | "4:5" | "9:16" | "16:9" | "1.91:1";
+  model?: "standard" | "premium";
 }
 
 export interface RepurposeRequest {

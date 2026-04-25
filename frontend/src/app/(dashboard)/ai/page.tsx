@@ -398,6 +398,7 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
   }, [suggestedPrompt]);
   const [style, setStyle] = React.useState("photorealistic");
   const [aspectRatio, setAspectRatio] = React.useState<"1:1" | "9:16" | "16:9">("1:1");
+  const [imageModel, setImageModel] = React.useState<"standard" | "premium">("standard");
   const [jobId, setJobId] = React.useState<string | null>(null);
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
@@ -437,6 +438,7 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
         prompt,
         style: style as "photorealistic" | "cartoon" | "minimalist" | "3d",
         aspectRatio,
+        model: imageModel,
       });
       // Backend returns {"data": {"job_id": "..."}}
       const jobId = (res.data as unknown as { job_id?: string }).job_id;
@@ -474,6 +476,37 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
         </div>
 
         <div className="space-y-2">
+          <Label>Generation Model</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {([
+              { value: "standard" as const, label: "⚡ Standard", sub: "Flux Dev · 10 credits", badge: null },
+              { value: "premium" as const,  label: "✨ Premium",  sub: "GPT Image 2 · 25 credits", badge: "NEW" },
+            ]).map(({ value, label, sub, badge }) => (
+              <button
+                key={value}
+                onClick={() => setImageModel(value)}
+                className={cn(
+                  "p-3 rounded-lg border text-left transition-all",
+                  imageModel === value
+                    ? "bg-violet-50 dark:bg-violet-900/20 border-violet-500"
+                    : "border-gray-200 dark:border-gray-700 hover:border-violet-300"
+                )}
+              >
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className="text-sm font-medium">{label}</span>
+                  {badge && (
+                    <span className="text-xs bg-violet-100 dark:bg-violet-800 text-violet-700 dark:text-violet-300 px-1.5 py-0.5 rounded font-medium">
+                      {badge}
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground">{sub}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
           <Label>Aspect Ratio</Label>
           <div className="flex gap-2">
             {(["1:1", "9:16", "16:9"] as const).map((r) => (
@@ -506,7 +539,7 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
           ) : (
             <>
               <Image className="h-4 w-4 mr-2" />
-              Generate Image
+              Generate Image · {imageModel === "premium" ? 25 : 10} credits
             </>
           )}
         </Button>
@@ -538,6 +571,16 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
                 alt="AI generated"
                 className="w-full rounded-lg mb-3"
               />
+              {result.input_data?.enriched_prompt && (
+                <details className="mb-3">
+                  <summary className="text-xs text-muted-foreground cursor-pointer select-none">
+                    ✨ AI-enhanced prompt
+                  </summary>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    {result.input_data.enriched_prompt}
+                  </p>
+                </details>
+              )}
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -736,6 +779,16 @@ function GenerateVideoTab() {
                 controls
                 className="w-full rounded-lg mb-3"
               />
+              {result.input_data?.enriched_prompt && (
+                <details className="mb-3">
+                  <summary className="text-xs text-muted-foreground cursor-pointer select-none">
+                    ✨ AI-enhanced prompt
+                  </summary>
+                  <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                    {result.input_data.enriched_prompt}
+                  </p>
+                </details>
+              )}
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" className="flex-1">
                   <Download className="h-3.5 w-3.5 mr-1.5" />

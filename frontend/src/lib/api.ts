@@ -512,6 +512,7 @@ export const aiApi = {
         prompt: data.prompt,
         style: data.style,
         aspect_ratio: data.aspectRatio,
+        model: data.model,
       }),
     }),
 

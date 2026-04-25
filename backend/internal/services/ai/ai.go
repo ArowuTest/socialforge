@@ -39,6 +39,7 @@ const (
 	CreditCostAnalyse       = 2
 	CreditCostRepurpose     = 5
 	CreditCostImage         = 10
+	CreditCostImagePremium  = 25
 	CreditCostVideo         = 30
 )
 
@@ -651,6 +652,70 @@ func aspectRatioToImageSize(ar string) string {
 	}
 }
 
+// EnrichVisualPrompt uses GPT-4o to translate a raw user prompt into a
+// detailed visual description suitable for diffusion models (images/video).
+// It is fail-safe: returns the original prompt unchanged on any error.
+func (s *Service) EnrichVisualPrompt(ctx context.Context, userPrompt, mediaType, style string) string {
+	client, err := s.requireOpenAIClient()
+	if err != nil {
+		return userPrompt // no API key — skip enrichment silently
+	}
+
+	enrichCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	mediaHint := "social media image"
+	if mediaType == "video" {
+		mediaHint = "short social media video clip"
+	}
+	styleHint := ""
+	if style != "" {
+		styleHint = fmt.Sprintf(" The desired visual style is: %s.", style)
+	}
+
+	systemPrompt := `You are a visual prompt engineer for AI image and video generation models.
+Your job: convert a user's short description into a rich, accurate visual description the model can render.
+
+Rules:
+1. NEVER name specific real people (celebrities, athletes, politicians). Instead describe their genre, aesthetic, and cultural context (e.g. "Afrobeats superstar" → "a charismatic African male performer in designer streetwear on a massive outdoor concert stage").
+2. Translate cultural/genre references into concrete visual details: lighting, crowd energy, stage setup, wardrobe, atmosphere.
+3. Include: subject description, environment/setting, lighting, color palette, mood, composition angle.
+4. For VIDEO: add motion descriptors — camera movement (slow push-in, sweeping drone shot), crowd movement, performer movement.
+5. Preserve the user's core intent — don't invent unrelated elements.
+6. Keep the output to 2-4 sentences, no bullet points, no line breaks.
+7. End every prompt with the technical quality suffix appropriate for the media type.
+8. Output ONLY the enriched prompt text — no labels, no explanations, no markdown.`
+
+	userMsg := fmt.Sprintf(
+		"Enrich this prompt for a %s:%s\n\nUser prompt: %s",
+		mediaHint, styleHint, userPrompt,
+	)
+
+	resp, err := client.CreateChatCompletion(enrichCtx, openai.ChatCompletionRequest{
+		Model: "gpt-4o",
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: userMsg},
+		},
+		Temperature: 0.4,
+		MaxTokens:   400,
+	})
+	if err != nil || len(resp.Choices) == 0 {
+		s.log.Warn("EnrichVisualPrompt: GPT-4o failed, using original prompt",
+			zap.String("prompt", userPrompt), zap.Error(err))
+		return userPrompt
+	}
+
+	enriched := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if enriched == "" {
+		return userPrompt
+	}
+	s.log.Info("EnrichVisualPrompt: enriched",
+		zap.String("original", userPrompt),
+		zap.String("enriched", enriched))
+	return enriched
+}
+
 // GenerateImageRaw makes the fal.ai API call and returns the image result
 // without any DB side effects (no credit deduction, no job record creation).
 // Used by handlers that manage credits and job records themselves.
@@ -683,6 +748,63 @@ func (s *Service) GenerateImageRaw(ctx context.Context, prompt, style, aspectRat
 		return nil, fmt.Errorf("GenerateImageRaw: fal.ai: %w", err)
 	}
 	return extractImageResult(result), nil
+}
+
+// aspectRatioToOAISize maps the user-facing aspect ratio string to an OpenAI
+// image size string supported by gpt-image-2.
+func aspectRatioToOAISize(ar string) string {
+	switch ar {
+	case "9:16":
+		return "1024x1792"
+	case "16:9":
+		return "1792x1024"
+	default: // "1:1" or empty
+		return "1024x1024"
+	}
+}
+
+// GenerateImagePremium calls OpenAI's gpt-image-2 model to produce a
+// high-quality image. It is fail-safe in the same way as GenerateImageRaw:
+// no DB side effects, returns (*ImageResult, error).
+func (s *Service) GenerateImagePremium(ctx context.Context, prompt, aspectRatio string) (*ImageResult, error) {
+	client, err := s.requireOpenAIClient()
+	if err != nil {
+		return nil, fmt.Errorf("GenerateImagePremium: %w", err)
+	}
+
+	resp, err := client.CreateImage(ctx, openai.ImageRequest{
+		Model:          "gpt-image-2",
+		Prompt:         prompt,
+		N:              1,
+		Quality:        "high",
+		Size:           aspectRatioToOAISize(aspectRatio),
+		ResponseFormat: "url",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("GenerateImagePremium: OpenAI: %w", err)
+	}
+	if len(resp.Data) == 0 {
+		return nil, fmt.Errorf("GenerateImagePremium: no images returned")
+	}
+
+	imageURL := resp.Data[0].URL
+	if imageURL == "" && resp.Data[0].B64JSON != "" {
+		// gpt-image-2 may return base64 when response_format is not honoured —
+		// encode as a data URL so the frontend can render it directly.
+		imageURL = "data:image/png;base64," + resp.Data[0].B64JSON
+	}
+	if imageURL == "" {
+		return nil, fmt.Errorf("GenerateImagePremium: empty URL and b64 in response")
+	}
+
+	w, h := 1024, 1024
+	switch aspectRatioToOAISize(aspectRatio) {
+	case "1024x1792":
+		h = 1792
+	case "1792x1024":
+		w = 1792
+	}
+	return &ImageResult{URL: imageURL, Width: w, Height: h}, nil
 }
 
 // ─── GenerateVideo ────────────────────────────────────────────────────────────
@@ -729,18 +851,19 @@ func (s *Service) GenerateVideo(
 		bgCtx, cancel := context.WithTimeout(context.Background(), 35*time.Minute)
 		defer cancel()
 
-		enhancedPrompt := fmt.Sprintf(
-			"%s. Cinematic quality, smooth motion, professional lighting, "+
-				"engaging visual narrative. Optimized for social media vertical video (9:16). "+
-				"Clean transitions, no text overlays unless specified.",
-			prompt)
-		if style != "" {
-			enhancedPrompt = fmt.Sprintf(
-				"%s. Visual style: %s. Cinematic quality, smooth motion, "+
-					"professional lighting, engaging visual narrative. "+
-					"Optimized for social media vertical video (9:16).",
-				prompt, style)
+		// Enrich prompt semantically before sending to diffusion model.
+		enrichedPrompt := s.EnrichVisualPrompt(bgCtx, prompt, "video", style)
+
+		// Record enriched prompt in job's input_data for transparency.
+		if enrichedPrompt != prompt {
+			s.db.WithContext(bgCtx).Model(job).Update("input_data", models.JSONMap{
+				"prompt":          prompt,
+				"enriched_prompt": enrichedPrompt,
+				"duration":        duration,
+				"style":           style,
+			})
 		}
+
 		// Kling v3 Pro accepts 3-15 as duration values; clamp to supported range.
 		falDuration := duration
 		if falDuration < 3 {
@@ -749,10 +872,10 @@ func (s *Service) GenerateVideo(
 			falDuration = 15
 		}
 		reqBody := map[string]interface{}{
-			"prompt":          enhancedPrompt,
-			"duration":        falDuration,
-			"aspect_ratio":    "9:16",
-			"generate_audio":  true,
+			"prompt":         enrichedPrompt,
+			"duration":       falDuration,
+			"aspect_ratio":   "9:16",
+			"generate_audio": true,
 		}
 
 		s.log.Info("fal.ai video: submitting to queue", zap.String("job_id", job.ID.String()))

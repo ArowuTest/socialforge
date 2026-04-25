@@ -226,6 +226,7 @@ type generateImageRequest struct {
 	Prompt      string `json:"prompt"`
 	Style       string `json:"style"`
 	AspectRatio string `json:"aspect_ratio"`
+	Model       string `json:"model"` // "premium" = gpt-image-2; anything else = flux
 }
 
 // GenerateImage enqueues an async image generation job.
@@ -250,8 +251,14 @@ func (h *AIHandler) GenerateImage(c *fiber.Ctx) error {
 		return badRequest(c, "prompt is required", "VALIDATION_ERROR")
 	}
 
+	// Determine credit cost based on chosen model.
+	creditCost := ai.CreditCostImage
+	if req.Model == "premium" {
+		creditCost = ai.CreditCostImagePremium
+	}
+
 	// Check credits before queuing.
-	if err := h.ai.DeductCredits(c.Context(), wid, ai.CreditCostImage); err != nil {
+	if err := h.ai.DeductCredits(c.Context(), wid, creditCost); err != nil {
 		if errors.Is(err, ai.ErrInsufficientCredits) {
 			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
 				"error": "insufficient AI credits",
@@ -266,8 +273,8 @@ func (h *AIHandler) GenerateImage(c *fiber.Ctx) error {
 		WorkspaceID:   wid,
 		JobType:       models.AIJobGenerateImage,
 		Status:        models.AIJobStatusPending,
-		InputData:     models.JSONMap{"prompt": req.Prompt, "style": req.Style, "aspect_ratio": req.AspectRatio},
-		CreditsUsed:   ai.CreditCostImage,
+		InputData:     models.JSONMap{"prompt": req.Prompt, "style": req.Style, "aspect_ratio": req.AspectRatio, "model": req.Model},
+		CreditsUsed:   creditCost,
 		RequestedByID: user.ID,
 	}
 	if err := h.db.WithContext(c.Context()).Create(job).Error; err != nil {
@@ -276,24 +283,47 @@ func (h *AIHandler) GenerateImage(c *fiber.Ctx) error {
 	}
 
 	// Generate in a background goroutine using a detached context so the
-	// HTTP response returning does not cancel the fal.ai call.
-	// We call GenerateImageRaw (no DB side effects) because credits were already
-	// deducted and the job record was already created above.
+	// HTTP response returning does not cancel the generation call.
+	// Credits were already deducted and the job record created above.
 	go func() {
 		ctx := context.Background()
-		result, err := h.ai.GenerateImageRaw(ctx, req.Prompt, req.Style, req.AspectRatio)
-		if err != nil || result == nil {
+
+		// Enrich the prompt with GPT-4o before sending to the generation model.
+		enrichedPrompt := h.ai.EnrichVisualPrompt(ctx, req.Prompt, "image", req.Style)
+
+		// Record enriched prompt in job's input_data for transparency.
+		if enrichedPrompt != req.Prompt {
+			h.db.WithContext(ctx).Model(job).Update("input_data", models.JSONMap{
+				"prompt":          req.Prompt,
+				"enriched_prompt": enrichedPrompt,
+				"style":           req.Style,
+				"aspect_ratio":    req.AspectRatio,
+				"model":           req.Model,
+			})
+		}
+
+		// Route to the appropriate generation backend.
+		var result *ai.ImageResult
+		var genErr error
+		if req.Model == "premium" {
+			result, genErr = h.ai.GenerateImagePremium(ctx, enrichedPrompt, req.AspectRatio)
+		} else {
+			result, genErr = h.ai.GenerateImageRaw(ctx, enrichedPrompt, req.Style, req.AspectRatio)
+		}
+
+		if genErr != nil || result == nil {
 			errMsg := "image generation failed"
-			if err != nil {
-				errMsg = err.Error()
+			if genErr != nil {
+				errMsg = genErr.Error()
 			}
-			h.log.Error("GenerateImage background: fal.ai call failed", zap.Error(err))
+			h.log.Error("GenerateImage background: generation failed",
+				zap.String("model", req.Model), zap.Error(genErr))
 			h.db.WithContext(ctx).Model(job).Updates(map[string]interface{}{
 				"status":        models.AIJobStatusFailed,
 				"error_message": errMsg,
 			})
 			// Refund the credits since generation failed.
-			if refundErr := h.ai.RefundCredits(ctx, wid, ai.CreditCostImage); refundErr != nil {
+			if refundErr := h.ai.RefundCredits(ctx, wid, creditCost); refundErr != nil {
 				h.log.Error("GenerateImage background: failed to refund credits", zap.Error(refundErr))
 			}
 			return
