@@ -794,9 +794,9 @@ export default function SettingsPage() {
                 {
                   value: "gpt-image-2" as const,
                   label: "✨ GPT Image 2",
-                  sub: "Requires org verification · ~$0.211/image",
-                  badge: "Pending Verification",
-                  badgeClass: "bg-amber-900/40 text-amber-300 border-amber-800",
+                  sub: "Org verified · ~$0.211/image · Best quality",
+                  badge: "Available",
+                  badgeClass: "bg-emerald-900/40 text-emerald-300 border-emerald-800",
                 },
               ]).map(({ value, label, sub, badge, badgeClass }) => (
                 <button
