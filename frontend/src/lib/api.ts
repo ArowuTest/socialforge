@@ -861,21 +861,70 @@ export const templatesApi = {
 // ============================================================
 
 /**
+ * Attempt to refresh the admin access token using the stored refresh token.
+ * Returns the new access token on success, null on failure.
+ */
+async function refreshAdminToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const refreshToken = localStorage.getItem("sf_admin_refresh_token");
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const accessToken = data?.data?.access_token ?? data?.access_token;
+    if (!accessToken) return null;
+    localStorage.setItem("sf_admin_access_token", accessToken);
+    return accessToken;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Request helper for admin endpoints. Uses the separate admin token
  * (sf_admin_access_token) so admin auth is isolated from regular user auth.
+ * On 401, automatically attempts a token refresh and retries once.
+ * On refresh failure, redirects to /admin/login.
  */
 async function adminReq<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const makeReq = (token: string | null) => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return fetch(`${BASE_URL}${path}`, { ...options, headers });
+  };
+
   const token =
     typeof window !== "undefined"
       ? localStorage.getItem("sf_admin_access_token")
       : null;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(options.headers as Record<string, string>),
-  };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  let res = await makeReq(token);
+
+  // On 401: try refresh once, then retry
+  if (res.status === 401) {
+    const newToken = await refreshAdminToken();
+    if (newToken) {
+      res = await makeReq(newToken);
+    } else {
+      // Refresh failed — clear admin session and redirect to login
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("sf_admin_access_token");
+        localStorage.removeItem("sf_admin_refresh_token");
+        localStorage.removeItem("sf-admin-auth");
+        window.location.href = "/admin/login";
+      }
+      throw new Error("Admin session expired. Please log in again.");
+    }
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: "Request failed" }));
     throw new Error(err.message ?? `HTTP ${res.status}`);

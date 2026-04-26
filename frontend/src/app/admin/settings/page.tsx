@@ -332,7 +332,7 @@ export default function SettingsPage() {
 
   // Load all settings from API on mount
   React.useEffect(() => {
-    // Load general + security settings from platform_settings
+    // Load general + security + model settings from platform_settings
     adminApi.getPlatformSettings().then((res) => {
       if (res?.data) {
         const s = res.data as Record<string, string>;
@@ -348,11 +348,17 @@ export default function SettingsPage() {
         if (s.enforce_2fa) setEnforce2FA(s.enforce_2fa === "true");
         if (s.ip_allowlist) setIpAllowlist(s.ip_allowlist);
         if (s.maintenance_mode) setMaintenanceMode(s.maintenance_mode === "true");
-      if (s.premium_image_model === "gpt-image-2" || s.premium_image_model === "dall-e-3") {
-        setPremiumImageModel(s.premium_image_model);
+        if (s.premium_image_model === "gpt-image-2" || s.premium_image_model === "dall-e-3") {
+          setPremiumImageModel(s.premium_image_model);
+        }
       }
+    }).catch((err) => {
+      // If we get redirected to login, the error is swallowed by the redirect.
+      // For other errors, show a toast so the admin knows settings didn't load.
+      if (!String(err).includes("session expired")) {
+        toast.error("Failed to load settings from server. Showing defaults.");
       }
-    }).catch(() => {});
+    });
 
     // Load AI costs
     adminApi.getAiJobCosts().then((res) => {
