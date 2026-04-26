@@ -246,7 +246,7 @@ func (s *Service) refreshConfig() {
 	).Scan(&premiumModelRow).Error; err == nil && premiumModelRow.Value != "" {
 		s.cachedPremiumImageModel = premiumModelRow.Value
 	} else {
-		s.cachedPremiumImageModel = "dall-e-3" // safe default while gpt-image-2 verification is pending
+		s.cachedPremiumImageModel = "dall-e-3" // safe default if DB row absent
 	}
 
 	s.lastRefreshed = time.Now()
@@ -780,14 +780,28 @@ func (s *Service) GenerateImageRaw(ctx context.Context, prompt, style, aspectRat
 	return extractImageResult(result), nil
 }
 
-// aspectRatioToOAISize maps the user-facing aspect ratio string to an OpenAI
-// image size string supported by gpt-image-2.
-func aspectRatioToOAISize(ar string) string {
+// aspectRatioToDallE3Size maps the user-facing aspect ratio to a size string
+// supported by DALL-E 3 (1024x1024, 1024x1792, 1792x1024).
+func aspectRatioToDallE3Size(ar string) string {
 	switch ar {
 	case "9:16":
 		return "1024x1792"
 	case "16:9":
 		return "1792x1024"
+	default: // "1:1" or empty
+		return "1024x1024"
+	}
+}
+
+// aspectRatioToGPT2Size maps the user-facing aspect ratio to a size string
+// supported by gpt-image-2 (1024x1024, 1024x1536, 1536x1024).
+// Note: gpt-image-2 does NOT support the 1024x1792 / 1792x1024 DALL-E 3 sizes.
+func aspectRatioToGPT2Size(ar string) string {
+	switch ar {
+	case "9:16":
+		return "1024x1536"
+	case "16:9":
+		return "1536x1024"
 	default: // "1:1" or empty
 		return "1024x1024"
 	}
@@ -840,12 +854,13 @@ func (s *Service) generateImageDallE3(ctx context.Context, prompt, aspectRatio s
 	if err != nil {
 		return nil, fmt.Errorf("generateImageDallE3: %w", err)
 	}
+	size := aspectRatioToDallE3Size(aspectRatio)
 	resp, err := client.CreateImage(ctx, openai.ImageRequest{
 		Model:          openai.CreateImageModelDallE3,
 		Prompt:         prompt,
 		N:              1,
 		Quality:        "hd",
-		Size:           aspectRatioToOAISize(aspectRatio),
+		Size:           size,
 		ResponseFormat: openai.CreateImageResponseFormatURL,
 	})
 	if err != nil {
@@ -855,7 +870,7 @@ func (s *Service) generateImageDallE3(ctx context.Context, prompt, aspectRatio s
 		return nil, fmt.Errorf("generateImageDallE3: no image URL returned")
 	}
 	w, h := 1024, 1024
-	switch aspectRatioToOAISize(aspectRatio) {
+	switch size {
 	case "1024x1792":
 		h = 1792
 	case "1792x1024":
@@ -879,12 +894,13 @@ func (s *Service) generateImageGPT2(ctx context.Context, prompt, aspectRatio str
 	apiKey := s.cachedOpenAIKey
 	s.mu.RUnlock()
 
+	size := aspectRatioToGPT2Size(aspectRatio)
 	reqBody := map[string]interface{}{
 		"model":         "gpt-image-2",
 		"prompt":        prompt,
 		"n":             1,
 		"quality":       "high",
-		"size":          aspectRatioToOAISize(aspectRatio),
+		"size":          size,
 		"output_format": "png", // gpt-image-2 accepts "png"|"webp"|"jpeg"; always returns b64_json
 	}
 	bodyBytes, err := json.Marshal(reqBody)
@@ -938,11 +954,11 @@ func (s *Service) generateImageGPT2(ctx context.Context, prompt, aspectRatio str
 	}
 
 	w, h := 1024, 1024
-	switch aspectRatioToOAISize(aspectRatio) {
-	case "1024x1792":
-		h = 1792
-	case "1792x1024":
-		w = 1792
+	switch size {
+	case "1024x1536":
+		h = 1536
+	case "1536x1024":
+		w = 1536
 	}
 	return &ImageResult{URL: imageURL, Width: w, Height: h}, nil
 }

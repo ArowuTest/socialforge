@@ -772,65 +772,92 @@ export default function SettingsPage() {
 
           {/* ── Premium Image Model selector ────────────────────────────── */}
           <div className="bg-slate-900 border border-violet-900/40 rounded-xl p-5 space-y-4">
-            <div>
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-violet-400" /> Premium Image Model
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Controls which OpenAI model powers the &quot;Premium&quot; image generation tier (25 credits).
-                Change takes effect within 60 seconds — no redeploy needed.
-              </p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-violet-400" /> Premium Image Model
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Controls which OpenAI model powers the &quot;Premium&quot; tier (25 credits).
+                  Click a model to switch — takes effect within 60 seconds, no redeploy.
+                </p>
+              </div>
+              {modelSaving && (
+                <span className="flex items-center gap-1.5 text-xs text-slate-500 flex-shrink-0 mt-0.5">
+                  <RefreshCw className="h-3 w-3 animate-spin" /> Saving…
+                </span>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {([
                 {
                   value: "dall-e-3" as const,
-                  label: "⚡ DALL-E 3 HD",
-                  sub: "Available now · ~$0.08/image · HD quality",
-                  badge: "Active",
-                  badgeClass: "bg-emerald-900/40 text-emerald-300 border-emerald-800",
+                  icon: "⚡",
+                  label: "DALL-E 3 HD",
+                  quality: "HD",
+                  qualityClass: "bg-blue-900/40 text-blue-300 border-blue-800",
+                  specs: ["1792×1024 max", "~$0.08 / image", "Returns direct URL"],
                 },
                 {
                   value: "gpt-image-2" as const,
-                  label: "✨ GPT Image 2",
-                  sub: "Org verified · ~$0.211/image · Best quality",
-                  badge: "Available",
-                  badgeClass: "bg-emerald-900/40 text-emerald-300 border-emerald-800",
+                  icon: "✨",
+                  label: "GPT Image 2",
+                  quality: "Ultra HD",
+                  qualityClass: "bg-violet-900/40 text-violet-300 border-violet-800",
+                  specs: ["1536×1024 max", "~$0.211 / image", "Org verified ✓"],
                 },
-              ]).map(({ value, label, sub, badge, badgeClass }) => (
-                <button
-                  key={value}
-                  onClick={() => !modelSaving && handleSavePremiumModel(value)}
-                  disabled={modelSaving}
-                  className={cn(
-                    "p-4 rounded-xl border text-left transition-all disabled:opacity-60",
-                    premiumImageModel === value
-                      ? "bg-violet-900/20 border-violet-500"
-                      : "border-slate-700 hover:border-violet-400 hover:bg-slate-800/60"
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <span className="text-sm font-semibold text-white">{label}</span>
-                    <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium flex-shrink-0", badgeClass)}>
-                      {badge}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400">{sub}</p>
-                  {premiumImageModel === value && (
-                    <p className="text-xs text-violet-400 mt-2 flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> Currently active
-                    </p>
-                  )}
-                </button>
-              ))}
-            </div>
+              ]).map(({ value, icon, label, quality, qualityClass, specs }) => {
+                const isActive = premiumImageModel === value;
+                return (
+                  <button
+                    key={value}
+                    onClick={() => !modelSaving && !isActive && handleSavePremiumModel(value)}
+                    disabled={modelSaving || isActive}
+                    className={cn(
+                      "p-4 rounded-xl border text-left transition-all",
+                      isActive
+                        ? "bg-violet-900/20 border-violet-500 cursor-default"
+                        : "border-slate-700 hover:border-violet-400 hover:bg-slate-800/60 cursor-pointer"
+                    )}
+                  >
+                    {/* Top row: icon + name + quality badge */}
+                    <div className="flex items-start justify-between gap-2 mb-2.5">
+                      <span className="text-sm font-semibold text-white">
+                        {icon} {label}
+                      </span>
+                      <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium flex-shrink-0", qualityClass)}>
+                        {quality}
+                      </span>
+                    </div>
 
-            {modelSaving && (
-              <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                <RefreshCw className="h-3 w-3 animate-spin" /> Saving…
-              </p>
-            )}
+                    {/* Specs list */}
+                    <ul className="space-y-0.5 mb-3">
+                      {specs.map((s) => (
+                        <li key={s} className="text-xs text-slate-400 flex items-center gap-1.5">
+                          <span className="text-slate-600">·</span> {s}
+                        </li>
+                      ))}
+                    </ul>
+
+                    {/* Live indicator or switch CTA */}
+                    {isActive ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                        </span>
+                        <span className="text-xs font-medium text-emerald-400">Live — in use now</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-500 hover:text-violet-400 transition-colors">
+                        Click to switch →
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Header */}
