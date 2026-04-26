@@ -27,15 +27,15 @@ import { Campaign, CampaignStatus, CampaignGoal } from "@/types";
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 const PLATFORM_LABELS: Record<string, string> = {
-  instagram: "IG",
-  tiktok: "TT",
-  linkedin: "LI",
-  twitter: "TW",
-  facebook: "FB",
-  youtube: "YT",
-  pinterest: "PI",
-  threads: "TH",
-  bluesky: "BS",
+  instagram: "Instagram",
+  tiktok: "TikTok",
+  linkedin: "LinkedIn",
+  twitter: "Twitter / X",
+  facebook: "Facebook",
+  youtube: "YouTube",
+  pinterest: "Pinterest",
+  threads: "Threads",
+  bluesky: "Bluesky",
 };
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -261,13 +261,14 @@ function CampaignCard({
               className="h-8 px-3 text-xs bg-violet-600 hover:bg-violet-700 text-white"
               onClick={() => onGenerate(campaign.id)}
               disabled={isLoading}
+              title="AI will generate captions, images, and a posting schedule for this campaign"
             >
               {isLoading ? (
                 <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
               ) : (
                 <Rocket className="h-3.5 w-3.5 mr-1" />
               )}
-              Generate
+              Generate Content
             </Button>
           </>
         )}
@@ -554,6 +555,19 @@ export default function CampaignsPage() {
           <Button variant="outline" onClick={loadCampaigns}>
             Retry
           </Button>
+        </div>
+      )}
+
+      {/* Status legend — only shown when there are campaigns */}
+      {!loading && !error && campaigns.length > 0 && (
+        <div className="mb-5 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <span className="font-medium text-gray-700 dark:text-gray-300 mr-1">What each status means:</span>
+          <span>📝 <strong>Draft</strong> — saved, not yet sent to AI</span>
+          <span>⚙️ <strong>Generating</strong> — AI is writing posts right now</span>
+          <span>🔔 <strong>Review Needed</strong> — AI done, awaiting your approval</span>
+          <span>🟢 <strong>Running</strong> — posts are publishing on schedule</span>
+          <span>⏸ <strong>Paused</strong> — publishing stopped, can be resumed</span>
+          <span>✅ <strong>Completed</strong> — all posts published</span>
         </div>
       )}
 

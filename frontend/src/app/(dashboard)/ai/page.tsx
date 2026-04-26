@@ -243,11 +243,32 @@ function GenerateCaptionTab({ onGenerateMatchingImage }: { onGenerateMatchingIma
         <div className="space-y-2">
           <Label>Topic / Prompt</Label>
           <Textarea
-            placeholder="Describe what your post is about..."
+            placeholder="e.g. New summer collection launch — bright colours, beach vibes, limited time offer..."
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
             className="h-24 resize-none"
           />
+          {!topic && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1.5">💡 Try an example:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "New product launch — summer skincare collection",
+                  "Monday motivation for entrepreneurs",
+                  "Behind-the-scenes at our office — team day",
+                  "50% off sale this weekend only",
+                ].map((example) => (
+                  <button
+                    key={example}
+                    onClick={() => setTopic(example)}
+                    className="text-xs px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-violet-300 hover:text-violet-600 dark:hover:text-violet-400 transition-all"
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -455,11 +476,32 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
         <div className="space-y-2">
           <Label>Image Prompt</Label>
           <Textarea
-            placeholder="Describe the image you want to generate..."
+            placeholder="e.g. Vibrant flat-lay of coffee, notebook, and flowers on marble table, morning golden light, top-down view..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             className="h-28 resize-none"
           />
+          {!prompt && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1.5">💡 Try an example:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "Flat-lay coffee and notebook on marble, morning light",
+                  "Minimalist product photo on white background, studio lighting",
+                  "Afrobeats concert with colorful stage lights and crowd",
+                  "Entrepreneur working at standing desk, modern office",
+                ].map((example) => (
+                  <button
+                    key={example}
+                    onClick={() => setPrompt(example)}
+                    className="text-xs px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-blue-300 hover:text-blue-600 dark:hover:text-blue-400 transition-all"
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">

@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { campaignsApi, brandKitApi } from "@/lib/api";
+import { campaignsApi, brandKitApi, accountsApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/stores/auth";
 import { BrandKit, CampaignGoal, CreateCampaignRequest } from "@/types";
 
@@ -204,18 +204,56 @@ function Step1Brief({ state, onChange, brandKits, brandKitsLoading }: Step1Props
       <div>
         <Label htmlFor="campaign-brief" className="text-sm font-medium">
           Content Brief <span className="text-red-500">*</span>
-          <span className="font-normal text-gray-500 ml-1">(min 50 characters)</span>
         </Label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-1.5">
+          Describe your brand, product, audience, and the tone you want. The more detail, the better the AI content.
+        </p>
         <Textarea
           id="campaign-brief"
-          className="mt-1.5 min-h-[160px] text-sm"
-          placeholder={`Describe what you want to achieve. Include your brand, product, key messages, tone, and any specific themes. The more detail you give, the better the AI-generated content.\n\nExample: "We're a luxury skincare brand launching a new vitamin C serum in June. Our audience is women aged 28-45 interested in anti-aging. We want to build excitement with educational content about vitamin C benefits, behind-the-scenes of the product creation, and lifestyle imagery featuring confident women. Tone should be premium and aspirational."`}
+          className="mt-1 min-h-[160px] text-sm"
+          placeholder="e.g. We're a Lagos-based streetwear brand targeting Nigerian Gen Z aged 18–28. We want to launch our summer drop — 5 new graphic tee designs inspired by Afrobeats culture. Tone should be bold, energetic, and culturally relevant. Show product flat-lays, influencer-style lifestyle shots, and behind-the-scenes of the design process."
           value={state.brief}
           onChange={(e) => onChange({ brief: e.target.value })}
         />
-        <p className={`text-xs mt-1 ${state.brief.length < 50 && state.brief.length > 0 ? "text-amber-500" : "text-gray-400"}`}>
-          {state.brief.length} / 50+ characters
-        </p>
+        <div className="flex items-center justify-between mt-1">
+          <p className={`text-xs ${state.brief.length < 50 && state.brief.length > 0 ? "text-amber-500" : "text-gray-400"}`}>
+            {state.brief.length} characters {state.brief.length < 50 ? `(need ${50 - state.brief.length} more)` : "✓"}
+          </p>
+        </div>
+        {/* Example brief starters */}
+        {state.brief.length === 0 && (
+          <div className="mt-3">
+            <p className="text-xs text-muted-foreground mb-2">💡 Or start from an example:</p>
+            <div className="space-y-2">
+              {[
+                {
+                  label: "Product launch",
+                  text: "We're launching a new vitamin C serum for women aged 28–45 interested in anti-aging skincare. We want educational content about vitamin C benefits, behind-the-scenes of the product, and aspirational lifestyle imagery. Tone: premium and confident.",
+                },
+                {
+                  label: "Local restaurant",
+                  text: "We're a Lagos-based restaurant specialising in modern Nigerian cuisine. We want to grow our Instagram and TikTok with food close-ups, chef behind-the-scenes, and customer testimonials. Tone: warm, vibrant, and community-focused.",
+                },
+                {
+                  label: "Coaching / service",
+                  text: "I'm a business coach helping African entrepreneurs scale their online businesses. I want to post valuable tips about mindset, sales, and digital marketing. Tone: motivational, direct, and practical. 3 posts per week.",
+                },
+              ].map((ex) => (
+                <button
+                  key={ex.label}
+                  type="button"
+                  onClick={() => onChange({ brief: ex.text })}
+                  className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-violet-300 dark:hover:border-violet-700 hover:bg-violet-50 dark:hover:bg-violet-900/10 transition-all"
+                >
+                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-0.5">
+                    {ex.label} →
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{ex.text}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div>
@@ -268,9 +306,10 @@ interface Step2Props {
   state: WizardState;
   onChange: (patch: Partial<WizardState>) => void;
   creditBalance: number;
+  connectedPlatforms: string[];
 }
 
-function Step2Settings({ state, onChange, creditBalance }: Step2Props) {
+function Step2Settings({ state, onChange, creditBalance, connectedPlatforms }: Step2Props) {
   const today = new Date().toISOString().split("T")[0];
 
   function togglePlatform(platform: string) {
@@ -365,14 +404,19 @@ function Step2Settings({ state, onChange, creditBalance }: Step2Props) {
       {/* Platforms */}
       <div>
         <Label className="text-sm font-medium">Platforms <span className="text-red-500">*</span></Label>
-        <div className="flex flex-wrap gap-2 mt-2">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-2">
+          Only select platforms where you have a connected account — posts to disconnected platforms will fail.
+        </p>
+        <div className="flex flex-wrap gap-2">
           {ALL_PLATFORMS.map((p) => {
             const selected = state.platforms.includes(p.value);
+            const isConnected = connectedPlatforms.includes(p.value);
             return (
               <button
                 key={p.value}
                 type="button"
                 onClick={() => togglePlatform(p.value)}
+                title={!isConnected ? `You haven't connected a ${p.label} account yet` : undefined}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all ${
                   selected
                     ? "border-violet-500 bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300"
@@ -382,10 +426,41 @@ function Step2Settings({ state, onChange, creditBalance }: Step2Props) {
                 <PlatformIcon platform={p.value} className="h-4 w-4" />
                 {p.label}
                 {selected && <CheckCircle2 className="h-3.5 w-3.5 ml-1" />}
+                {!isConnected && (
+                  <span className="text-[10px] text-amber-500 font-normal ml-0.5" title="Not connected">⚠</span>
+                )}
               </button>
             );
           })}
         </div>
+        {/* Warning for selected-but-not-connected platforms */}
+        {state.platforms.some((p) => !connectedPlatforms.includes(p)) && (
+          <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+            <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              You selected{" "}
+              <strong>
+                {state.platforms.filter((p) => !connectedPlatforms.includes(p)).join(", ")}
+              </strong>{" "}
+              but {state.platforms.filter((p) => !connectedPlatforms.includes(p)).length === 1 ? "that account is" : "those accounts are"} not connected.{" "}
+              <a href="/accounts" className="underline font-medium" target="_blank">
+                Connect it now →
+              </a>
+            </p>
+          </div>
+        )}
+        {connectedPlatforms.length === 0 && (
+          <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+            <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-red-700 dark:text-red-400">
+              You have no connected social accounts. Go to{" "}
+              <a href="/accounts" className="underline font-medium" target="_blank">
+                Accounts
+              </a>{" "}
+              first to connect at least one platform before creating a campaign.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Posting frequency per platform */}
@@ -431,41 +506,49 @@ function Step2Settings({ state, onChange, creditBalance }: Step2Props) {
 
       {/* Content mix */}
       <div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-1">
           <Label className="text-sm font-medium">Content Mix</Label>
           <span className={`text-xs font-medium ${mixValid ? "text-emerald-600" : "text-amber-500"}`}>
-            {mixSum}% {!mixValid && "(must equal 100%)"}
+            {mixSum}% {!mixValid && `(needs to total 100%)`}
           </span>
         </div>
-        <div className="space-y-3 mt-2">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          What percentage of your posts should include AI-generated images, videos, or be text-only captions. Total must equal 100%.
+        </p>
+        <div className="space-y-3">
           {(
             [
-              { key: "image" as const, label: "Images", emoji: "🖼️" },
-              { key: "video" as const, label: "Videos", emoji: "🎬" },
-              { key: "text" as const, label: "Text-only", emoji: "📝" },
+              { key: "image" as const, label: "With image", emoji: "🖼️", hint: "AI generates a matching image for each post" },
+              { key: "video" as const, label: "With video", emoji: "🎬", hint: "AI generates a short video clip (uses more credits)" },
+              { key: "text" as const, label: "Caption only", emoji: "📝", hint: "Text-only posts — lowest credit cost" },
             ] as const
-          ).map(({ key, label, emoji }) => (
-            <div key={key} className="flex items-center gap-3">
-              <span className="text-sm w-24 flex-shrink-0 text-gray-600 dark:text-gray-400">
-                {emoji} {label}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={state.content_mix[key]}
-                onChange={(e) => setMix(key, Number(e.target.value))}
-                className="flex-1 accent-violet-600"
-              />
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={state.content_mix[key]}
-                onChange={(e) => setMix(key, Number(e.target.value))}
-                className="w-16 text-center text-sm border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
-              />
-              <span className="text-sm text-gray-400 w-4">%</span>
+          ).map(({ key, label, emoji, hint }) => (
+            <div key={key} className="space-y-1">
+              <div className="flex items-center gap-3">
+                <div className="w-28 flex-shrink-0">
+                  <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                    {emoji} {label}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={state.content_mix[key]}
+                  onChange={(e) => setMix(key, Number(e.target.value))}
+                  className="flex-1 accent-violet-600"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={state.content_mix[key]}
+                  onChange={(e) => setMix(key, Number(e.target.value))}
+                  className="w-16 text-center text-sm border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+                />
+                <span className="text-sm text-gray-400 w-4">%</span>
+              </div>
+              <p className="text-xs text-gray-400 dark:text-gray-500 pl-28">{hint}</p>
             </div>
           ))}
         </div>
@@ -473,24 +556,43 @@ function Step2Settings({ state, onChange, creditBalance }: Step2Props) {
           <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
             <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
             <p className="text-xs text-amber-700 dark:text-amber-400">
-              Content mix must add up to 100%. Currently at {mixSum}%.
+              Content mix must add up to 100%. Currently at {mixSum}%. Adjust the sliders above.
             </p>
           </div>
         )}
       </div>
 
       {/* Auto-approve */}
-      <div className="flex items-center justify-between p-4 rounded-xl border border-gray-200 dark:border-gray-700">
-        <div>
-          <p className="text-sm font-medium text-gray-900 dark:text-white">Auto-approve posts</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Automatically schedule posts without manual review
-          </p>
+      <div className={`p-4 rounded-xl border-2 transition-colors ${state.auto_approve ? "border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-900/10" : "border-gray-200 dark:border-gray-700"}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              Auto-publish posts
+              {state.auto_approve && (
+                <span className="text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 rounded">ON</span>
+              )}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {state.auto_approve
+                ? "⚠️ Posts will go live on your social accounts automatically — without you reviewing them first."
+                : "When off (recommended): AI generates posts and you review + approve each one before it publishes."}
+            </p>
+          </div>
+          <Switch
+            checked={state.auto_approve}
+            onCheckedChange={(v) => onChange({ auto_approve: v })}
+            className="flex-shrink-0 mt-0.5"
+          />
         </div>
-        <Switch
-          checked={state.auto_approve}
-          onCheckedChange={(v) => onChange({ auto_approve: v })}
-        />
+        {state.auto_approve && (
+          <div className="mt-3 flex items-start gap-2 pt-3 border-t border-amber-200 dark:border-amber-700">
+            <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              <strong>Not recommended for your first campaign.</strong> AI can sometimes generate content that needs tweaking.
+              Keep this off to review posts in the Campaigns page before they publish.
+            </p>
+          </div>
+        )}
       </div>
       {/* Credits budget cap */}
       <div>
@@ -517,15 +619,6 @@ function Step2Settings({ state, onChange, creditBalance }: Step2Props) {
           Generation stops automatically when this limit is reached. Leave at 0 for unlimited.
         </p>
       </div>
-
-      {state.auto_approve && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 -mt-3">
-          <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
-          <p className="text-xs text-amber-700 dark:text-amber-400">
-            Not recommended for first campaigns — review posts before publishing.
-          </p>
-        </div>
-      )}
 
       {/* Credit estimate */}
       {estimatedCredits > 0 && (
@@ -781,16 +874,24 @@ export default function NewCampaignPage() {
   const [brandKits, setBrandKits] = React.useState<BrandKit[]>([]);
   const [brandKitsLoading, setBrandKitsLoading] = React.useState(true);
   const [submitting, setSubmitting] = React.useState(false);
+  const [connectedPlatforms, setConnectedPlatforms] = React.useState<string[]>([]);
 
   // Real credit balance from authenticated workspace — avoids a redundant API call.
   const creditBalance = (workspace?.ai_credits_limit ?? 0) - (workspace?.ai_credits_used ?? 0);
 
   React.useEffect(() => {
-    brandKitApi
-      .list()
-      .then((res) => setBrandKits(res.data ?? []))
-      .catch(() => setBrandKits([]))
-      .finally(() => setBrandKitsLoading(false));
+    Promise.all([
+      brandKitApi.list().catch(() => null),
+      accountsApi.list().catch(() => null),
+    ]).then(([bkRes, accRes]) => {
+      setBrandKits(bkRes?.data ?? []);
+      const grouped = (accRes?.data ?? {}) as Record<string, Array<{ platform: string; is_active?: boolean; token_expired?: boolean }>>;
+      const active = Object.values(grouped)
+        .flat()
+        .filter((a) => a.is_active !== false && !a.token_expired)
+        .map((a) => a.platform);
+      setConnectedPlatforms(active);
+    }).finally(() => setBrandKitsLoading(false));
   }, []);
 
   function patch(p: Partial<WizardState>) {
@@ -921,6 +1022,7 @@ export default function NewCampaignPage() {
             state={state}
             onChange={patch}
             creditBalance={creditBalance}
+            connectedPlatforms={connectedPlatforms}
           />
         )}
         {step === 3 && (

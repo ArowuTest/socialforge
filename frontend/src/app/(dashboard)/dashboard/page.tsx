@@ -13,15 +13,41 @@ import {
   Clock,
   ArrowRight,
   Plus,
+  Instagram,
+  Youtube,
+  Linkedin,
+  Facebook,
+  Twitter,
+  Video,
+  MessageCircle,
+  Pin,
+  Globe,
+  CheckCircle2,
+  AlertCircle,
+  Share2,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
-import { postsApi, campaignsApi, billingApi } from "@/lib/api";
-import { Post } from "@/types";
+import { postsApi, campaignsApi, billingApi, accountsApi } from "@/lib/api";
+import { Post, SocialAccount, Platform } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+
+// Platform icon map for the connected accounts section
+const platformIconMap: Record<string, { Icon: React.ElementType; gradient: string }> = {
+  instagram: { Icon: Instagram, gradient: "from-purple-600 via-pink-500 to-orange-400" },
+  tiktok:    { Icon: Video,      gradient: "from-gray-900 to-black" },
+  youtube:   { Icon: Youtube,    gradient: "from-red-600 to-red-700" },
+  linkedin:  { Icon: Linkedin,   gradient: "from-blue-700 to-blue-800" },
+  twitter:   { Icon: Twitter,    gradient: "from-gray-900 to-black" },
+  facebook:  { Icon: Facebook,   gradient: "from-blue-600 to-blue-700" },
+  pinterest: { Icon: Pin,        gradient: "from-red-600 to-red-700" },
+  threads:   { Icon: MessageCircle, gradient: "from-gray-900 to-black" },
+  bluesky:   { Icon: Globe,      gradient: "from-blue-500 to-blue-600" },
+};
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -139,6 +165,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = React.useState(true);
   const [recentPosts, setRecentPosts] = React.useState<RecentPost[]>([]);
   const [stats, setStats] = React.useState<StatCard[]>([]);
+  const [connectedAccounts, setConnectedAccounts] = React.useState<SocialAccount[]>([]);
 
   React.useEffect(() => {
     if (!workspace?.id) {
@@ -151,15 +178,21 @@ export default function DashboardPage() {
       const now = new Date();
       const todayStr = now.toISOString().slice(0, 10);
 
-      const [allPostsRes, todayPostsRes, campaignsRes, creditsRes] = await Promise.all([
+      const [allPostsRes, todayPostsRes, campaignsRes, creditsRes, accountsRes] = await Promise.all([
         postsApi.list({ pageSize: 50 }).catch(() => null),
         postsApi
           .list({ from: todayStr, to: todayStr, pageSize: 100 })
           .catch(() => null),
         campaignsApi.list('running').catch(() => null),
         billingApi.getCreditBalance().catch(() => null),
+        accountsApi.list().catch(() => null),
       ]);
       if (cancelled) return;
+
+      // Flatten grouped accounts response
+      const accountsGrouped = (accountsRes?.data ?? {}) as Record<string, SocialAccount[]>;
+      const flatAccounts: SocialAccount[] = Object.values(accountsGrouped).flat();
+      setConnectedAccounts(flatAccounts);
 
       const allPosts: Post[] = allPostsRes?.data || [];
       const todayPosts: Post[] = todayPostsRes?.data || [];
@@ -466,6 +499,50 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Onboarding banner — only shown when no accounts connected */}
+      {!loading && connectedAccounts.length === 0 && (
+        <div className="rounded-2xl border-2 border-dashed border-violet-300 dark:border-violet-700 bg-violet-50/60 dark:bg-violet-950/20 p-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+            <div className="h-12 w-12 rounded-2xl bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
+              <Share2 className="h-6 w-6 text-violet-600 dark:text-violet-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-gray-900 dark:text-white text-base mb-1">
+                Connect your social accounts to get started
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                You haven&apos;t connected any social media accounts yet. Connect Instagram, LinkedIn, TikTok and more to start scheduling posts.
+              </p>
+              <div className="flex flex-wrap gap-3 mt-3">
+                <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <span className="h-5 w-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[10px] font-bold">1</span>
+                  Go to Accounts
+                </div>
+                <ChevronRight className="h-3 w-3 text-gray-400 self-center hidden sm:block" />
+                <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <span className="h-5 w-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[10px] font-bold">2</span>
+                  Click a platform &amp; authorize
+                </div>
+                <ChevronRight className="h-3 w-3 text-gray-400 self-center hidden sm:block" />
+                <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <span className="h-5 w-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[10px] font-bold">3</span>
+                  Start scheduling posts
+                </div>
+              </div>
+            </div>
+            <Button
+              asChild
+              className="bg-violet-600 hover:bg-violet-700 text-white flex-shrink-0"
+            >
+              <Link href="/accounts">
+                <Plus className="h-4 w-4 mr-2" />
+                Connect Accounts
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Bottom: Platform health / connected accounts quick view */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-5">
         <div className="flex items-center justify-between mb-4">
@@ -479,32 +556,66 @@ export default function DashboardPage() {
             Manage accounts
           </Link>
         </div>
-        <div className="flex flex-wrap gap-3">
-          {[
-            { platform: "Instagram", color: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400" },
-            { platform: "LinkedIn", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
-            { platform: "X / Twitter", color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
-            { platform: "Facebook", color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" },
-          ].map((a) => (
+        {loading ? (
+          <div className="flex flex-wrap gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-24 rounded-full" />
+            ))}
+          </div>
+        ) : connectedAccounts.length === 0 ? (
+          <div className="flex items-center gap-3 py-3 text-sm text-gray-400 dark:text-gray-500">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            <span>No accounts connected yet.</span>
             <Link
-              key={a.platform}
               href="/accounts"
-              className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border border-transparent hover:border-gray-300 dark:hover:border-gray-600 transition-colors",
-                a.color
-              )}
+              className="text-violet-600 dark:text-violet-400 hover:underline font-medium"
             >
-              {a.platform}
+              Connect your first account →
             </Link>
-          ))}
-          <Link
-            href="/accounts"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-          >
-            <Plus className="h-3 w-3" />
-            Add account
-          </Link>
-        </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-3">
+            {connectedAccounts.slice(0, 6).map((account) => {
+              const platformKey = account.platform as string;
+              const cfg = platformIconMap[platformKey];
+              const displayName = account.account_name ?? account.displayName ?? account.platform;
+              const isActive = account.is_active !== false && !account.token_expired;
+              return (
+                <Link
+                  key={account.id}
+                  href="/accounts"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 transition-colors"
+                >
+                  {cfg ? (
+                    <div className={cn("h-4 w-4 rounded-full bg-gradient-to-br flex items-center justify-center", cfg.gradient)}>
+                      <cfg.Icon className="h-2.5 w-2.5 text-white" />
+                    </div>
+                  ) : null}
+                  <span className="text-gray-700 dark:text-gray-300 truncate max-w-[100px]">{displayName}</span>
+                  {isActive
+                    ? <CheckCircle2 className="h-3 w-3 text-green-500 flex-shrink-0" />
+                    : <AlertCircle className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                  }
+                </Link>
+              );
+            })}
+            {connectedAccounts.length > 6 && (
+              <Link
+                href="/accounts"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 transition-colors"
+              >
+                +{connectedAccounts.length - 6} more
+              </Link>
+            )}
+            <Link
+              href="/accounts"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border border-dashed border-gray-300 dark:border-gray-600 transition-colors"
+            >
+              <Plus className="h-3 w-3" />
+              Add account
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

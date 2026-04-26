@@ -342,21 +342,39 @@ export default function AccountsPage() {
         </div>
       ) : accounts.length === 0 ? (
         /* Empty state */
-        <div className="text-center py-16 mb-8">
-          <div className="h-16 w-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-4">
-            <Users className="h-8 w-8 text-gray-400" />
-          </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-            No accounts connected yet
-          </h3>
-          <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-6">
-            Connect your social media accounts to start scheduling content and viewing analytics.
-          </p>
-          <div className="flex items-center justify-center gap-2 flex-wrap">
-            <div className="flex flex-col items-center gap-1 text-sm text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <span className="h-6 w-6 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs font-bold">1</span>
-                <span>Choose a platform below</span>
+        <div className="mb-8">
+          <div className="text-center py-10 px-4 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800">
+            <div className="h-16 w-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-4">
+              <Users className="h-8 w-8 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+              No accounts connected yet
+            </h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-8">
+              Connect your social media accounts below to start scheduling and publishing posts.
+            </p>
+            {/* 3-step visual guide */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mx-auto text-left">
+              <div className="flex gap-3 p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
+                <span className="h-7 w-7 rounded-full bg-violet-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">1</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">Choose a platform</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Pick from Instagram, TikTok, LinkedIn, and more in the grid below</p>
+                </div>
+              </div>
+              <div className="flex gap-3 p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
+                <span className="h-7 w-7 rounded-full bg-violet-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">2</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">Authorize access</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">A new tab opens — log in to the platform and click &quot;Allow&quot; to grant posting permission</p>
+                </div>
+              </div>
+              <div className="flex gap-3 p-4 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
+                <span className="h-7 w-7 rounded-full bg-violet-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">3</span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">Start posting</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Return here — your account appears in this list, ready to receive scheduled posts</p>
+                </div>
               </div>
             </div>
           </div>
@@ -381,14 +399,22 @@ export default function AccountsPage() {
 
       {/* Connect new section */}
       <div ref={addAccountRef}>
-        <h2 className="text-base font-semibold text-gray-900 dark:text-white mb-3">
-          Add New Account
-        </h2>
+        <div className="flex items-start justify-between mb-3 gap-4 flex-wrap">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+              Add New Account
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Clicking a platform opens an authorization page in a new tab — no password is shared with us.
+            </p>
+          </div>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {platformConfig.map((p) => {
             const alreadyConnected = accounts.some(
               (a) => a.platform === p.id && a.status === AccountStatus.ACTIVE
             );
+            const isBluesky = p.id === Platform.BLUESKY;
             return (
               <button
                 key={p.id}
@@ -414,7 +440,7 @@ export default function AccountsPage() {
                     {p.label}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {alreadyConnected ? "Connected" : "Connect"}
+                    {alreadyConnected ? "Connected" : isBluesky ? "App Password" : "OAuth"}
                   </p>
                 </div>
               </button>
@@ -427,24 +453,40 @@ export default function AccountsPage() {
       <Dialog open={blueskyDialogOpen} onOpenChange={setBlueskyDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Connect Bluesky</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center">
+                <Globe className="h-4 w-4 text-white" />
+              </div>
+              Connect Bluesky
+            </DialogTitle>
             <DialogDescription>
-              Bluesky uses app passwords instead of OAuth. Generate one at{" "}
-              <a
-                href="https://bsky.app/settings/app-passwords"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-500 hover:underline inline-flex items-center gap-0.5"
-              >
-                bsky.app/settings/app-passwords
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              Bluesky uses app passwords (not your main password) for third-party apps.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+
+          {/* Step-by-step instructions */}
+          <div className="rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 p-4 space-y-2.5">
+            <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wide mb-1">
+              How to get your App Password
+            </p>
+            <div className="flex gap-2.5 text-xs text-gray-700 dark:text-gray-300">
+              <span className="h-5 w-5 rounded-full bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 flex items-center justify-center font-bold flex-shrink-0">1</span>
+              <span>Open <a href="https://bsky.app/settings/app-passwords" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 underline inline-flex items-center gap-0.5">bsky.app/settings/app-passwords <ExternalLink className="h-3 w-3" /></a> in a new tab</span>
+            </div>
+            <div className="flex gap-2.5 text-xs text-gray-700 dark:text-gray-300">
+              <span className="h-5 w-5 rounded-full bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 flex items-center justify-center font-bold flex-shrink-0">2</span>
+              <span>Click <strong>Add App Password</strong> → give it a name like &quot;ChiselPost&quot;</span>
+            </div>
+            <div className="flex gap-2.5 text-xs text-gray-700 dark:text-gray-300">
+              <span className="h-5 w-5 rounded-full bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 flex items-center justify-center font-bold flex-shrink-0">3</span>
+              <span>Copy the generated password (format: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">xxxx-xxxx-xxxx-xxxx</code>) and paste it below</span>
+            </div>
+          </div>
+
+          <div className="space-y-4">
             <div className="space-y-2">
               <label htmlFor="bluesky-handle" className="text-sm font-medium">
-                Handle
+                Your Bluesky Handle
               </label>
               <Input
                 id="bluesky-handle"
@@ -452,6 +494,7 @@ export default function AccountsPage() {
                 value={blueskyHandle}
                 onChange={(e) => setBlueskyHandle(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">Your username without the @ symbol</p>
             </div>
             <div className="space-y-2">
               <label htmlFor="bluesky-password" className="text-sm font-medium">
@@ -464,6 +507,7 @@ export default function AccountsPage() {
                 value={blueskyAppPassword}
                 onChange={(e) => setBlueskyAppPassword(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">The app password you just generated — not your main Bluesky password</p>
             </div>
           </div>
           <DialogFooter>
@@ -476,7 +520,7 @@ export default function AccountsPage() {
               disabled={blueskyConnecting}
             >
               {blueskyConnecting && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-              Connect
+              Connect Account
             </Button>
           </DialogFooter>
         </DialogContent>

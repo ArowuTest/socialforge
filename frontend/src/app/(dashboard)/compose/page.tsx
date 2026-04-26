@@ -71,6 +71,24 @@ const postTypes = [
   { value: PostType.SHORT, label: "Short" },
 ];
 
+// Which platforms support each post type
+const postTypeCompatibility: Record<string, Platform[]> = {
+  [PostType.POST]:     [Platform.INSTAGRAM, Platform.TWITTER, Platform.LINKEDIN, Platform.FACEBOOK, Platform.THREADS, Platform.BLUESKY, Platform.PINTEREST],
+  [PostType.REEL]:     [Platform.INSTAGRAM, Platform.TIKTOK, Platform.FACEBOOK],
+  [PostType.STORY]:    [Platform.INSTAGRAM, Platform.FACEBOOK],
+  [PostType.CAROUSEL]: [Platform.INSTAGRAM, Platform.LINKEDIN, Platform.FACEBOOK],
+  [PostType.THREAD]:   [Platform.TWITTER, Platform.THREADS],
+  [PostType.VIDEO]:    [Platform.YOUTUBE, Platform.LINKEDIN, Platform.FACEBOOK, Platform.TIKTOK, Platform.TWITTER],
+  [PostType.SHORT]:    [Platform.YOUTUBE, Platform.TIKTOK],
+};
+
+/** Returns true if the post type is supported by at least one selected platform */
+function isPostTypeCompatible(ptValue: string, selectedPlatforms: string[]): boolean {
+  if (selectedPlatforms.length === 0) return true;
+  const supported = postTypeCompatibility[ptValue] ?? [];
+  return selectedPlatforms.some((p) => supported.includes(p as Platform));
+}
+
 function CharacterCounter({ platform, count }: { platform: Platform; count: number }) {
   const limit = getCharacterLimit(platform);
   const remaining = limit - count;
@@ -697,7 +715,24 @@ export default function ComposePage() {
           <div className="p-4 md:p-6 space-y-5">
             {/* Platform selector */}
             <div>
-              <Label className="mb-2 block text-sm font-medium">Select Platforms</Label>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-sm font-medium">
+                  Select Platforms
+                  {selectedPlatforms.length > 0 && (
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                      ({selectedPlatforms.length} selected)
+                    </span>
+                  )}
+                </Label>
+                {selectedPlatforms.length === 0 && (
+                  <a
+                    href="/accounts"
+                    className="text-xs text-violet-600 dark:text-violet-400 hover:underline"
+                  >
+                    Connect accounts →
+                  </a>
+                )}
+              </div>
               <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
                 {platforms.map((p) => {
                   const isActive = selectedPlatforms.includes(p.id);
@@ -728,6 +763,14 @@ export default function ComposePage() {
                   );
                 })}
               </div>
+              {selectedPlatforms.length === 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1">
+                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                  Select at least one platform to publish. Make sure you have{" "}
+                  <a href="/accounts" className="underline hover:no-underline">connected accounts</a>{" "}
+                  for your chosen platforms.
+                </p>
+              )}
             </div>
 
             {/* Post type */}
@@ -735,21 +778,36 @@ export default function ComposePage() {
               <div>
                 <Label className="mb-2 block text-sm font-medium">Post Type</Label>
                 <div className="flex flex-wrap gap-2">
-                  {postTypes.map((pt) => (
-                    <button
-                      key={pt.value}
-                      onClick={() => setPostType(pt.value)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all",
-                        postType === pt.value
-                          ? "bg-violet-600 text-white border-violet-600"
-                          : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-violet-300"
-                      )}
-                    >
-                      {pt.label}
-                    </button>
-                  ))}
+                  {postTypes.map((pt) => {
+                    const compatible = isPostTypeCompatible(pt.value, selectedPlatforms);
+                    const isSelected = postType === pt.value;
+                    return (
+                      <button
+                        key={pt.value}
+                        onClick={() => setPostType(pt.value)}
+                        title={!compatible ? `Not supported by your selected platform(s)` : undefined}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg text-sm font-medium border transition-all",
+                          isSelected
+                            ? "bg-violet-600 text-white border-violet-600"
+                            : compatible
+                            ? "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-violet-300"
+                            : "bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 border-gray-100 dark:border-gray-800 opacity-50 cursor-not-allowed"
+                        )}
+                      >
+                        {pt.label}
+                        {!compatible && <span className="ml-1 text-[10px]">✕</span>}
+                      </button>
+                    );
+                  })}
                 </div>
+                {/* Hint when incompatible selection */}
+                {!isPostTypeCompatible(postType, selectedPlatforms) && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1">
+                    <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                    The selected post type may not be supported on all chosen platforms
+                  </p>
+                )}
               </div>
             )}
 
@@ -781,42 +839,64 @@ export default function ComposePage() {
             </div>
 
             {/* AI Assist bar */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-violet-600 border-violet-200 hover:bg-violet-50 dark:hover:bg-violet-900/20 dark:border-violet-800 dark:text-violet-400"
-                onClick={() => setShowAIDialog(true)}
-              >
-                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                Generate Caption
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400"
-                onClick={() => setShowImageDialog(true)}
-              >
-                <Image className="h-3.5 w-3.5 mr-1.5" />
-                Generate Image
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAddHashtags}
-                disabled={!caption.trim()}
-              >
-                <Hash className="h-3.5 w-3.5 mr-1.5" />
-                Hashtags
-              </Button>
-              <Button variant="outline" size="sm" disabled={!caption.trim()} onClick={handleRepurpose}>
-                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                Repurpose
-              </Button>
-              <Button variant="outline" size="sm" disabled={!caption.trim()} onClick={handleAnalyse}>
-                <BarChart2 className="h-3.5 w-3.5 mr-1.5" />
-                Analyse
-              </Button>
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">
+                <Sparkles className="h-3 w-3 inline mr-1 text-violet-500" />
+                AI Tools — uses credits from your balance
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-violet-600 border-violet-200 hover:bg-violet-50 dark:hover:bg-violet-900/20 dark:border-violet-800 dark:text-violet-400"
+                  onClick={() => setShowAIDialog(true)}
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                  Generate Caption
+                  <span className="ml-1.5 text-[10px] font-normal opacity-60">~5 cr</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 dark:border-blue-800 dark:text-blue-400"
+                  onClick={() => setShowImageDialog(true)}
+                >
+                  <Image className="h-3.5 w-3.5 mr-1.5" />
+                  Generate Image
+                  <span className="ml-1.5 text-[10px] font-normal opacity-60">~20 cr</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddHashtags}
+                  disabled={!caption.trim()}
+                  title={!caption.trim() ? "Write a caption first" : undefined}
+                >
+                  <Hash className="h-3.5 w-3.5 mr-1.5" />
+                  Hashtags
+                  <span className="ml-1.5 text-[10px] font-normal opacity-60">~2 cr</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!caption.trim()}
+                  onClick={handleRepurpose}
+                  title={!caption.trim() ? "Write a caption first" : "Adapt this post for other platforms"}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                  Repurpose
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!caption.trim()}
+                  onClick={handleAnalyse}
+                  title={!caption.trim() ? "Write a caption first" : "Get a viral-potential score"}
+                >
+                  <BarChart2 className="h-3.5 w-3.5 mr-1.5" />
+                  Analyse
+                </Button>
+              </div>
             </div>
 
             {/* Media upload */}
@@ -910,8 +990,11 @@ export default function ComposePage() {
                 <div className="h-12 w-12 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mx-auto mb-3">
                   <Instagram className="h-6 w-6 text-gray-400" />
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  Select a platform to see a preview
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  No platform selected
+                </p>
+                <p className="text-xs text-muted-foreground max-w-[160px]">
+                  Pick a platform on the left to see a live preview of your post
                 </p>
               </div>
             </div>
@@ -985,8 +1068,12 @@ export default function ComposePage() {
               onCheckedChange={setUseNextSlot}
               className="data-[state=checked]:bg-violet-600"
             />
-            <Label htmlFor="nextSlot" className="text-sm cursor-pointer whitespace-nowrap">
-              Next free slot
+            <Label
+              htmlFor="nextSlot"
+              className="text-sm cursor-pointer whitespace-nowrap"
+              title="Posts at the next available time slot from your posting schedule (set in Calendar → Schedule)"
+            >
+              Auto-schedule
             </Label>
           </div>
 

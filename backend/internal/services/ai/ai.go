@@ -613,25 +613,33 @@ func (s *Service) GenerateImage(
 		return nil, nil, err
 	}
 
-	enhancedPrompt := prompt
+	// Enrich the raw user prompt with GPT-4o before sending to the diffusion model.
+	// This translates short, vague descriptions into detailed visual scenes with
+	// lighting, composition, mood, and style — the same enrichment used for video.
+	// EnrichVisualPrompt is fail-safe: returns the original prompt on any error.
+	enrichedPrompt := s.EnrichVisualPrompt(ctx, prompt, "image", style)
+
+	var enhancedPrompt string
 	if style != "" {
 		enhancedPrompt = fmt.Sprintf(
 			"%s. Art style: %s. High quality, professional composition, "+
 				"sharp details, vibrant colors, suitable for social media post. "+
-				"No text overlays unless specified. No watermarks.",
-			prompt, style)
+				"No text overlays. No watermarks.",
+			enrichedPrompt, style)
 	} else {
 		enhancedPrompt = fmt.Sprintf(
 			"%s. High quality, professional composition, sharp details, "+
-				"vibrant colors, suitable for social media. No watermarks.",
-			prompt)
+				"vibrant colors, suitable for social media. No text overlays. No watermarks.",
+			enrichedPrompt)
 	}
 
 	reqBody := map[string]interface{}{
 		"prompt":                enhancedPrompt,
+		"negative_prompt":       "text, words, letters, numbers, typography, watermark, logo, blurry, low quality, distorted, deformed, ugly, amateur, noise, grainy, out of focus, overexposed, underexposed",
 		"image_size":            aspectRatioToImageSize(aspectRatio),
 		"num_images":            1,
 		"num_inference_steps":   28,
+		"guidance_scale":        3.5,
 		"enable_safety_checker": true,
 	}
 
@@ -644,8 +652,12 @@ func (s *Service) GenerateImage(
 	}
 
 	imageResult := extractImageResult(result)
+	inputData := models.JSONMap{"prompt": prompt, "style": style}
+	if enrichedPrompt != prompt {
+		inputData["enriched_prompt"] = enrichedPrompt
+	}
 	job, _ := s.saveJob(ctx, workspaceID, userID, "image",
-		models.JSONMap{"prompt": prompt, "style": style},
+		inputData,
 		models.JSONMap{"url": imageResult.URL, "width": imageResult.Width, "height": imageResult.Height},
 		s.getCreditCost("image", CreditCostImage), "")
 
@@ -733,25 +745,30 @@ Rules:
 // without any DB side effects (no credit deduction, no job record creation).
 // Used by handlers that manage credits and job records themselves.
 func (s *Service) GenerateImageRaw(ctx context.Context, prompt, style, aspectRatio string) (*ImageResult, error) {
-	enhancedPrompt := prompt
+	// Enrich the raw user prompt with GPT-4o before sending to the diffusion model.
+	enrichedPrompt := s.EnrichVisualPrompt(ctx, prompt, "image", style)
+
+	var enhancedPrompt string
 	if style != "" {
 		enhancedPrompt = fmt.Sprintf(
 			"%s. Art style: %s. High quality, professional composition, "+
 				"sharp details, vibrant colors, suitable for social media post. "+
-				"No text overlays unless specified. No watermarks.",
-			prompt, style)
+				"No text overlays. No watermarks.",
+			enrichedPrompt, style)
 	} else {
 		enhancedPrompt = fmt.Sprintf(
 			"%s. High quality, professional composition, sharp details, "+
-				"vibrant colors, suitable for social media. No watermarks.",
-			prompt)
+				"vibrant colors, suitable for social media. No text overlays. No watermarks.",
+			enrichedPrompt)
 	}
 
 	reqBody := map[string]interface{}{
 		"prompt":                enhancedPrompt,
+		"negative_prompt":       "text, words, letters, numbers, typography, watermark, logo, blurry, low quality, distorted, deformed, ugly, amateur, noise, grainy, out of focus, overexposed, underexposed",
 		"image_size":            aspectRatioToImageSize(aspectRatio),
 		"num_images":            1,
 		"num_inference_steps":   28,
+		"guidance_scale":        3.5,
 		"enable_safety_checker": true,
 	}
 
@@ -792,6 +809,7 @@ func (s *Service) GetPremiumImageModel() string {
 // GenerateImagePremium routes to the admin-configured premium image model.
 // Currently supported: "dall-e-3" (default, HD quality) and "gpt-image-2"
 // (requires OpenAI org verification). The active model is set via Admin › Settings.
+// The raw user prompt is enriched via GPT-4o before generation for best quality.
 func (s *Service) GenerateImagePremium(ctx context.Context, prompt, aspectRatio string) (*ImageResult, error) {
 	s.mu.RLock()
 	model := s.cachedPremiumImageModel
@@ -799,11 +817,20 @@ func (s *Service) GenerateImagePremium(ctx context.Context, prompt, aspectRatio 
 	if model == "" {
 		model = "dall-e-3"
 	}
-	s.log.Info("GenerateImagePremium: routing", zap.String("model", model))
+
+	// Enrich the raw user prompt with GPT-4o before sending to the image model.
+	// DALL-E 3 and gpt-image-2 both produce dramatically better results when given
+	// rich, art-directed scene descriptions rather than short user phrases.
+	enrichedPrompt := s.EnrichVisualPrompt(ctx, prompt, "image", "")
+
+	s.log.Info("GenerateImagePremium: routing",
+		zap.String("model", model),
+		zap.Bool("prompt_enriched", enrichedPrompt != prompt))
+
 	if model == "gpt-image-2" {
-		return s.generateImageGPT2(ctx, prompt, aspectRatio)
+		return s.generateImageGPT2(ctx, enrichedPrompt, aspectRatio)
 	}
-	return s.generateImageDallE3(ctx, prompt, aspectRatio)
+	return s.generateImageDallE3(ctx, enrichedPrompt, aspectRatio)
 }
 
 // generateImageDallE3 generates a high-quality image using DALL-E 3 (HD quality).
