@@ -244,7 +244,7 @@ function Step1Brief({ state, onChange, brandKits, brandKitsLoading }: Step1Props
                 },
                 {
                   label: "Event / fight night",
-                  text: "Boxing event: CARTER EFE vs PORTABLE — promoted by Balmoral Promotions. Event date: [Date], [Venue]. Carter Efe: comedian-turned-fighter, huge following, dangerous. Portable: Zazu superstar, street energy, fearless. Tone: hype, energetic, Nigerian street culture. Rotate through: fight announcement countdown, fighter spotlight head-to-head, ticket sales urgency, training camp teasers, cultural moment framing, fight night experience preview. Always include: #CarterEfeVsPortable #BalmoralPromotions #NigerianBoxing",
+                  text: "Live event: [EVENT NAME] — promoted by [PROMOTER]. Event date: [Date], [Venue]. [Fighter/Performer 1]: [short description]. [Fighter/Performer 2]: [short description]. Tone: hype, energetic, high-energy crowd culture. Rotate through: event announcement countdown, headliner spotlight, ticket/PPV urgency, behind-the-scenes teasers, cultural moment framing, event-night experience preview. Always include: [#EventHashtag] [#PromoterHashtag]",
                 },
               ].map((ex) => (
                 <button
@@ -276,7 +276,7 @@ function Step1Brief({ state, onChange, brandKits, brandKitsLoading }: Step1Props
         <Input
           value={state.cta_url}
           onChange={(e) => onChange({ cta_url: e.target.value })}
-          placeholder="https://streamnow.ng"
+          placeholder="https://your-event.com or https://your-store.com"
           className="text-sm"
         />
         {state.cta_url && (
@@ -338,7 +338,7 @@ function Step1Brief({ state, onChange, brandKits, brandKitsLoading }: Step1Props
             <div key={i} className="flex items-center gap-2">
               <Input
                 value={url}
-                placeholder="https://example.com/carter-efe-promo.jpg"
+                placeholder="https://example.com/event-promo-photo.jpg"
                 className="text-sm flex-1"
                 onChange={(e) => {
                   const next = [...state.reference_image_urls];
