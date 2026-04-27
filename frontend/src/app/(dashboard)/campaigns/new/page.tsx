@@ -87,11 +87,12 @@ interface WizardState {
   goal: CampaignGoal | "";
   brief: string;
   brand_kit_id: string;
+  reference_image_urls: string[]; // user-provided photo/asset URLs to use in posts
   // Step 2
   start_date: string;
   end_date: string;
   platforms: string[];
-  posting_frequency: Record<string, number>;
+  posting_frequency: Record<string, number>; // posts PER DAY per platform
   content_mix: { image: number; video: number; text: number };
   auto_approve: boolean;
   credits_budget_cap: number; // 0 = no cap
@@ -154,6 +155,8 @@ interface Step1Props {
   onChange: (patch: Partial<WizardState>) => void;
   brandKits: BrandKit[];
   brandKitsLoading: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mediaLibraryItems?: { id: string; url: string; filename?: string }[];
 }
 
 function Step1Brief({ state, onChange, brandKits, brandKitsLoading }: Step1Props) {
@@ -236,7 +239,11 @@ function Step1Brief({ state, onChange, brandKits, brandKitsLoading }: Step1Props
                 },
                 {
                   label: "Coaching / service",
-                  text: "I'm a business coach helping African entrepreneurs scale their online businesses. I want to post valuable tips about mindset, sales, and digital marketing. Tone: motivational, direct, and practical. 3 posts per week.",
+                  text: "I'm a business coach helping African entrepreneurs scale their online businesses. I want to post valuable tips about mindset, sales, and digital marketing. Tone: motivational, direct, and practical.",
+                },
+                {
+                  label: "Event / fight night",
+                  text: "Boxing event: CARTER EFE vs PORTABLE — promoted by Balmoral Promotions. Event date: [Date], [Venue]. Carter Efe: comedian-turned-fighter, huge following, dangerous. Portable: Zazu superstar, street energy, fearless. Tone: hype, energetic, Nigerian street culture. Rotate through: fight announcement countdown, fighter spotlight head-to-head, ticket sales urgency, training camp teasers, cultural moment framing, fight night experience preview. Always include: #CarterEfeVsPortable #BalmoralPromotions #NigerianBoxing",
                 },
               ].map((ex) => (
                 <button
@@ -296,6 +303,57 @@ function Step1Brief({ state, onChange, brandKits, brandKitsLoading }: Step1Props
           </>
         )}
       </div>
+
+      {/* Reference images / assets */}
+      <div>
+        <Label className="text-sm font-medium">Reference Images & Assets</Label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-2">
+          Paste public URLs of your photos, event flyers, or promo images. The AI will incorporate these into your posts — either using them directly as post media or referencing their style when generating visuals.
+        </p>
+        <div className="space-y-2">
+          {state.reference_image_urls.map((url, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={url}
+                placeholder="https://example.com/carter-efe-promo.jpg"
+                className="text-sm flex-1"
+                onChange={(e) => {
+                  const next = [...state.reference_image_urls];
+                  next[i] = e.target.value;
+                  onChange({ reference_image_urls: next });
+                }}
+              />
+              <button
+                type="button"
+                className="h-9 w-9 rounded-md border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-400 hover:text-red-500 hover:border-red-300 transition-colors"
+                onClick={() => {
+                  const next = state.reference_image_urls.filter((_, j) => j !== i);
+                  onChange({ reference_image_urls: next });
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="text-xs text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1 mt-1"
+            onClick={() => onChange({ reference_image_urls: [...state.reference_image_urls, ""] })}
+          >
+            + Add image URL
+          </button>
+        </div>
+        {state.reference_image_urls.filter((u) => u.trim()).length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {state.reference_image_urls.filter((u) => u.trim()).map((url, i) => (
+              <div key={i} className="h-14 w-14 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 flex-shrink-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`ref ${i + 1}`} className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -328,7 +386,7 @@ function Step2Settings({ state, onChange, creditBalance, connectedPlatforms }: S
 
   function setFrequency(platform: string, value: number) {
     onChange({
-      posting_frequency: { ...state.posting_frequency, [platform]: Math.min(7, Math.max(1, value)) },
+      posting_frequency: { ...state.posting_frequency, [platform]: Math.min(10, Math.max(1, value)) },
     });
   }
 
@@ -339,17 +397,17 @@ function Step2Settings({ state, onChange, creditBalance, connectedPlatforms }: S
   const mixSum = state.content_mix.image + state.content_mix.video + state.content_mix.text;
   const mixValid = mixSum === 100;
 
-  // Credit estimate calculation
+  // Credit estimate calculation (frequency is posts PER DAY)
   const estimatedCredits = React.useMemo(() => {
     if (!state.start_date || !state.end_date || state.platforms.length === 0) return 0;
-    const days =
+    const days = Math.max(1,
       (new Date(state.end_date).getTime() - new Date(state.start_date).getTime()) /
-      (1000 * 60 * 60 * 24);
-    const weeks = Math.max(1, days / 7);
+      (1000 * 60 * 60 * 24)
+    );
     let total = 0;
     for (const p of state.platforms) {
-      const postsPerWeek = state.posting_frequency[p] ?? 3;
-      const totalPosts = Math.round(postsPerWeek * weeks);
+      const postsPerDay = state.posting_frequency[p] ?? 1;
+      const totalPosts = Math.round(postsPerDay * days);
       const imagePosts = Math.round((state.content_mix.image / 100) * totalPosts);
       const videoPosts = Math.round((state.content_mix.video / 100) * totalPosts);
       const textPosts = Math.round((state.content_mix.text / 100) * totalPosts);
@@ -364,12 +422,12 @@ function Step2Settings({ state, onChange, creditBalance, connectedPlatforms }: S
 
   const estimatedPosts = React.useMemo(() => {
     if (!state.start_date || !state.end_date || state.platforms.length === 0) return 0;
-    const days =
+    const days = Math.max(1,
       (new Date(state.end_date).getTime() - new Date(state.start_date).getTime()) /
-      (1000 * 60 * 60 * 24);
-    const weeks = Math.max(1, days / 7);
+      (1000 * 60 * 60 * 24)
+    );
     return state.platforms.reduce((sum, p) => {
-      return sum + Math.round((state.posting_frequency[p] ?? 3) * weeks);
+      return sum + Math.round((state.posting_frequency[p] ?? 1) * days);
     }, 0);
   }, [state.start_date, state.end_date, state.platforms, state.posting_frequency]);
 
@@ -467,9 +525,13 @@ function Step2Settings({ state, onChange, creditBalance, connectedPlatforms }: S
       {state.platforms.length > 0 && (
         <div>
           <Label className="text-sm font-medium">Posting Frequency</Label>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-2">
+            How many times per day to post on each platform. For event hype campaigns, 3–5/day works well. For regular content, 1–2/day is ideal.
+          </p>
           <div className="space-y-2 mt-2">
             {state.platforms.map((p) => {
               const plat = ALL_PLATFORMS.find((x) => x.value === p);
+              const freq = state.posting_frequency[p] ?? 1;
               return (
                 <div key={p} className="flex items-center justify-between gap-4 px-3 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-800/50">
                   <div className="flex items-center gap-2">
@@ -482,17 +544,18 @@ function Step2Settings({ state, onChange, creditBalance, connectedPlatforms }: S
                     <button
                       type="button"
                       className="h-6 w-6 rounded border border-gray-300 dark:border-gray-600 flex items-center justify-center text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm"
-                      onClick={() => setFrequency(p, (state.posting_frequency[p] ?? 3) - 1)}
+                      onClick={() => setFrequency(p, freq - 1)}
                     >
                       –
                     </button>
-                    <span className="w-20 text-center text-sm font-medium text-gray-900 dark:text-white">
-                      {state.posting_frequency[p] ?? 3} / week
-                    </span>
+                    <div className="w-24 text-center">
+                      <span className="text-sm font-bold text-gray-900 dark:text-white">{freq}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">/ day</span>
+                    </div>
                     <button
                       type="button"
                       className="h-6 w-6 rounded border border-gray-300 dark:border-gray-600 flex items-center justify-center text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm"
-                      onClick={() => setFrequency(p, (state.posting_frequency[p] ?? 3) + 1)}
+                      onClick={() => setFrequency(p, freq + 1)}
                     >
                       +
                     </button>
@@ -698,28 +761,28 @@ function Step3Review({ state, brandKits, onSaveDraft, onGenerate, submitting }: 
 
   const [briefExpanded, setBriefExpanded] = React.useState(false);
 
-  // Recalculate estimates
+  // Recalculate estimates (frequency = posts PER DAY)
   const estimatedPosts = React.useMemo(() => {
     if (!state.start_date || !state.end_date || state.platforms.length === 0) return 0;
-    const days =
+    const days = Math.max(1,
       (new Date(state.end_date).getTime() - new Date(state.start_date).getTime()) /
-      (1000 * 60 * 60 * 24);
-    const weeks = Math.max(1, days / 7);
+      (1000 * 60 * 60 * 24)
+    );
     return state.platforms.reduce((sum, p) => {
-      return sum + Math.round((state.posting_frequency[p] ?? 3) * weeks);
+      return sum + Math.round((state.posting_frequency[p] ?? 1) * days);
     }, 0);
   }, [state]);
 
   const estimatedCredits = React.useMemo(() => {
     if (!state.start_date || !state.end_date || state.platforms.length === 0) return 0;
-    const days =
+    const days = Math.max(1,
       (new Date(state.end_date).getTime() - new Date(state.start_date).getTime()) /
-      (1000 * 60 * 60 * 24);
-    const weeks = Math.max(1, days / 7);
+      (1000 * 60 * 60 * 24)
+    );
     let total = 0;
     for (const p of state.platforms) {
-      const postsPerWeek = state.posting_frequency[p] ?? 3;
-      const totalPosts = Math.round(postsPerWeek * weeks);
+      const postsPerDay = state.posting_frequency[p] ?? 1;
+      const totalPosts = Math.round(postsPerDay * days);
       const imagePosts = Math.round((state.content_mix.image / 100) * totalPosts);
       const videoPosts = Math.round((state.content_mix.video / 100) * totalPosts);
       const textPosts = Math.round((state.content_mix.text / 100) * totalPosts);
@@ -807,7 +870,7 @@ function Step3Review({ state, brandKits, onSaveDraft, onGenerate, submitting }: 
                   <PlatformIcon platform={p} className="h-3.5 w-3.5" />
                   <span className="font-medium">{plat?.label ?? p}</span>
                   <span className="text-gray-400">·</span>
-                  <span className="text-gray-500">{state.posting_frequency[p] ?? 3}×/wk</span>
+                  <span className="text-gray-500">{state.posting_frequency[p] ?? 1}×/day</span>
                 </div>
               );
             })}
@@ -886,6 +949,7 @@ const DEFAULT_STATE: WizardState = {
   goal: "",
   brief: "",
   brand_kit_id: "",
+  reference_image_urls: [],
   start_date: "",
   end_date: "",
   platforms: [],
@@ -964,6 +1028,7 @@ export default function NewCampaignPage() {
   }
 
   function buildRequest(): CreateCampaignRequest {
+    const validRefUrls = state.reference_image_urls.filter((u) => u.trim());
     return {
       name: state.name.trim(),
       goal: state.goal || undefined,
@@ -980,6 +1045,10 @@ export default function NewCampaignPage() {
       },
       auto_approve: state.auto_approve,
       credits_budget_cap: state.credits_budget_cap > 0 ? state.credits_budget_cap : undefined,
+      settings: {
+        frequency_unit: "day",
+        ...(validRefUrls.length > 0 && { reference_image_urls: validRefUrls }),
+      },
     };
   }
 

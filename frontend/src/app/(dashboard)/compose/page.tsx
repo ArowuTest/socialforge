@@ -489,6 +489,8 @@ export default function ComposePage() {
   const [isDragging, setIsDragging] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  // Multi-time scheduling: extra time slots beyond the first
+  const [extraSlots, setExtraSlots] = React.useState<string[]>([]);
 
   // Set active preview tab when platforms change
   React.useEffect(() => {
@@ -666,17 +668,41 @@ export default function ComposePage() {
     setIsPublishing(true);
     try {
       const mediaUrls = await uploadPendingMedia();
-      // datetime-local gives "2026-04-18T09:00" — convert to full ISO8601
-      const isoScheduledAt = scheduledAt ? new Date(scheduledAt).toISOString() : undefined;
-      await postsApi.create({
-        caption,
-        platforms: selectedPlatforms as Platform[],
-        postType,
-        scheduledAt: isoScheduledAt,
-        useNextSlot,
-        ...(mediaUrls.length > 0 && { mediaUrls }),
-      });
-      toast.success("Post scheduled successfully!");
+
+      // Build the full list of times to schedule: primary + any extra slots.
+      const validExtraSlots = extraSlots.filter((s) => s.trim());
+      const allSlots: Array<string | undefined> =
+        validExtraSlots.length > 0
+          ? [scheduledAt ?? undefined, ...validExtraSlots.map((s) => {
+              // extra slots are time-only (HH:mm) — combine with date from primary slot
+              if (scheduledAt && s.match(/^\d{2}:\d{2}$/)) {
+                return scheduledAt.split("T")[0] + "T" + s;
+              }
+              return s;
+            })]
+          : [scheduledAt ?? undefined];
+
+      // Create one post per time slot sequentially.
+      let created = 0;
+      for (const slot of allSlots) {
+        const isoScheduledAt = slot ? new Date(slot).toISOString() : undefined;
+        await postsApi.create({
+          caption,
+          platforms: selectedPlatforms as Platform[],
+          postType,
+          scheduledAt: isoScheduledAt,
+          useNextSlot: !slot && useNextSlot,
+          ...(mediaUrls.length > 0 && { mediaUrls }),
+        });
+        created++;
+      }
+
+      if (created > 1) {
+        toast.success(`${created} posts scheduled at different times!`);
+      } else {
+        toast.success("Post scheduled successfully!");
+      }
+      setExtraSlots([]);
       reset();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to schedule post");
@@ -1078,16 +1104,55 @@ export default function ComposePage() {
           </div>
 
           {!useNextSlot && (
-            <div className="flex flex-col gap-0.5">
-              <input
-                type="datetime-local"
-                value={scheduledAt ?? ""}
-                onChange={(e) => setScheduledAt(e.target.value || null)}
-                className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-              />
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 pl-1">
-                {Intl.DateTimeFormat().resolvedOptions().timeZone} (your local time)
-              </span>
+            <div className="flex flex-col gap-1">
+              {/* Primary datetime slot */}
+              <div className="flex flex-col gap-0.5">
+                <input
+                  type="datetime-local"
+                  value={scheduledAt ?? ""}
+                  onChange={(e) => setScheduledAt(e.target.value || null)}
+                  className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                />
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 pl-1">
+                  {Intl.DateTimeFormat().resolvedOptions().timeZone} (your local time)
+                </span>
+              </div>
+
+              {/* Extra time slots (same date, different times) */}
+              {extraSlots.map((slot, i) => (
+                <div key={i} className="flex items-center gap-1">
+                  <input
+                    type="time"
+                    value={slot}
+                    onChange={(e) => {
+                      const next = [...extraSlots];
+                      next[i] = e.target.value;
+                      setExtraSlots(next);
+                    }}
+                    className="text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500/50 w-32"
+                  />
+                  <span className="text-[10px] text-gray-400">same day</span>
+                  <button
+                    type="button"
+                    className="text-gray-400 hover:text-red-500 text-xs px-1"
+                    onClick={() => setExtraSlots(extraSlots.filter((_, j) => j !== i))}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+
+              {/* Add slot button — only show when a primary time is selected */}
+              {scheduledAt && (
+                <button
+                  type="button"
+                  className="text-[11px] text-violet-600 dark:text-violet-400 hover:underline text-left pl-1 mt-0.5 flex items-center gap-1"
+                  onClick={() => setExtraSlots([...extraSlots, ""])}
+                >
+                  <Clock className="h-3 w-3" />
+                  + Post at another time today
+                </button>
+              )}
             </div>
           )}
 

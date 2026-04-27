@@ -318,13 +318,45 @@ func buildStrategyPrompt(c *models.Campaign) string {
 
 	if len(c.PostingFrequency) > 0 {
 		if b, err := json.Marshal(c.PostingFrequency); err == nil {
-			sb.WriteString(fmt.Sprintf("Posting Frequency (posts per platform per week): %s\n", string(b)))
+			// frequency_unit in Settings determines the unit; default to "day" for new campaigns.
+			freqUnit := "day"
+			if u, ok := c.Settings["frequency_unit"].(string); ok && u != "" {
+				freqUnit = u
+			}
+			sb.WriteString(fmt.Sprintf("Posting Frequency (posts per platform per %s): %s\n", freqUnit, string(b)))
+			if freqUnit == "day" {
+				sb.WriteString("IMPORTANT: schedule_for times must spread posts evenly through each day — e.g. 3/day → 08:00, 13:00, 19:00.\n")
+			}
 		}
 	}
 
 	if len(c.ContentMix) > 0 {
 		if b, err := json.Marshal(c.ContentMix); err == nil {
 			sb.WriteString(fmt.Sprintf("Content Mix (percentage by type): %s\n", string(b)))
+		}
+	}
+
+	// Reference images / assets provided by the campaign creator.
+	if refURLsRaw, ok := c.Settings["reference_image_urls"]; ok {
+		switch v := refURLsRaw.(type) {
+		case []interface{}:
+			if len(v) > 0 {
+				sb.WriteString("Reference Assets (use these images as post media where appropriate, or style-reference for generated visuals):\n")
+				for i, u := range v {
+					if s, ok := u.(string); ok && s != "" {
+						sb.WriteString(fmt.Sprintf("  Asset %d: %s\n", i+1, s))
+					}
+				}
+			}
+		case []string:
+			if len(v) > 0 {
+				sb.WriteString("Reference Assets (use these images as post media where appropriate, or style-reference for generated visuals):\n")
+				for i, s := range v {
+					if s != "" {
+						sb.WriteString(fmt.Sprintf("  Asset %d: %s\n", i+1, s))
+					}
+				}
+			}
 		}
 	}
 
@@ -442,14 +474,40 @@ func (o *Orchestrator) GenerateCampaignPost(ctx context.Context, campaignPostID,
 	hashtags := o.generateHashtags(ctx, openaiKey, caption, slot, &campaign, campaign.BrandKit)
 
 	// 5. Media generation.
+	// If the campaign has reference image URLs, extract them for use in image posts.
+	var refImageURLs []string
+	if refRaw, ok := campaign.Settings["reference_image_urls"]; ok {
+		switch v := refRaw.(type) {
+		case []interface{}:
+			for _, u := range v {
+				if s, ok := u.(string); ok && s != "" {
+					refImageURLs = append(refImageURLs, s)
+				}
+			}
+		case []string:
+			refImageURLs = append(refImageURLs, v...)
+		}
+	}
+
 	var mediaURLs []string
 	switch slot.PostType {
 	case "image":
-		imageURL, err := o.generateImage(ctx, falKey, slot, &campaign, campaign.BrandKit)
-		if err != nil {
-			log.Warn("GenerateCampaignPost: image generation failed, continuing without media", zap.Error(err))
-		} else if imageURL != "" {
-			mediaURLs = append(mediaURLs, imageURL)
+		if len(refImageURLs) > 0 {
+			// Cycle through reference images round-robin by counting existing image posts.
+			var imagePostCount int64
+			o.db.WithContext(ctx).Model(&models.CampaignPost{}).
+				Where("campaign_id = ? AND post_type = 'image' AND status != 'pending'", campaignID).
+				Count(&imagePostCount)
+			picked := refImageURLs[int(imagePostCount)%len(refImageURLs)]
+			mediaURLs = append(mediaURLs, picked)
+			log.Info("GenerateCampaignPost: using reference image", zap.String("url", picked))
+		} else {
+			imageURL, err := o.generateImage(ctx, falKey, slot, &campaign, campaign.BrandKit)
+			if err != nil {
+				log.Warn("GenerateCampaignPost: image generation failed, continuing without media", zap.Error(err))
+			} else if imageURL != "" {
+				mediaURLs = append(mediaURLs, imageURL)
+			}
 		}
 	case "video":
 		videoURL, err := o.generateVideo(ctx, falKey, slot, &campaign, campaign.BrandKit)
@@ -459,11 +517,17 @@ func (o *Orchestrator) GenerateCampaignPost(ctx context.Context, campaignPostID,
 			mediaURLs = append(mediaURLs, videoURL)
 		}
 	case "carousel":
-		carouselURLs, err := o.generateCarousel(ctx, falKey, slot, &campaign, campaign.BrandKit)
-		if err != nil {
-			log.Warn("GenerateCampaignPost: carousel generation failed, continuing without media", zap.Error(err))
+		if len(refImageURLs) > 0 {
+			// For carousel, use all reference images as the carousel slides.
+			mediaURLs = append(mediaURLs, refImageURLs...)
+			log.Info("GenerateCampaignPost: using reference images as carousel", zap.Int("count", len(refImageURLs)))
 		} else {
-			mediaURLs = append(mediaURLs, carouselURLs...)
+			carouselURLs, err := o.generateCarousel(ctx, falKey, slot, &campaign, campaign.BrandKit)
+			if err != nil {
+				log.Warn("GenerateCampaignPost: carousel generation failed, continuing without media", zap.Error(err))
+			} else {
+				mediaURLs = append(mediaURLs, carouselURLs...)
+			}
 		}
 	// "text" — no media generation
 	}
@@ -893,6 +957,26 @@ Return ONLY the image prompt text. No explanation, no preamble, no JSON.`
 			userPrompt.WriteString(fmt.Sprintf("Brand primary color: %s\n", bk.PrimaryColor))
 			if bk.SecondaryColor != "" {
 				userPrompt.WriteString(fmt.Sprintf("Brand secondary color: %s\n", bk.SecondaryColor))
+			}
+		}
+	}
+	// Inject reference images as creative style guidance.
+	if refURLsRaw, ok := campaign.Settings["reference_image_urls"]; ok {
+		var refs []string
+		switch v := refURLsRaw.(type) {
+		case []interface{}:
+			for _, u := range v {
+				if s, ok := u.(string); ok && s != "" {
+					refs = append(refs, s)
+				}
+			}
+		case []string:
+			refs = v
+		}
+		if len(refs) > 0 {
+			userPrompt.WriteString("Reference images provided by the campaign creator (match their visual style, subjects, and aesthetic — incorporate the people/products/scenes shown):\n")
+			for i, ref := range refs {
+				userPrompt.WriteString(fmt.Sprintf("  Ref %d: %s\n", i+1, ref))
 			}
 		}
 	}
