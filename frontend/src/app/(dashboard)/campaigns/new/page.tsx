@@ -86,6 +86,7 @@ interface WizardState {
   name: string;
   goal: CampaignGoal | "";
   brief: string;
+  cta_url: string; // mandatory link included in every caption (e.g. PPV page, product store)
   brand_kit_id: string;
   reference_image_urls: string[]; // user-provided photo/asset URLs to use in posts
   // Step 2
@@ -260,6 +261,28 @@ function Step1Brief({ state, onChange, brandKits, brandKitsLoading }: Step1Props
               ))}
             </div>
           </div>
+        )}
+      </div>
+
+      {/* CTA / Stream Link — injected into every caption */}
+      <div>
+        <Label className="text-sm font-medium flex items-center gap-1.5">
+          Link to Include in Every Post
+          <span className="text-[10px] font-normal px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">Recommended</span>
+        </Label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-1.5">
+          Every AI-generated caption will end with a CTA pointing to this URL — perfect for a ticket page, PPV stream, product store, or landing page.
+        </p>
+        <Input
+          value={state.cta_url}
+          onChange={(e) => onChange({ cta_url: e.target.value })}
+          placeholder="https://streamnow.ng"
+          className="text-sm"
+        />
+        {state.cta_url && (
+          <p className="text-[11px] text-violet-600 dark:text-violet-400 mt-1 pl-0.5 flex items-center gap-1">
+            ✓ Every caption will include a CTA to <span className="font-medium">{state.cta_url}</span>
+          </p>
         )}
       </div>
 
@@ -838,6 +861,14 @@ function Step3Review({ state, brandKits, onSaveDraft, onGenerate, submitting }: 
           )}
         </div>
 
+        {/* CTA URL */}
+        {state.cta_url && (
+          <div className="px-5 py-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">CTA Link in Every Post</p>
+            <p className="text-sm font-medium text-violet-700 dark:text-violet-400 break-all">{state.cta_url}</p>
+          </div>
+        )}
+
         {/* Brand kit */}
         <div className="px-5 py-4">
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Brand Kit</p>
@@ -948,6 +979,7 @@ const DEFAULT_STATE: WizardState = {
   name: "",
   goal: "",
   brief: "",
+  cta_url: "",
   brand_kit_id: "",
   reference_image_urls: [],
   start_date: "",
@@ -1047,6 +1079,7 @@ export default function NewCampaignPage() {
       credits_budget_cap: state.credits_budget_cap > 0 ? state.credits_budget_cap : undefined,
       settings: {
         frequency_unit: "day",
+        ...(state.cta_url.trim() && { cta_url: state.cta_url.trim() }),
         ...(validRefUrls.length > 0 && { reference_image_urls: validRefUrls }),
       },
     };

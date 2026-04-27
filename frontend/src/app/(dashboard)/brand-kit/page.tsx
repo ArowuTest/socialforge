@@ -436,6 +436,7 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
   const [brandHashtags, setBrandHashtags] = React.useState<string[]>(kit.brand_hashtags ?? []);
   const [dos, setDos] = React.useState<string[]>(kit.dos ?? []);
   const [donts, setDonts] = React.useState<string[]>(kit.donts ?? []);
+  const [websiteUrl, setWebsiteUrl] = React.useState(kit.website_url ?? "");
   const [ctaPrefs, setCtaPrefs] = React.useState<Record<string, string>>(kit.cta_preferences ?? {});
   const [ctaDraftKey, setCtaDraftKey] = React.useState("");
   const [ctaDraftValue, setCtaDraftValue] = React.useState("");
@@ -471,6 +472,7 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
     accent_color: accentColor || undefined,
     logo_url: logoUrl || undefined,
     logo_dark_url: logoDarkUrl || undefined,
+    website_url: websiteUrl || undefined,
     brand_voice: brandVoice || undefined,
     target_audience: targetAudience || undefined,
     content_pillars: contentPillars,
@@ -684,6 +686,19 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
                   </div>
                 </div>
               )}
+
+              <div className="space-y-1.5">
+                <Label htmlFor={`bk-website-${kit.id}`}>Website / Link in Bio</Label>
+                <p className="text-xs text-muted-foreground">
+                  Your main URL — added as a CTA in every AI-generated caption (e.g. your PPV page, product store, or landing page).
+                </p>
+                <Input
+                  id={`bk-website-${kit.id}`}
+                  value={websiteUrl}
+                  onChange={(e) => setWebsiteUrl(e.target.value)}
+                  placeholder="https://streamnow.ng"
+                />
+              </div>
 
               <div className="space-y-1.5">
                 <Label htmlFor={`bk-logo-${kit.id}`}>Logo URL</Label>

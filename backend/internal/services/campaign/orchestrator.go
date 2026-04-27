@@ -384,12 +384,24 @@ func buildStrategyPrompt(c *models.Campaign) string {
 		if len(bk.Donts) > 0 {
 			sb.WriteString(fmt.Sprintf("Brand Don'ts: %s\n", strings.Join(bk.Donts, "; ")))
 		}
+		if bk.WebsiteURL != "" {
+			sb.WriteString(fmt.Sprintf("Brand Website / Link in Bio: %s\n", bk.WebsiteURL))
+		}
 		if bk.LogoURL != "" {
 			sb.WriteString(fmt.Sprintf("Brand Logo (light): %s\n", bk.LogoURL))
 		}
 		if bk.LogoDarkURL != "" {
 			sb.WriteString(fmt.Sprintf("Brand Logo (dark mode): %s\n", bk.LogoDarkURL))
 		}
+	}
+
+	// Campaign-level CTA URL takes priority; falls back to Brand Kit website.
+	ctaURL, _ := c.Settings["cta_url"].(string)
+	if ctaURL == "" && c.BrandKit != nil {
+		ctaURL = c.BrandKit.WebsiteURL
+	}
+	if ctaURL != "" {
+		sb.WriteString(fmt.Sprintf("\nMandatory CTA: Every post MUST include a call-to-action directing people to: %s\n", ctaURL))
 	}
 
 	sb.WriteString("\nGenerate the full content calendar as a JSON array of post slots.")
@@ -677,14 +689,30 @@ func (o *Orchestrator) generateCaption(ctx context.Context, openaiKey string, sl
 		dedupRule = sb.String()
 	}
 
-	// CTA preferences from BrandKit — override generic CTAs with brand-specific ones.
+	// Campaign-level mandatory CTA URL — overrides generic CTA preferences.
+	// Every caption must end with a line driving traffic to this specific link.
 	var ctaRule string
-	if bk != nil && len(bk.CTAPreferences) > 0 {
+	if ctaURL, ok := campaign.Settings["cta_url"].(string); ok && ctaURL != "" {
+		ctaRule = fmt.Sprintf(
+			"\nMANDATORY LINK RULE: You MUST end every caption with a CTA line that includes this exact URL: %s\n"+
+				"Choose the CTA phrasing based on the content mood — examples:\n"+
+				"  🎟️ Get your PPV ticket → %s\n"+
+				"  📺 Stream LIVE now: %s\n"+
+				"  🔥 Watch it here: %s\n"+
+				"  👉 Don't miss it: %s\n"+
+				"The URL must appear on its own line at the end of the caption. This is non-negotiable.",
+			ctaURL, ctaURL, ctaURL, ctaURL, ctaURL)
+	} else if bk != nil && len(bk.CTAPreferences) > 0 {
+		// Fall back to BrandKit CTA preferences when no campaign URL is set.
 		var ctaParts []string
 		for k, v := range bk.CTAPreferences {
 			ctaParts = append(ctaParts, fmt.Sprintf("%s: %s", k, v))
 		}
 		ctaRule = fmt.Sprintf("\nPreferred CTAs (use these, not generic ones): %s", strings.Join(ctaParts, "; "))
+	} else if bk != nil && bk.WebsiteURL != "" {
+		// Fall back to Brand Kit website URL if present.
+		ctaRule = fmt.Sprintf(
+			"\nInclude a CTA that directs people to: %s", bk.WebsiteURL)
 	}
 
 	// Few-shot examples — the most powerful brand voice signal.
