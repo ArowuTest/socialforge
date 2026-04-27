@@ -1078,12 +1078,12 @@ function WhitelabelTab() {
 
   React.useEffect(() => {
     if (wlData?.data) {
-      const d = wlData.data as any;
-      setEnabled(d.enabled ?? d.is_whitelabel ?? false);
-      setPrimaryColor(d.primaryColor ?? d.primary_color ?? "#7C3AED");
-      setAppName(d.brandName ?? d.brand_name ?? "ChiselPost");
-      setCustomDomain(d.customDomain ?? d.custom_domain ?? "");
-      setLogoPreview(d.logo ?? d.logo_url ?? null);
+      const d = wlData.data;
+      setEnabled(d.is_whitelabel ?? false);
+      setPrimaryColor(d.primary_color ?? "#7C3AED");
+      setAppName(d.brand_name ?? d.name ?? "");
+      setCustomDomain(d.custom_domain ?? "");
+      setLogoPreview(d.logo_url ?? null);
     }
   }, [wlData]);
 
@@ -1110,10 +1110,11 @@ function WhitelabelTab() {
     setIsSaving(true);
     try {
       await whitelabelApi.updateConfig({
-        enabled,
-        brandName: appName,
-        primaryColor,
-        customDomain: customDomain || undefined,
+        is_whitelabel: enabled,
+        brand_name: appName || undefined,
+        primary_color: primaryColor || undefined,
+        custom_domain: customDomain || undefined,
+        // logo_url: not sent here — requires a dedicated file-upload endpoint
       });
       toast.success("White-label settings saved.");
     } catch {

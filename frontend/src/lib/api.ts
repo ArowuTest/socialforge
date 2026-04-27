@@ -21,6 +21,7 @@ import {
   BillingUsage,
   Subscription,
   WhitelabelConfig,
+  WhitelabelUpdateRequest,
   Client,
   ApiKey,
   CreditPackage,
@@ -672,7 +673,7 @@ export const whitelabelApi = {
   getConfig: () =>
     request<ApiResponse<WhitelabelConfig>>(`${ws()}/whitelabel`),
 
-  updateConfig: (data: Partial<WhitelabelConfig>) =>
+  updateConfig: (data: WhitelabelUpdateRequest) =>
     request<ApiResponse<WhitelabelConfig>>(`${ws()}/whitelabel`, {
       method: "PATCH",
       body: JSON.stringify(data),

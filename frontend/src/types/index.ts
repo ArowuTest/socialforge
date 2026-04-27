@@ -299,22 +299,27 @@ export interface Subscription {
 // White-label / Agency Models
 // ============================================================
 
+/** Matches the backend PATCH /workspaces/:wid/whitelabel request body (snake_case). */
+export interface WhitelabelUpdateRequest {
+  is_whitelabel?: boolean;
+  brand_name?: string;
+  logo_url?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  custom_domain?: string;
+}
+
+/** Matches the backend GET /workspaces/:wid/whitelabel response (snake_case). */
 export interface WhitelabelConfig {
-  id: string;
-  workspaceId: string;
-  enabled: boolean;
-  brandName: string;
-  logo?: string;
-  favicon?: string;
-  primaryColor: string;
-  secondaryColor: string;
-  customDomain?: string;
-  customDomainVerified: boolean;
-  hideAnthropicBranding: boolean;
-  supportEmail?: string;
-  supportUrl?: string;
-  createdAt: string;
-  updatedAt: string;
+  is_whitelabel: boolean;
+  name: string;
+  brand_name: string;
+  logo_url?: string;
+  primary_color: string;
+  secondary_color?: string;
+  custom_domain?: string;
+  slug: string;
+  subdomain_url: string;
 }
 
 export interface Client {

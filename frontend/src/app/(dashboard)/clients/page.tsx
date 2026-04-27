@@ -331,10 +331,10 @@ function WhitelabelPanel() {
     setIsSaving(true);
     try {
       await whitelabelApi.updateConfig({
-        enabled: state.enabled,
-        brandName: state.appName,
-        primaryColor: state.primaryColor,
-        customDomain: state.customDomain || undefined,
+        is_whitelabel: state.enabled,
+        brand_name: state.appName || undefined,
+        primary_color: state.primaryColor || undefined,
+        custom_domain: state.customDomain || undefined,
       });
       toast.success("White-label settings saved.");
     } catch {
