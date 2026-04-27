@@ -352,6 +352,12 @@ func buildStrategyPrompt(c *models.Campaign) string {
 		if len(bk.Donts) > 0 {
 			sb.WriteString(fmt.Sprintf("Brand Don'ts: %s\n", strings.Join(bk.Donts, "; ")))
 		}
+		if bk.LogoURL != "" {
+			sb.WriteString(fmt.Sprintf("Brand Logo (light): %s\n", bk.LogoURL))
+		}
+		if bk.LogoDarkURL != "" {
+			sb.WriteString(fmt.Sprintf("Brand Logo (dark mode): %s\n", bk.LogoDarkURL))
+		}
 	}
 
 	sb.WriteString("\nGenerate the full content calendar as a JSON array of post slots.")

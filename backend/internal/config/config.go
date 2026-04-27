@@ -112,6 +112,7 @@ type OAuthPlatformConfig struct {
 type AppConfig struct {
 	BaseURL     string
 	FrontendURL string
+	BaseDomain  string // e.g. "chiselpost.com" — used for subdomain_url in whitelabel
 }
 
 // StorageConfig holds object storage (S3/R2) settings.
@@ -189,6 +190,7 @@ func Load() (*Config, error) {
 	// ── App ─────────────────────────────────────────────────────────────────────
 	cfg.App.BaseURL = getEnvOrDefault("APP_BASE_URL", "http://localhost:8080")
 	cfg.App.FrontendURL = getEnvOrDefault("APP_FRONTEND_URL", cfg.App.BaseURL)
+	cfg.App.BaseDomain = getEnvOrDefault("APP_BASE_DOMAIN", "chiselpost.com")
 
 	// ── Storage (optional — media upload disabled when not configured) ────────────
 	cfg.Storage.Endpoint = getEnvOrDefault("STORAGE_ENDPOINT", "")

@@ -58,7 +58,7 @@ func (h *WhitelabelHandler) GetWhitelabelConfig(c *fiber.Ctx) error {
 			"secondary_color": ws.SecondaryColor,
 			"custom_domain":  ws.CustomDomain,
 			"slug":           ws.Slug,
-			"subdomain_url":  fmt.Sprintf("https://%s.chiselpost.com", ws.Slug),
+			"subdomain_url":  fmt.Sprintf("https://%s.%s", ws.Slug, h.cfg.App.BaseDomain),
 		},
 	})
 }

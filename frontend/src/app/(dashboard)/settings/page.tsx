@@ -1062,13 +1062,13 @@ function WhitelabelTab() {
   const { isPlanAtLeast } = useWorkspace();
   const isAgency = isPlanAtLeast(PlanType.AGENCY);
   const [enabled, setEnabled] = React.useState(false);
-  const [logoPreview, setLogoPreview] = React.useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = React.useState("");
   const [primaryColor, setPrimaryColor] = React.useState("#7C3AED");
   const [appName, setAppName] = React.useState("ChiselPost");
   const [customDomain, setCustomDomain] = React.useState("");
   const [isSaving, setIsSaving] = React.useState(false);
   const [dnsOpen, setDnsOpen] = React.useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [dnsStatus, setDnsStatus] = React.useState<"idle" | "checking" | "ok" | "fail">("idle");
 
   const { data: wlData } = useQuery({
     queryKey: ["whitelabel"],
@@ -1083,7 +1083,7 @@ function WhitelabelTab() {
       setPrimaryColor(d.primary_color ?? "#7C3AED");
       setAppName(d.brand_name ?? d.name ?? "");
       setCustomDomain(d.custom_domain ?? "");
-      setLogoPreview(d.logo_url ?? null);
+      setLogoUrl(d.logo_url ?? "");
     }
   }, [wlData]);
 
@@ -1112,15 +1112,33 @@ function WhitelabelTab() {
       await whitelabelApi.updateConfig({
         is_whitelabel: enabled,
         brand_name: appName || undefined,
+        logo_url: logoUrl || undefined,
         primary_color: primaryColor || undefined,
         custom_domain: customDomain || undefined,
-        // logo_url: not sent here — requires a dedicated file-upload endpoint
       });
       toast.success("White-label settings saved.");
     } catch {
       toast.error("Failed to save settings.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDnsCheck = async () => {
+    if (!customDomain) return;
+    setDnsStatus("checking");
+    try {
+      const res = await fetch(
+        `https://dns.google/resolve?name=${encodeURIComponent(customDomain)}&type=CNAME`
+      );
+      const json = await res.json();
+      const answers: Array<{ data: string }> = json?.Answer ?? [];
+      const pointsCorrectly = answers.some((a) =>
+        a.data?.toLowerCase().includes("proxy.chiselpost.com")
+      );
+      setDnsStatus(pointsCorrectly ? "ok" : "fail");
+    } catch {
+      setDnsStatus("fail");
     }
   };
 
@@ -1153,46 +1171,40 @@ function WhitelabelTab() {
         <CardContent className="space-y-5">
           {/* Logo */}
           <div className={cn("space-y-2 transition-opacity", disabled && "opacity-40 pointer-events-none")}>
-            <Label>Logo</Label>
-            <div
-              className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl p-6 flex flex-col items-center gap-3 cursor-pointer hover:border-violet-400 transition-colors bg-gray-50 dark:bg-gray-800/30"
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const file = e.dataTransfer.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onloadend = () => setLogoPreview(reader.result as string);
-                reader.readAsDataURL(file);
-              }}
-            >
-              {logoPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={logoPreview} alt="Logo preview" className="h-14 object-contain" />
-              ) : (
-                <>
-                  <Upload className="h-6 w-6 text-gray-400" />
-                  <p className="text-sm text-muted-foreground text-center">
-                    Drag & drop or <span className="text-violet-600 font-medium">browse</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">PNG, SVG, WebP — max 2 MB</p>
-                </>
+            <Label htmlFor="wl-logo-url">Logo URL</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="wl-logo-url"
+                placeholder="https://cdn.yourdomain.com/logo.png"
+                value={logoUrl}
+                onChange={(e) => setLogoUrl(e.target.value)}
+              />
+              {logoUrl && (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors whitespace-nowrap"
+                  onClick={() => setLogoUrl("")}
+                >
+                  Clear
+                </button>
               )}
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/svg+xml,image/webp"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onloadend = () => setLogoPreview(reader.result as string);
-                reader.readAsDataURL(file);
-              }}
-            />
+            <p className="text-xs text-muted-foreground">
+              Paste a publicly accessible image URL (PNG, SVG, WebP). Displayed in your client portal header.
+            </p>
+            {logoUrl && (
+              <div className="mt-2 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30 p-4 flex items-center justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={logoUrl}
+                  alt="Logo preview"
+                  className="h-12 max-w-[180px] object-contain"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Brand colour */}
@@ -1225,19 +1237,30 @@ function WhitelabelTab() {
                   </p>
                   <div className="space-y-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-xs font-mono">
                     <div><span className="text-muted-foreground">Type:</span> CNAME</div>
-                    <div><span className="text-muted-foreground">Name:</span> {customDomain || "clients"}</div>
-                    <div><span className="text-muted-foreground">Value:</span> proxy.ChiselPost.io</div>
+                    <div><span className="text-muted-foreground">Name:</span> {customDomain || "your-subdomain"}</div>
+                    <div><span className="text-muted-foreground">Value:</span> proxy.chiselpost.com</div>
                     <div><span className="text-muted-foreground">TTL:</span> 300</div>
                   </div>
+                  {dnsStatus === "ok" && (
+                    <div className="mt-3 flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
+                      CNAME verified — DNS is pointing correctly.
+                    </div>
+                  )}
+                  {dnsStatus === "fail" && (
+                    <div className="mt-3 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                      ⚠ CNAME not found or not pointing to proxy.chiselpost.com. DNS changes can take up to 48 h to propagate.
+                    </div>
+                  )}
                   <Button
                     className="w-full mt-3 bg-violet-600 hover:bg-violet-700 text-white"
                     size="sm"
-                    onClick={() => {
-                      toast.success("Verification initiated.");
-                      setDnsOpen(false);
-                    }}
+                    disabled={!customDomain || dnsStatus === "checking"}
+                    onClick={handleDnsCheck}
                   >
-                    Check Now
+                    {dnsStatus === "checking" ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Checking…</>
+                    ) : "Check Now"}
                   </Button>
                 </PopoverContent>
               </Popover>

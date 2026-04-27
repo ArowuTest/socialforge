@@ -436,6 +436,9 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
   const [brandHashtags, setBrandHashtags] = React.useState<string[]>(kit.brand_hashtags ?? []);
   const [dos, setDos] = React.useState<string[]>(kit.dos ?? []);
   const [donts, setDonts] = React.useState<string[]>(kit.donts ?? []);
+  const [ctaPrefs, setCtaPrefs] = React.useState<Record<string, string>>(kit.cta_preferences ?? {});
+  const [ctaDraftKey, setCtaDraftKey] = React.useState("");
+  const [ctaDraftValue, setCtaDraftValue] = React.useState("");
 
   const [isSaving, setIsSaving] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -474,6 +477,7 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
     brand_hashtags: brandHashtags,
     dos,
     donts,
+    cta_preferences: ctaPrefs,
   });
 
   const handleSave = async () => {
@@ -766,6 +770,88 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
                   onChange={setBrandHashtags}
                   placeholder="e.g. #YourBrand, #YourNiche"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label>CTA Preferences</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Platform-specific calls to action the AI will use. Key = platform or context, Value = CTA text.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Existing entries */}
+                {Object.keys(ctaPrefs).length > 0 && (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
+                    {Object.entries(ctaPrefs).map(([k, v]) => (
+                      <div key={k} className="flex items-center gap-2 px-3 py-2">
+                        <span className="text-xs font-medium text-violet-700 dark:text-violet-300 min-w-[100px]">
+                          {k}
+                        </span>
+                        <span className="flex-1 text-xs text-muted-foreground truncate">{v}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = { ...ctaPrefs };
+                            delete next[k];
+                            setCtaPrefs(next);
+                          }}
+                          className="text-muted-foreground hover:text-red-500 transition-colors shrink-0"
+                          aria-label={`Remove CTA: ${k}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add new entry */}
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={ctaDraftKey}
+                    onChange={(e) => setCtaDraftKey(e.target.value)}
+                    placeholder="Platform / context (e.g. Instagram)"
+                    className="flex-1 text-sm h-8"
+                  />
+                  <Input
+                    value={ctaDraftValue}
+                    onChange={(e) => setCtaDraftValue(e.target.value)}
+                    placeholder="CTA text (e.g. Shop now →)"
+                    className="flex-1 text-sm h-8"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const k = ctaDraftKey.trim();
+                        const v = ctaDraftValue.trim();
+                        if (!k || !v) return;
+                        setCtaPrefs((prev) => ({ ...prev, [k]: v }));
+                        setCtaDraftKey("");
+                        setCtaDraftValue("");
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 shrink-0"
+                    disabled={!ctaDraftKey.trim() || !ctaDraftValue.trim()}
+                    onClick={() => {
+                      const k = ctaDraftKey.trim();
+                      const v = ctaDraftValue.trim();
+                      if (!k || !v) return;
+                      setCtaPrefs((prev) => ({ ...prev, [k]: v }));
+                      setCtaDraftKey("");
+                      setCtaDraftValue("");
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Add
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
