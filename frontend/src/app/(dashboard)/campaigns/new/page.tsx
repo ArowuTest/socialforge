@@ -647,6 +647,35 @@ function Step2Settings({ state, onChange, creditBalance, connectedPlatforms }: S
               </p>
             )}
           </div>
+          {/* Insufficient balance warning */}
+          {creditBalance > 0 && estimatedCredits > creditBalance && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-3">
+              <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  Insufficient credits
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  This campaign needs ~{estimatedCredits.toLocaleString()} credits but you only have {creditBalance.toLocaleString()}.
+                  {" "}
+                  <a href="/billing" className="underline font-medium">Top up your credits →</a>
+                </p>
+              </div>
+            </div>
+          )}
+          {creditBalance === 0 && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-3">
+              <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+                  No credits remaining
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  You have no AI credits. <a href="/billing" className="underline font-medium">Top up your credits →</a> to run this campaign.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

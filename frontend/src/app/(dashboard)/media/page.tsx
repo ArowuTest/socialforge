@@ -368,9 +368,26 @@ export default function MediaPage() {
             </div>
           ) : sorted.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
-              <Image className="h-10 w-10 text-gray-300 mb-3" />
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">No media files found</p>
-              <p className="text-xs text-gray-400 mt-1">Upload some files to get started.</p>
+              <div className="h-16 w-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+                <Image className="h-8 w-8 text-gray-300" />
+              </div>
+              <p className="text-base font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                {searchQuery ? "No files match your search" : "Your media library is empty"}
+              </p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mb-4 max-w-xs">
+                {searchQuery
+                  ? `Try a different search term or clear the filter.`
+                  : "Upload images, videos and GIFs to reuse them across posts and campaigns."}
+              </p>
+              {!searchQuery && (
+                <button
+                  onClick={() => setShowUpload(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload your first file
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -382,13 +399,13 @@ export default function MediaPage() {
               </p>
 
               {viewMode === "grid" ? (
-                <div className="columns-2 md:columns-3 lg:columns-4 gap-3 space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {sorted.map((item) => (
                     <div
                       key={item.key}
                       onClick={() => setSidebarItem(item)}
                       className={cn(
-                        "break-inside-avoid group relative rounded-xl overflow-hidden cursor-pointer border-2 transition-all",
+                        "group relative rounded-xl overflow-hidden cursor-pointer border-2 transition-all",
                         selectedIds.has(item.key)
                           ? "border-violet-500"
                           : "border-transparent hover:border-violet-200 dark:hover:border-violet-800"

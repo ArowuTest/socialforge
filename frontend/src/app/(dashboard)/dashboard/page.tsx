@@ -26,10 +26,13 @@ import {
   AlertCircle,
   Share2,
   ChevronRight,
+  Palette,
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
-import { postsApi, campaignsApi, billingApi, accountsApi } from "@/lib/api";
+import { postsApi, campaignsApi, billingApi, accountsApi, brandKitApi } from "@/lib/api";
 import { Post, SocialAccount, Platform } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -156,6 +159,106 @@ function QuickToolCard({
   );
 }
 
+// ── Onboarding Checklist ───────────────────────────────────────────────────────
+
+interface ChecklistStep {
+  id: string;
+  label: string;
+  description: string;
+  href: string;
+  icon: React.ElementType;
+  done: boolean;
+}
+
+function OnboardingChecklist({
+  steps,
+  onDismiss,
+}: {
+  steps: ChecklistStep[];
+  onDismiss: () => void;
+}) {
+  const completed = steps.filter((s) => s.done).length;
+  const total = steps.length;
+  const pct = Math.round((completed / total) * 100);
+
+  if (completed === total) return null;
+
+  return (
+    <div className="rounded-2xl border border-violet-200 dark:border-violet-800/40 bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/20 p-5">
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <p className="font-bold text-gray-900 dark:text-white text-base">
+            🚀 Get started with ChiselPost
+          </p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {completed} of {total} steps complete
+          </p>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="p-1 rounded-lg hover:bg-violet-100 dark:hover:bg-violet-900/30 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          title="Dismiss"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-2 bg-violet-100 dark:bg-violet-900/30 rounded-full mb-4 overflow-hidden">
+        <div
+          className="h-full bg-violet-600 rounded-full transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {steps.map((step) => (
+          <Link
+            key={step.id}
+            href={step.href}
+            className={cn(
+              "flex items-start gap-3 rounded-xl p-3 border transition-all group",
+              step.done
+                ? "bg-white/60 dark:bg-gray-900/40 border-green-200 dark:border-green-800/40 opacity-70"
+                : "bg-white dark:bg-gray-900/60 border-violet-100 dark:border-violet-800/30 hover:border-violet-300 dark:hover:border-violet-700 hover:shadow-sm"
+            )}
+          >
+            <div
+              className={cn(
+                "h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5",
+                step.done
+                  ? "bg-green-100 dark:bg-green-900/30"
+                  : "bg-violet-100 dark:bg-violet-900/30 group-hover:bg-violet-200 dark:group-hover:bg-violet-900/50 transition-colors"
+              )}
+            >
+              {step.done ? (
+                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+              ) : (
+                <step.icon className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p
+                className={cn(
+                  "text-sm font-semibold leading-tight",
+                  step.done
+                    ? "text-gray-400 dark:text-gray-500 line-through"
+                    : "text-gray-900 dark:text-white"
+                )}
+              >
+                {step.label}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
+                {step.description}
+              </p>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -163,9 +266,18 @@ export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);
 
   const [loading, setLoading] = React.useState(true);
+  const [checklistDismissed, setChecklistDismissed] = React.useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("onboarding_dismissed") === "1";
+    }
+    return false;
+  });
   const [recentPosts, setRecentPosts] = React.useState<RecentPost[]>([]);
   const [stats, setStats] = React.useState<StatCard[]>([]);
   const [connectedAccounts, setConnectedAccounts] = React.useState<SocialAccount[]>([]);
+  const [hasBrandKit, setHasBrandKit] = React.useState(false);
+  const [hasPublishedPost, setHasPublishedPost] = React.useState(false);
+  const [hasCampaign, setHasCampaign] = React.useState(false);
 
   React.useEffect(() => {
     if (!workspace?.id) {
@@ -178,7 +290,7 @@ export default function DashboardPage() {
       const now = new Date();
       const todayStr = now.toISOString().slice(0, 10);
 
-      const [allPostsRes, todayPostsRes, campaignsRes, creditsRes, accountsRes] = await Promise.all([
+      const [allPostsRes, todayPostsRes, campaignsRes, creditsRes, accountsRes, brandKitsRes] = await Promise.all([
         postsApi.list({ pageSize: 50 }).catch(() => null),
         postsApi
           .list({ from: todayStr, to: todayStr, pageSize: 100 })
@@ -186,6 +298,7 @@ export default function DashboardPage() {
         campaignsApi.list('running').catch(() => null),
         billingApi.getCreditBalance().catch(() => null),
         accountsApi.list().catch(() => null),
+        brandKitApi.list().catch(() => null),
       ]);
       if (cancelled) return;
 
@@ -197,6 +310,12 @@ export default function DashboardPage() {
       const allPosts: Post[] = allPostsRes?.data || [];
       const todayPosts: Post[] = todayPostsRes?.data || [];
       const activeCampaigns = campaignsRes?.data?.length ?? 0;
+
+      // Checklist signals
+      const brandKits = brandKitsRes?.data ?? [];
+      setHasBrandKit(brandKits.length > 0);
+      setHasPublishedPost(allPosts.some((p) => p.status === "published"));
+      setHasCampaign(activeCampaigns > 0);
       const creditsRemaining = creditsRes?.data
         ? (creditsRes.data.plan_credits_limit - creditsRes.data.plan_credits_used + creditsRes.data.credit_balance)
         : null;
@@ -266,6 +385,59 @@ export default function DashboardPage() {
     };
   }, [workspace?.id]);
 
+  const handleDismissChecklist = () => {
+    setChecklistDismissed(true);
+    localStorage.setItem("onboarding_dismissed", "1");
+  };
+
+  const checklistSteps: ChecklistStep[] = [
+    {
+      id: "connect",
+      label: "Connect a social account",
+      description: "Link Instagram, LinkedIn, TikTok or more",
+      href: "/accounts",
+      icon: Share2,
+      done: connectedAccounts.length > 0,
+    },
+    {
+      id: "brand_kit",
+      label: "Set up your Brand Kit",
+      description: "Teach the AI your brand voice and colours",
+      href: "/brand-kit",
+      icon: Palette,
+      done: hasBrandKit,
+    },
+    {
+      id: "post",
+      label: "Publish your first post",
+      description: "Schedule or post now to any platform",
+      href: "/compose",
+      icon: PenSquare,
+      done: hasPublishedPost,
+    },
+    {
+      id: "campaign",
+      label: "Create an AI Campaign",
+      description: "Let AI generate a full content calendar",
+      href: "/campaigns/new",
+      icon: Rocket,
+      done: hasCampaign,
+    },
+    {
+      id: "ai_studio",
+      label: "Try the AI Studio",
+      description: "Generate captions, images and videos",
+      href: "/ai",
+      icon: Sparkles,
+      done: false,
+    },
+  ];
+
+  const showChecklist =
+    !loading &&
+    !checklistDismissed &&
+    checklistSteps.some((s) => !s.done);
+
   const greeting = (() => {
     const h = new Date().getHours();
     if (h < 12) return "Good morning";
@@ -300,8 +472,28 @@ export default function DashboardPage() {
                 <Skeleton className="h-3 w-24" />
               </div>
             ))
-          : stats.map((s) => <StatCardItem key={s.label} stat={s} />)}
+          : stats.map((s) => (
+              <div key={s.label} className="relative">
+                <StatCardItem stat={s} />
+                {s.label === "Credits Remaining" && (
+                  <Link
+                    href="/billing"
+                    className="absolute bottom-4 left-5 text-[10px] text-violet-500 hover:text-violet-700 dark:text-violet-400 font-medium hover:underline"
+                  >
+                    What are credits? →
+                  </Link>
+                )}
+              </div>
+            ))}
       </div>
+
+      {/* Onboarding checklist */}
+      {showChecklist && (
+        <OnboardingChecklist
+          steps={checklistSteps}
+          onDismiss={handleDismissChecklist}
+        />
+      )}
 
       {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -401,13 +593,25 @@ export default function DashboardPage() {
                       >
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                            {post.title}
+                            {post.title === "Untitled post" ? (
+                              <span className="text-gray-400 italic">Untitled post</span>
+                            ) : post.title}
                           </p>
                           {post.scheduledAt !== "—" && (
                             <span className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                               <Clock className="h-3 w-3" />
                               {post.scheduledAt}
                             </span>
+                          )}
+                          {post.status === "failed" && (
+                            <Link
+                              href={`/compose?retry=${post.id}`}
+                              className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 flex items-center gap-1 mt-0.5 font-medium"
+                              title="Publishing failed — check your account connection and retry"
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Publishing failed — retry →
+                            </Link>
                           )}
                         </div>
                         <span

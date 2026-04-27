@@ -566,6 +566,24 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
         </div>
       </div>
 
+      {/* First-time intro banner — shown when kit is < 20% complete */}
+      {completeness < 20 && (
+        <div className="mb-4 rounded-xl bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800/40 p-4 flex gap-3">
+          <div className="h-9 w-9 rounded-lg bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
+            <Palette className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white mb-0.5">
+              Welcome to your Brand Kit
+            </p>
+            <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+              Fill this in once and every AI caption, image prompt, and campaign will automatically reflect your brand&apos;s personality, colours, and audience.
+              Work through each tab — the more you fill in, the better your AI content.
+            </p>
+          </div>
+        </div>
+      )}
+
       <Tabs defaultValue="identity">
         <TabsList className="mb-4 flex-wrap h-auto gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
           <TabsTrigger value="identity" className="text-xs sm:text-sm">Identity</TabsTrigger>
@@ -574,7 +592,9 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
           <TabsTrigger value="content" className="text-xs sm:text-sm">Content Strategy</TabsTrigger>
           <TabsTrigger value="guidelines" className="text-xs sm:text-sm">Guidelines</TabsTrigger>
           <TabsTrigger value="tone" className="text-xs sm:text-sm flex items-center gap-1">
-            <Mic className="h-3 w-3" />Tone Analyzer
+            <Mic className="h-3 w-3" />
+            Tone Analyzer
+            <span className="ml-1 text-[9px] text-gray-400 font-normal hidden sm:inline">Analyse your brand voice</span>
           </TabsTrigger>
         </TabsList>
 
@@ -896,7 +916,7 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
               <CardHeader>
                 <CardTitle className="text-sm font-semibold">Brand Kit Completeness</CardTitle>
                 <CardDescription>
-                  A more complete brand kit gives the AI richer context.
+                  A more complete brand kit gives the AI richer, more on-brand output.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -923,10 +943,33 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
                     style={{ width: `${completeness}%` }}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Scored on: name, industry, colors (primary + secondary), brand voice, target audience,
-                  content pillars (≥2), hashtags (≥1), do&apos;s (≥1), don&apos;ts (≥1), logo URL.
-                </p>
+
+                {/* Missing fields checklist */}
+                <div className="space-y-1 pt-1">
+                  {[
+                    { label: "Industry", done: !!industry },
+                    { label: "Primary colour", done: !!primaryColor },
+                    { label: "Secondary colour", done: !!secondaryColor },
+                    { label: "Brand voice", done: !!(brandVoice?.trim()) },
+                    { label: "Target audience", done: !!(targetAudience?.trim()) },
+                    { label: "Content pillars (≥ 2)", done: contentPillars.length >= 2 },
+                    { label: "Brand hashtags (≥ 1)", done: brandHashtags.length >= 1 },
+                    { label: "Do's (≥ 1)", done: dos.length >= 1 },
+                    { label: "Don'ts (≥ 1)", done: donts.length >= 1 },
+                    { label: "Logo URL", done: !!logoUrl?.trim() },
+                  ].map(({ label, done }) => (
+                    <div key={label} className="flex items-center gap-2 text-xs">
+                      {done ? (
+                        <CheckCircle2 className="h-3 w-3 text-emerald-500 flex-shrink-0" />
+                      ) : (
+                        <span className="h-3 w-3 rounded-full border-2 border-gray-300 dark:border-gray-600 flex-shrink-0" />
+                      )}
+                      <span className={done ? "text-gray-400 dark:text-gray-500 line-through" : "text-gray-700 dark:text-gray-300"}>
+                        {label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           </div>

@@ -16,6 +16,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
+import Link from "next/link";
 import {
   TrendingUp,
   TrendingDown,
@@ -31,6 +32,8 @@ import {
   Twitter,
   Video,
   Image,
+  Share2,
+  BarChart2,
 } from "lucide-react";
 import { format, subDays } from "date-fns";
 import { analyticsApi } from "@/lib/api";
@@ -187,16 +190,73 @@ function ChartTooltip({
 
 function EmptyAnalytics() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="h-16 w-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
-        <TrendingUp className="h-8 w-8 text-gray-400" />
+    <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+      {/* Illustration */}
+      <div className="relative mb-6">
+        <div className="h-20 w-20 rounded-3xl bg-gradient-to-br from-violet-100 to-purple-200 dark:from-violet-900/40 dark:to-purple-900/40 flex items-center justify-center shadow-sm">
+          <BarChart2 className="h-10 w-10 text-violet-500" />
+        </div>
+        {/* Floating badges */}
+        <div className="absolute -top-2 -right-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-2.5 py-1 shadow-md text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
+          <TrendingUp className="h-3 w-3" /> +24%
+        </div>
+        <div className="absolute -bottom-2 -left-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-2.5 py-1 shadow-md text-[11px] font-semibold text-violet-600 flex items-center gap-1">
+          <Eye className="h-3 w-3" /> 4.2K
+        </div>
       </div>
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+
+      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
         No analytics data yet
       </h3>
-      <p className="text-sm text-muted-foreground max-w-sm">
-        Analytics data will appear after your first published post. Start scheduling content to see your performance.
+      <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
+        Connect your social accounts and publish your first post — analytics will start populating within 24 hours of your first publication.
       </p>
+
+      {/* Step guide */}
+      <div className="flex flex-col sm:flex-row items-center gap-3 mb-6 text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/60 rounded-lg px-3 py-2">
+          <span className="h-5 w-5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 font-bold text-[10px] flex items-center justify-center flex-shrink-0">1</span>
+          Connect accounts
+        </div>
+        <span className="text-gray-300 dark:text-gray-600 hidden sm:block">→</span>
+        <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/60 rounded-lg px-3 py-2">
+          <span className="h-5 w-5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 font-bold text-[10px] flex items-center justify-center flex-shrink-0">2</span>
+          Publish a post
+        </div>
+        <span className="text-gray-300 dark:text-gray-600 hidden sm:block">→</span>
+        <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800/60 rounded-lg px-3 py-2">
+          <span className="h-5 w-5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 font-bold text-[10px] flex items-center justify-center flex-shrink-0">3</span>
+          Analytics appear here
+        </div>
+      </div>
+
+      {/* CTAs */}
+      <div className="flex flex-wrap gap-3 justify-center">
+        <Link
+          href="/accounts"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          <Share2 className="h-4 w-4" />
+          Connect Accounts
+        </Link>
+        <Link
+          href="/compose"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 transition-colors"
+        >
+          Create a Post
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// ── Chart empty state (inline, for individual charts when no data) ─────────
+
+function ChartEmpty({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center py-8">
+      <BarChart2 className="h-8 w-8 text-gray-200 dark:text-gray-700 mb-2" />
+      <p className="text-xs text-gray-400 dark:text-gray-500">{message}</p>
     </div>
   );
 }
@@ -323,8 +383,17 @@ export default function AnalyticsPage() {
         />
       </div>
 
-      {/* Charts section */}
-      <div className="space-y-4">
+      {/* Full page empty state — shown when no data at all */}
+      {!overviewLoading && !hasData && (
+        <Card>
+          <CardContent className="p-0">
+            <EmptyAnalytics />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Charts section — only shown when there is data or loading */}
+      {(overviewLoading || hasData) && <div className="space-y-4">
         {/* Posts over time — full width */}
         <Card>
           <CardHeader className="pb-2">
@@ -333,6 +402,8 @@ export default function AnalyticsPage() {
           <CardContent>
             {overviewLoading ? (
               <Skeleton className="h-64 w-full" />
+            ) : postsPerDay.length === 0 ? (
+              <div className="h-64"><ChartEmpty message="No post activity in this period" /></div>
             ) : (
               <ResponsiveContainer width="100%" height={260}>
                 <AreaChart data={postsPerDay} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
@@ -384,6 +455,8 @@ export default function AnalyticsPage() {
             <CardContent>
               {overviewLoading ? (
                 <Skeleton className="h-56 w-full" />
+              ) : engagementByPlatform.length === 0 ? (
+                <div className="h-56"><ChartEmpty message="Publish to multiple platforms to compare engagement" /></div>
               ) : (
                 <ResponsiveContainer width="100%" height={224}>
                   <BarChart
@@ -472,10 +545,10 @@ export default function AnalyticsPage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </div>}
 
       {/* Top Posts Table */}
-      <Card>
+      {(overviewLoading || hasData) && <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Top Posts</CardTitle>
         </CardHeader>
@@ -573,7 +646,7 @@ export default function AnalyticsPage() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   );
 }

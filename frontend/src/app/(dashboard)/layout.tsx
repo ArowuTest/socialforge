@@ -60,7 +60,7 @@ const navSections = [
     ],
   },
   {
-    label: "MANUAL",
+    label: "CREATE",
     autopilot: false,
     items: [
       { href: "/compose", icon: PenSquare, label: "Compose Post" },

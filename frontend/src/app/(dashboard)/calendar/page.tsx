@@ -291,7 +291,7 @@ export default function CalendarPage() {
         </div>
 
         {/* Platform filters */}
-        <div className="flex items-center gap-1.5 flex-wrap mb-4">
+        <div className="flex items-center gap-1.5 flex-wrap mb-3">
           {platformFilterOptions.map((opt) => (
             <button
               key={opt.value}
@@ -306,6 +306,19 @@ export default function CalendarPage() {
               {opt.label}
             </button>
           ))}
+        </div>
+
+        {/* Dot legend */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-4 px-0.5">
+          {platformFilterOptions.filter((o) => o.value !== "all").map((opt) => (
+            <span key={opt.value} className="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+              <span className={cn("h-2 w-2 rounded-full flex-shrink-0", platformDotColors[opt.value] ?? "bg-violet-500")} />
+              {opt.label}
+            </span>
+          ))}
+          <span className="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500 ml-auto">
+            <span className="h-2 w-2 rounded-full bg-violet-500" /> = dot per post
+          </span>
         </div>
 
         {/* Calendar grid */}
