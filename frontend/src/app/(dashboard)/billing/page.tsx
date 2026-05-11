@@ -351,6 +351,7 @@ function CreditPackagesGrid({
 interface PlanTabProps {
   subscription: {
     planName: string;
+    plan: string;
     status: string;
     renewalDate: string;
     used: { accounts: number; posts: number; aiCredits: number };
@@ -361,6 +362,40 @@ interface PlanTabProps {
 }
 
 function PlanTab({ subscription, onPortalClick, portalLoading }: PlanTabProps) {
+  // Build dynamic "What's included" list from actual plan limits
+  const planFeatures = React.useMemo(() => {
+    const { accounts, posts, aiCredits } = subscription.limits;
+    const plan = subscription.plan.toLowerCase();
+    const features: string[] = [
+      accounts >= 999 ? "Unlimited social accounts" : `Up to ${accounts} social accounts`,
+      aiCredits >= 28000
+        ? `${aiCredits.toLocaleString()} AI credits/month`
+        : aiCredits >= 1000
+        ? `${aiCredits.toLocaleString()} plan AI credits/month`
+        : `${aiCredits} plan AI credits/month`,
+      posts >= 9999 ? "Unlimited scheduled posts" : `Up to ${posts.toLocaleString()} posts/month`,
+      "Analytics & reporting",
+      "Content calendar",
+      "AI caption & image generation",
+    ];
+    if (plan === "agency") {
+      features.push("White-label workspace");
+      features.push("Media library (10 GB)");
+      features.push("Priority support");
+    } else if (plan === "pro") {
+      features.push("5 workspaces");
+      features.push("Media library (5 GB)");
+      features.push("Priority support");
+    } else if (plan === "starter") {
+      features.push("Media library (5 GB)");
+      features.push("Email support");
+    } else {
+      features.push("Media library (1 GB)");
+      features.push("Community support");
+    }
+    return features;
+  }, [subscription.plan, subscription.limits]);
+
   const acctPct = subscription.limits.accounts > 0
     ? Math.round((subscription.used.accounts / subscription.limits.accounts) * 100)
     : 0;
@@ -482,16 +517,7 @@ function PlanTab({ subscription, onPortalClick, portalLoading }: PlanTabProps) {
             What&apos;s included in your plan
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {[
-              "Up to 10 social accounts",
-              "500 plan AI credits/month",
-              "Unlimited scheduled posts",
-              "Analytics & reporting",
-              "Content calendar",
-              "AI caption generation",
-              "Media library (5 GB)",
-              "Priority email support",
-            ].map((feature) => (
+            {planFeatures.map((feature) => (
               <div key={feature} className="flex items-center gap-2 text-sm text-slate-300">
                 <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
                 {feature}
@@ -689,6 +715,7 @@ export default function BillingPage() {
     planName: workspace?.plan
       ? workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1)
       : "Free",
+    plan: workspace?.plan ?? "free",
     status: "active",
     renewalDate: "—",
     used: {

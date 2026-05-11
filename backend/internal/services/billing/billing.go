@@ -744,10 +744,13 @@ func (s *Service) ApplyCreditTopUp(ctx context.Context, topupID uuid.UUID) error
 // GetCreditBalance returns the workspace's current credit balance and monthly AI cost.
 func (s *Service) GetCreditBalance(ctx context.Context, workspaceID uuid.UUID) (map[string]interface{}, error) {
 	var ws models.Workspace
-	if err := s.db.WithContext(ctx).Select("credit_balance, ai_credits_used, ai_credits_limit").
+	if err := s.db.WithContext(ctx).Select("credit_balance, ai_credits_used, plan").
 		First(&ws, "id = ?", workspaceID).Error; err != nil {
 		return nil, err
 	}
+
+	// Use plan-based limit (authoritative) rather than the stale DB column default.
+	planLimits := GetLimits(ws.Plan)
 
 	var monthlyCost float64
 	s.db.WithContext(ctx).Model(&models.AIJob{}).
@@ -758,7 +761,7 @@ func (s *Service) GetCreditBalance(ctx context.Context, workspaceID uuid.UUID) (
 	return map[string]interface{}{
 		"credit_balance":     ws.CreditBalance,
 		"plan_credits_used":  ws.AICreditsUsed,
-		"plan_credits_limit": ws.AICreditsLimit,
+		"plan_credits_limit": planLimits.AICreditsMonthly,
 		"monthly_usd_cost":   monthlyCost,
 	}, nil
 }
