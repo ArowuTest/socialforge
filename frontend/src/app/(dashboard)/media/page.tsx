@@ -411,28 +411,19 @@ export default function MediaPage() {
                           : "border-transparent hover:border-violet-200 dark:hover:border-violet-800"
                       )}
                     >
-                      {/* Thumbnail */}
-                      {item.type === "image" ? (
-                        <img
-                          src={item.url}
-                          alt={item.name}
-                          className="w-full object-cover aspect-video"
-                          loading="lazy"
-                          onError={(e) => {
-                            const img = e.currentTarget;
-                            img.style.display = "none";
-                            const fallback = img.nextElementSibling as HTMLElement;
-                            if (fallback) fallback.style.display = "flex";
-                          }}
-                        />
-                      ) : null}
-                      <div
-                        className={cn("bg-gradient-to-br w-full aspect-video", item.color, item.type !== "image" ? "flex" : "hidden")}
-                        style={{ display: item.type === "image" ? "none" : undefined }}
-                      >
-                        <div className="w-full h-full flex items-center justify-center">
+                      {/* Thumbnail — gradient always visible as background; image overlaid on top */}
+                      <div className="relative w-full aspect-video">
+                        <div className={cn("absolute inset-0 bg-gradient-to-br flex items-center justify-center", item.color)}>
                           <MediaTypeIcon type={item.type} />
                         </div>
+                        {item.type === "image" && (
+                          <img
+                            src={item.url}
+                            alt={item.name}
+                            className="absolute inset-0 w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        )}
                       </div>
 
                       {/* Hover overlay */}
@@ -551,27 +542,19 @@ export default function MediaPage() {
               </button>
             </div>
 
-            {/* Preview */}
+            {/* Preview — gradient always visible as background; image overlaid on top */}
             <div className="relative w-full aspect-video rounded-xl overflow-hidden">
+              <div className={cn("absolute inset-0 bg-gradient-to-br flex items-center justify-center", sidebarItem.color)}>
+                <MediaTypeIcon type={sidebarItem.type} />
+              </div>
               {sidebarItem.type === "image" && (
                 <img
                   src={sidebarItem.url}
                   alt={sidebarItem.name}
-                  className="w-full h-full object-cover absolute inset-0"
-                  onError={(e) => {
-                    const img = e.currentTarget;
-                    img.style.display = "none";
-                    const fallback = img.nextElementSibling as HTMLElement;
-                    if (fallback) fallback.style.display = "flex";
-                  }}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  loading="lazy"
                 />
               )}
-              <div
-                className={cn("w-full h-full bg-gradient-to-br flex items-center justify-center", sidebarItem.color)}
-                style={{ display: sidebarItem.type !== "image" ? "flex" : "none" }}
-              >
-                <MediaTypeIcon type={sidebarItem.type} />
-              </div>
             </div>
 
             {/* Details */}
