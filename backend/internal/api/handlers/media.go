@@ -182,10 +182,17 @@ func (h *MediaHandler) ListMedia(c *fiber.Ctx) error {
 	}
 	dtos := make([]mediaDTO, len(items))
 	for i, it := range items {
+		// Always rewrite the URL using the current STORAGE_PUBLIC_URL so that
+		// records uploaded before the env var was configured get corrected on
+		// the fly without a database migration.
+		url := it.PublicURL
+		if h.storage != nil && h.storage.IsConfigured() && it.StorageKey != "" {
+			url = h.storage.PublicURLForKey(it.StorageKey)
+		}
 		dtos[i] = mediaDTO{
 			ID:          it.ID.String(),
 			Key:         it.StorageKey,
-			URL:         it.PublicURL,
+			URL:         url,
 			Filename:    it.Filename,
 			ContentType: it.ContentType,
 			MediaType:   it.MediaType,

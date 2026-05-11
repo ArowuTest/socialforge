@@ -173,3 +173,10 @@ func (s *Service) buildPublicURL(key string) string {
 	// Fallback: construct from bucket endpoint
 	return fmt.Sprintf("https://%s.s3.amazonaws.com/%s", s.bucket, key)
 }
+
+// PublicURLForKey returns the current public-facing URL for a storage key.
+// Use this to rewrite any stale URLs stored in the database so they always
+// reflect the current STORAGE_PUBLIC_URL configuration.
+func (s *Service) PublicURLForKey(key string) string {
+	return s.buildPublicURL(key)
+}
