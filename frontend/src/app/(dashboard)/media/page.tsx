@@ -418,14 +418,22 @@ export default function MediaPage() {
                           alt={item.name}
                           className="w-full object-cover aspect-video"
                           loading="lazy"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            img.style.display = "none";
+                            const fallback = img.nextElementSibling as HTMLElement;
+                            if (fallback) fallback.style.display = "flex";
+                          }}
                         />
-                      ) : (
-                        <div className={cn("bg-gradient-to-br w-full aspect-video", item.color)}>
-                          <div className="w-full h-full flex items-center justify-center">
-                            <MediaTypeIcon type={item.type} />
-                          </div>
+                      ) : null}
+                      <div
+                        className={cn("bg-gradient-to-br w-full aspect-video", item.color, item.type !== "image" ? "flex" : "hidden")}
+                        style={{ display: item.type === "image" ? "none" : undefined }}
+                      >
+                        <div className="w-full h-full flex items-center justify-center">
+                          <MediaTypeIcon type={item.type} />
                         </div>
-                      )}
+                      </div>
 
                       {/* Hover overlay */}
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col p-2">
@@ -544,17 +552,27 @@ export default function MediaPage() {
             </div>
 
             {/* Preview */}
-            {sidebarItem.type === "image" ? (
-              <img
-                src={sidebarItem.url}
-                alt={sidebarItem.name}
-                className="w-full rounded-xl object-cover aspect-video"
-              />
-            ) : (
-              <div className={cn("w-full rounded-xl bg-gradient-to-br flex items-center justify-center aspect-video", sidebarItem.color)}>
+            <div className="relative w-full aspect-video rounded-xl overflow-hidden">
+              {sidebarItem.type === "image" && (
+                <img
+                  src={sidebarItem.url}
+                  alt={sidebarItem.name}
+                  className="w-full h-full object-cover absolute inset-0"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    img.style.display = "none";
+                    const fallback = img.nextElementSibling as HTMLElement;
+                    if (fallback) fallback.style.display = "flex";
+                  }}
+                />
+              )}
+              <div
+                className={cn("w-full h-full bg-gradient-to-br flex items-center justify-center", sidebarItem.color)}
+                style={{ display: sidebarItem.type !== "image" ? "flex" : "none" }}
+              >
                 <MediaTypeIcon type={sidebarItem.type} />
               </div>
-            )}
+            </div>
 
             {/* Details */}
             <div className="space-y-2">

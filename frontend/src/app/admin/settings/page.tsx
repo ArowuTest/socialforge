@@ -145,6 +145,16 @@ export default function SettingsPage() {
   const [maxAccountsStarter, setMaxAccountsStarter] = React.useState("5");
   const [maxAccountsPro, setMaxAccountsPro] = React.useState("15");
   const [maxAccountsAgency, setMaxAccountsAgency] = React.useState("50");
+  // Plan AI credits per month
+  const [creditsFree, setCreditsFree] = React.useState("10");
+  const [creditsStarter, setCreditsStarter] = React.useState("1250");
+  const [creditsPro, setCreditsPro] = React.useState("5000");
+  const [creditsAgency, setCreditsAgency] = React.useState("28000");
+  // Plan scheduled posts per month
+  const [postsFree, setPostsFree] = React.useState("10");
+  const [postsStarter, setPostsStarter] = React.useState("500");
+  const [postsPro, setPostsPro] = React.useState("1000");
+  const [postsAgency, setPostsAgency] = React.useState("10000");
 
   // AI Costs state
   const [aiCosts, setAiCosts] = React.useState<AIJobCostRow[]>(DEFAULT_AI_COSTS);
@@ -166,6 +176,14 @@ export default function SettingsPage() {
         adminApi.updatePlatformSetting("max_accounts_starter", maxAccountsStarter),
         adminApi.updatePlatformSetting("max_accounts_pro", maxAccountsPro),
         adminApi.updatePlatformSetting("max_accounts_agency", maxAccountsAgency),
+        adminApi.updatePlatformSetting("plan_credits_free", creditsFree),
+        adminApi.updatePlatformSetting("plan_credits_starter", creditsStarter),
+        adminApi.updatePlatformSetting("plan_credits_pro", creditsPro),
+        adminApi.updatePlatformSetting("plan_credits_agency", creditsAgency),
+        adminApi.updatePlatformSetting("plan_posts_free", postsFree),
+        adminApi.updatePlatformSetting("plan_posts_starter", postsStarter),
+        adminApi.updatePlatformSetting("plan_posts_pro", postsPro),
+        adminApi.updatePlatformSetting("plan_posts_agency", postsAgency),
       ]);
       toast.success("General settings saved");
     } catch {
@@ -260,6 +278,30 @@ export default function SettingsPage() {
   const [newKeyValue, setNewKeyValue] = React.useState("");
   const [keySaving, setKeySaving] = React.useState(false);
 
+  // Autopilot / campaign limits state
+  const [campaignLimitsFree, setCampaignLimitsFree] = React.useState("0");
+  const [campaignLimitsStarter, setCampaignLimitsStarter] = React.useState("1");
+  const [campaignLimitsPro, setCampaignLimitsPro] = React.useState("3");
+  const [campaignLimitsAgency, setCampaignLimitsAgency] = React.useState("10");
+  const [autopilotSaving, setAutopilotSaving] = React.useState(false);
+
+  const handleSaveAutopilot = async () => {
+    setAutopilotSaving(true);
+    try {
+      await Promise.all([
+        adminApi.updatePlatformSetting("campaign_limit_free", campaignLimitsFree),
+        adminApi.updatePlatformSetting("campaign_limit_starter", campaignLimitsStarter),
+        adminApi.updatePlatformSetting("campaign_limit_pro", campaignLimitsPro),
+        adminApi.updatePlatformSetting("campaign_limit_agency", campaignLimitsAgency),
+      ]);
+      toast.success("Autopilot limits saved to platform settings");
+    } catch {
+      toast.error("Failed to save autopilot limits");
+    } finally {
+      setAutopilotSaving(false);
+    }
+  };
+
   // Maintenance state
   const [maintenanceMode, setMaintenanceMode] = React.useState(false);
   const [confirmClearCache, setConfirmClearCache] = React.useState(false);
@@ -343,6 +385,14 @@ export default function SettingsPage() {
         if (s.max_accounts_starter) setMaxAccountsStarter(s.max_accounts_starter);
         if (s.max_accounts_pro) setMaxAccountsPro(s.max_accounts_pro);
         if (s.max_accounts_agency) setMaxAccountsAgency(s.max_accounts_agency);
+        if (s.plan_credits_free) setCreditsFree(s.plan_credits_free);
+        if (s.plan_credits_starter) setCreditsStarter(s.plan_credits_starter);
+        if (s.plan_credits_pro) setCreditsPro(s.plan_credits_pro);
+        if (s.plan_credits_agency) setCreditsAgency(s.plan_credits_agency);
+        if (s.plan_posts_free) setPostsFree(s.plan_posts_free);
+        if (s.plan_posts_starter) setPostsStarter(s.plan_posts_starter);
+        if (s.plan_posts_pro) setPostsPro(s.plan_posts_pro);
+        if (s.plan_posts_agency) setPostsAgency(s.plan_posts_agency);
         if (s.session_timeout) setSessionTimeout(s.session_timeout);
         if (s.max_login_attempts) setMaxLoginAttempts(s.max_login_attempts);
         if (s.enforce_2fa) setEnforce2FA(s.enforce_2fa === "true");
@@ -351,6 +401,10 @@ export default function SettingsPage() {
         if (s.premium_image_model === "gpt-image-2" || s.premium_image_model === "dall-e-3") {
           setPremiumImageModel(s.premium_image_model);
         }
+        if (s.campaign_limit_free) setCampaignLimitsFree(s.campaign_limit_free);
+        if (s.campaign_limit_starter) setCampaignLimitsStarter(s.campaign_limit_starter);
+        if (s.campaign_limit_pro) setCampaignLimitsPro(s.campaign_limit_pro);
+        if (s.campaign_limit_agency) setCampaignLimitsAgency(s.campaign_limit_agency);
       }
     }).catch((err) => {
       // If we get redirected to login, the error is swallowed by the redirect.
@@ -469,6 +523,52 @@ export default function SettingsPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>AI Credits per Month (per Plan)</label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Free", value: creditsFree, set: setCreditsFree },
+                { label: "Starter", value: creditsStarter, set: setCreditsStarter },
+                { label: "Pro", value: creditsPro, set: setCreditsPro },
+                { label: "Agency", value: creditsAgency, set: setCreditsAgency },
+              ].map((p) => (
+                <div key={p.label}>
+                  <label className="text-xs text-slate-500 block mb-1">{p.label}</label>
+                  <input
+                    type="number"
+                    value={p.value}
+                    onChange={(e) => p.set(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-600 mt-1.5">Stored in platform_settings. Backend reads on next monthly reset cycle.</p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Scheduled Posts per Month (per Plan)</label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Free", value: postsFree, set: setPostsFree },
+                { label: "Starter", value: postsStarter, set: setPostsStarter },
+                { label: "Pro", value: postsPro, set: setPostsPro },
+                { label: "Agency", value: postsAgency, set: setPostsAgency },
+              ].map((p) => (
+                <div key={p.label}>
+                  <label className="text-xs text-slate-500 block mb-1">{p.label}</label>
+                  <input
+                    type="number"
+                    value={p.value}
+                    onChange={(e) => p.set(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-600 mt-1.5">Use -1 for unlimited. Backend reads on next enforcement check.</p>
           </div>
 
           <SaveButton onClick={handleSaveGeneral} />
@@ -1131,73 +1231,56 @@ export default function SettingsPage() {
       {/* AI Autopilot Limits tab */}
       {activeTab === "autopilot" && (
         <div className="space-y-6 max-w-4xl">
-          <div>
-            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-              <Bot className="h-4 w-4 text-violet-400" /> AI Autopilot Limits
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Campaign limits enforced per plan tier. These are informational — adjust in code to change enforcement.
-            </p>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Bot className="h-4 w-4 text-violet-400" /> AI Autopilot Limits
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Campaign and autopilot limits per plan tier. Values are saved to platform_settings and read by the backend on the next enforcement cycle.
+              </p>
+            </div>
+            <button
+              onClick={handleSaveAutopilot}
+              disabled={autopilotSaving}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-60 flex-shrink-0"
+            >
+              {autopilotSaving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {autopilotSaving ? "Saving…" : "Save"}
+            </button>
           </div>
 
-          {/* Campaign limits by plan */}
+          {/* Campaign limits by plan — editable */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-slate-800">
-              <h4 className="text-sm font-semibold text-white">Campaign Limits by Plan</h4>
+              <h4 className="text-sm font-semibold text-white">Max Active Campaigns per Plan</h4>
+              <p className="text-xs text-slate-500 mt-0.5">How many simultaneous campaigns each plan can run. Use 0 to disable.</p>
             </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-800/40 text-xs text-slate-400">
-                  <th className="text-left px-4 py-3 font-medium">Plan</th>
-                  <th className="text-left px-4 py-3 font-medium">Max Active Campaigns</th>
-                  <th className="text-left px-4 py-3 font-medium">Max Duration (weeks)</th>
-                  <th className="text-left px-4 py-3 font-medium">Video in Campaigns</th>
-                  <th className="text-left px-4 py-3 font-medium">Auto-approve</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  { plan: "Free",    maxActive: 0,  maxWeeks: "—", video: false, autoApprove: false },
-                  { plan: "Starter", maxActive: 1,  maxWeeks: 4,   video: false, autoApprove: false },
-                  { plan: "Pro",     maxActive: 3,  maxWeeks: 12,  video: true,  autoApprove: true  },
-                  { plan: "Agency",  maxActive: 10, maxWeeks: 52,  video: true,  autoApprove: true  },
-                ].map((row) => (
-                  <tr key={row.plan} className="border-t border-slate-800/60 hover:bg-slate-800/20 transition-colors">
-                    <td className="px-4 py-3">
-                      <span className={cn(
-                        "px-2 py-0.5 rounded-full text-xs font-medium border",
-                        row.plan === "Agency" ? "bg-violet-900/40 text-violet-300 border-violet-800" :
-                        row.plan === "Pro"    ? "bg-blue-900/40 text-blue-300 border-blue-800" :
-                        row.plan === "Starter"? "bg-emerald-900/40 text-emerald-300 border-emerald-800" :
-                        "bg-slate-800 text-slate-400 border-slate-700"
-                      )}>
-                        {row.plan}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-300 font-mono">{row.maxActive}</td>
-                    <td className="px-4 py-3 text-sm text-slate-300 font-mono">{row.maxWeeks}</td>
-                    <td className="px-4 py-3">
-                      {row.video ? (
-                        <span className="flex items-center gap-1 text-xs text-emerald-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Enabled
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-600">Disabled</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {row.autoApprove ? (
-                        <span className="flex items-center gap-1 text-xs text-emerald-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Available
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-600">Not available</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Free", value: campaignLimitsFree, set: setCampaignLimitsFree,
+                  cls: "bg-slate-800 text-slate-400 border-slate-700" },
+                { label: "Starter", value: campaignLimitsStarter, set: setCampaignLimitsStarter,
+                  cls: "bg-emerald-900/40 text-emerald-300 border-emerald-800" },
+                { label: "Pro", value: campaignLimitsPro, set: setCampaignLimitsPro,
+                  cls: "bg-blue-900/40 text-blue-300 border-blue-800" },
+                { label: "Agency", value: campaignLimitsAgency, set: setCampaignLimitsAgency,
+                  cls: "bg-violet-900/40 text-violet-300 border-violet-800" },
+              ].map((p) => (
+                <div key={p.label}>
+                  <span className={cn("inline-block px-2 py-0.5 rounded-full text-xs font-medium border mb-2", p.cls)}>
+                    {p.label}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={p.value}
+                    onChange={(e) => p.set(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Credit costs for campaign generation */}
@@ -1236,12 +1319,10 @@ export default function SettingsPage() {
           {/* Enforcement note */}
           <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-4">
             <p className="text-xs text-slate-500">
-              <span className="text-slate-300 font-medium">Enforcement note:</span> Plan limits are checked at campaign creation time in the backend.
-              To change them, update the constants in{" "}
-              <code className="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">
-                backend/internal/api/handlers/campaigns.go
-              </code>
-              {" "}and redeploy.
+              <span className="text-slate-300 font-medium">How enforcement works:</span> Plan limits are stored in{" "}
+              <code className="font-mono bg-slate-800 px-1.5 py-0.5 rounded text-slate-400">platform_settings</code>{" "}
+              and read by the backend at campaign creation and credit check time.
+              Changes take effect within 60 seconds — no redeploy required.
             </p>
           </div>
         </div>

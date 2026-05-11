@@ -487,6 +487,7 @@ export default function ComposePage() {
   const [showAIDialog, setShowAIDialog] = React.useState(false);
   const [showImageDialog, setShowImageDialog] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   // Multi-time scheduling: extra time slots beyond the first
@@ -626,6 +627,7 @@ export default function ComposePage() {
   };
 
   const handlePublishNow = async () => {
+    setHasAttemptedSubmit(true);
     if (selectedPlatforms.length === 0) {
       toast.error("Please select at least one platform");
       return;
@@ -653,6 +655,7 @@ export default function ComposePage() {
   };
 
   const handleSchedule = async () => {
+    setHasAttemptedSubmit(true);
     if (selectedPlatforms.length === 0) {
       toast.error("Please select at least one platform");
       return;
@@ -712,6 +715,7 @@ export default function ComposePage() {
   };
 
   const handleSaveDraft = async () => {
+    setHasAttemptedSubmit(true);
     if (!caption.trim() && selectedPlatforms.length === 0) {
       toast.error("Please add some content first");
       return;
@@ -789,7 +793,7 @@ export default function ComposePage() {
                   );
                 })}
               </div>
-              {selectedPlatforms.length === 0 && (
+              {hasAttemptedSubmit && selectedPlatforms.length === 0 && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1">
                   <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
                   Select at least one platform to publish. Make sure you have{" "}

@@ -57,6 +57,7 @@ const navSections = [
       { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
       { href: "/analytics", icon: BarChart3, label: "Analytics" },
       { href: "/calendar", icon: CalendarDays, label: "Calendar" },
+      { href: "/accounts", icon: Share2, label: "Accounts" },
     ],
   },
   {
