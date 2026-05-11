@@ -78,7 +78,7 @@ const platformDotColors: Record<string, string> = {
   [Platform.BLUESKY]: "bg-sky-400",
 };
 
-type ViewMode = "month" | "week" | "list";
+type ViewMode = "month" | "list";
 
 function PostPill({ post }: { post: Post }) {
   const firstPlatform = post.platforms[0] as Platform | undefined;
@@ -86,7 +86,7 @@ function PostPill({ post }: { post: Post }) {
   return (
     <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 truncate cursor-pointer hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors">
       <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", dotColor)} />
-      <span className="truncate">{truncateText(post.caption, 28)}</span>
+      <span className="truncate">{truncateText(post.content || post.caption, 28)}</span>
     </div>
   );
 }
@@ -133,7 +133,7 @@ function DayPanel({ date, posts, onClose }: { date: Date; posts: Post[]; onClose
                 ))}
               </div>
               <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
-                {post.caption}
+                {post.content || post.caption}
               </p>
               {post.scheduledAt && (
                 <p className="text-xs text-muted-foreground mt-1">
@@ -273,7 +273,7 @@ export default function CalendarPage() {
 
           {/* View mode */}
           <div className="flex items-center gap-1 ml-auto bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-            {(["month", "week", "list"] as ViewMode[]).map((mode) => (
+            {(["month", "list"] as ViewMode[]).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
@@ -385,62 +385,67 @@ export default function CalendarPage() {
               })}
             </div>
           </div>
-        ) : viewMode === "week" ? (
-          <div className="flex-1 overflow-auto">
-            <div className="text-sm text-muted-foreground text-center py-8">
-              Week view coming soon
-            </div>
-          </div>
         ) : (
           // List view
-          <div className="flex-1 overflow-auto space-y-2">
-            {calendarEntries.length === 0 ? (
-              <div className="text-center py-16">
-                <CalendarDays className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-                <p className="text-gray-500 dark:text-gray-400 font-medium">No posts scheduled</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Start by scheduling your first post
-                </p>
-              </div>
-            ) : (
-              calendarEntries.flatMap((entry: { date: string; posts: Post[] }) =>
-                entry.posts.map((post: Post) => (
-                  <div
-                    key={post.id}
-                    className="flex items-start gap-3 p-4 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800 hover:border-violet-200 dark:hover:border-violet-800 transition-colors"
-                  >
-                    <div className="text-xs text-muted-foreground w-16 flex-shrink-0 pt-0.5">
-                      {format(new Date(entry.date), "MMM d")}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                        {post.platforms.map((platform) => (
-                          <span
-                            key={platform}
-                            className={cn(
-                              "text-xs px-1.5 py-0.5 rounded-full font-medium",
-                              platformColors[platform] ?? "bg-gray-100 text-gray-600"
-                            )}
-                          >
-                            {getPlatformDisplayName(platform as Platform)}
-                          </span>
-                        ))}
-                        <StatusBadge status={post.status} />
-                      </div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
-                        {post.caption}
-                      </p>
-                    </div>
-                    {post.scheduledAt && (
-                      <div className="text-xs text-muted-foreground flex-shrink-0">
-                        {format(new Date(post.scheduledAt), "h:mm a")}
-                      </div>
-                    )}
+          (() => {
+            const listItems = calendarEntries.flatMap((entry: { date: string; posts: Post[] }) => {
+              const filtered = selectedPlatforms.includes("all")
+                ? entry.posts
+                : entry.posts.filter((p: Post) =>
+                    p.platforms.some((platform) => selectedPlatforms.includes(platform))
+                  );
+              return filtered.map((post: Post) => ({ entry, post }));
+            });
+
+            return (
+              <div className="flex-1 overflow-auto space-y-2">
+                {listItems.length === 0 ? (
+                  <div className="text-center py-16">
+                    <CalendarDays className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
+                    <p className="text-gray-500 dark:text-gray-400 font-medium">No scheduled posts in this period</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Start by scheduling your first post
+                    </p>
                   </div>
-                ))
-              )
-            )}
-          </div>
+                ) : (
+                  listItems.map(({ entry, post }: { entry: { date: string; posts: Post[] }; post: Post }) => (
+                    <div
+                      key={post.id}
+                      className="flex items-start gap-3 p-4 bg-white dark:bg-gray-900 rounded-lg border border-gray-100 dark:border-gray-800 hover:border-violet-200 dark:hover:border-violet-800 transition-colors"
+                    >
+                      <div className="text-xs text-muted-foreground w-16 flex-shrink-0 pt-0.5">
+                        {format(new Date(entry.date), "MMM d")}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          {post.platforms.map((platform) => (
+                            <span
+                              key={platform}
+                              className={cn(
+                                "text-xs px-1.5 py-0.5 rounded-full font-medium",
+                                platformColors[platform] ?? "bg-gray-100 text-gray-600"
+                              )}
+                            >
+                              {getPlatformDisplayName(platform as Platform)}
+                            </span>
+                          ))}
+                          <StatusBadge status={post.status} />
+                        </div>
+                        <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+                          {post.content || post.caption}
+                        </p>
+                      </div>
+                      {post.scheduledAt && (
+                        <div className="text-xs text-muted-foreground flex-shrink-0">
+                          {format(new Date(post.scheduledAt), "h:mm a")}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            );
+          })()
         )}
       </div>
 

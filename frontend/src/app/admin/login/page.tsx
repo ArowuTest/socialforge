@@ -16,15 +16,15 @@ export default function AdminLoginPage() {
 
   // If already authenticated as admin, go straight to dashboard
   React.useEffect(() => {
-    if (isAuthenticated) router.replace("/admin");
-  }, [isAuthenticated, router]);
+    if (isAuthenticated) window.location.href = "/admin";
+  }, [isAuthenticated]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     try {
       await login(email.trim().toLowerCase(), password);
-      router.replace("/admin");
+      window.location.href = "/admin";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed. Please try again.");
     }

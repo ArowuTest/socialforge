@@ -364,7 +364,7 @@ export default function DashboardPage() {
       setRecentPosts(
         allPosts.slice(0, 3).map((p) => ({
           id: p.id,
-          title: (p.caption || "Untitled post").slice(0, 80),
+          title: (p.content || p.caption || "Untitled post").slice(0, 80),
           status: p.status || "draft",
           scheduledAt: p.scheduledAt
             ? new Date(p.scheduledAt).toLocaleString(undefined, {

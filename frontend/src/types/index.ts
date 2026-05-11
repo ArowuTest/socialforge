@@ -146,6 +146,7 @@ export interface PostPlatform {
 export interface Post {
   id: string;
   workspaceId: string;
+  content?: string;
   caption: string;
   media: PostMedia[];
   platforms: string[];
