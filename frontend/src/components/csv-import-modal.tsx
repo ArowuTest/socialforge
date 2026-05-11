@@ -236,6 +236,9 @@ export function CSVImportModal({ open, onOpenChange, onSuccess }: CSVImportModal
           ...(row.scheduled_at && { scheduledAt: row.scheduled_at }),
           ...(row.hashtags.length > 0 && { tags: row.hashtags }),
           ...(row.media_urls.length > 0 && { mediaUrls: row.media_urls }),
+          ...(row.title && { title: row.title }),
+          ...(row.first_comment && { firstComment: row.first_comment }),
+          ...(row.link_url && { linkUrl: row.link_url }),
         }));
 
         await postsApi.bulkCreate(batch);

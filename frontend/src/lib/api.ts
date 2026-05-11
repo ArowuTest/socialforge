@@ -388,6 +388,9 @@ interface PostCreatePayload {
   useNextSlot?: boolean;
   postType: PostType;
   tags?: string[];
+  title?: string;
+  firstComment?: string;
+  linkUrl?: string;
 }
 
 export const postsApi = {
@@ -431,7 +434,21 @@ export const postsApi = {
   bulkCreate: (posts: PostCreatePayload[]) =>
     request<ApiResponse<Post[]>>(`${ws()}/posts/bulk`, {
       method: "POST",
-      body: JSON.stringify({ posts }),
+      // Remap camelCase frontend fields to snake_case backend fields (same as create)
+      body: JSON.stringify({
+        posts: posts.map((p) => ({
+          content: p.caption,
+          platforms: p.platforms,
+          post_type: p.postType,
+          ...(p.scheduledAt && { scheduled_at: p.scheduledAt }),
+          ...(p.useNextSlot && { use_next_free_slot: true }),
+          ...(p.mediaUrls?.length && { media_urls: p.mediaUrls }),
+          ...(p.tags?.length && { hashtags: p.tags }),
+          ...(p.title && { title: p.title }),
+          ...(p.firstComment && { first_comment: p.firstComment }),
+          ...(p.linkUrl && { link_url: p.linkUrl }),
+        })),
+      }),
     }),
 
   submitForReview: (id: string) =>
