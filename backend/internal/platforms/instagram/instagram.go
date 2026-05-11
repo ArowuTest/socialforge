@@ -680,3 +680,99 @@ type graphAPIError struct {
 	Code    int    `json:"code"`
 	Subcode int    `json:"error_subcode"`
 }
+
+// ─── FetchMetrics ─────────────────────────────────────────────────────────────
+
+// igMediaFields is the response from the Graph API media node.
+type igMediaFields struct {
+	LikeCount     int    `json:"like_count"`
+	CommentsCount int    `json:"comments_count"`
+	ID            string `json:"id"`
+}
+
+// igInsightsValue is a single insight metric value.
+type igInsightsValue struct {
+	Value int `json:"value"`
+}
+
+// igInsightsData is one entry in the insights response.
+type igInsightsData struct {
+	Name   string          `json:"name"`
+	Values []igInsightsValue `json:"values"`
+	// Some metrics return a flat `value` instead of a `values` array.
+	Value int `json:"value"`
+}
+
+// igInsightsResponse is the Graph API /insights response envelope.
+type igInsightsResponse struct {
+	Data []igInsightsData `json:"data"`
+}
+
+// FetchMetrics fetches engagement metrics for a published Instagram media item.
+// It calls two Graph API endpoints:
+//  1. /media/{id}?fields=like_count,comments_count — always available
+//  2. /media/{id}/insights?metric=impressions,reach,saved — business accounts only
+//
+// If insights are unavailable (e.g. personal account) the basic fields are
+// still returned. All errors from the insights call are silently swallowed.
+func (c *Client) FetchMetrics(ctx context.Context, account *models.SocialAccount, platformPostID string) (*models.PlatformMetrics, error) {
+	token, err := crypto.Decrypt(account.AccessToken, c.secret)
+	if err != nil {
+		return nil, fmt.Errorf("instagram FetchMetrics: decrypt token: %w", err)
+	}
+
+	result := &models.PlatformMetrics{}
+
+	// 1. Basic fields — always available.
+	basicURL := fmt.Sprintf("%s/%s?fields=like_count,comments_count&access_token=%s",
+		graphBaseURL, url.PathEscape(platformPostID), url.QueryEscape(token))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, basicURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("instagram FetchMetrics: build basic request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("instagram FetchMetrics: basic request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+
+	var basic igMediaFields
+	if err := json.Unmarshal(respBody, &basic); err == nil {
+		result.Likes = basic.LikeCount
+		result.Comments = basic.CommentsCount
+	}
+
+	// 2. Insights — only for Business/Creator accounts; ignore errors gracefully.
+	insightsURL := fmt.Sprintf("%s/%s/insights?metric=impressions,reach,saved&access_token=%s",
+		graphBaseURL, url.PathEscape(platformPostID), url.QueryEscape(token))
+	ireq, err := http.NewRequestWithContext(ctx, http.MethodGet, insightsURL, nil)
+	if err == nil {
+		iresp, err := c.http.Do(ireq)
+		if err == nil {
+			defer iresp.Body.Close()
+			ibody, _ := io.ReadAll(iresp.Body)
+			var insights igInsightsResponse
+			if json.Unmarshal(ibody, &insights) == nil {
+				for _, d := range insights.Data {
+					var v int
+					if len(d.Values) > 0 {
+						v = d.Values[0].Value
+					} else {
+						v = d.Value
+					}
+					switch d.Name {
+					case "impressions":
+						result.Impressions = v
+					case "reach":
+						result.Reach = v
+					case "saved":
+						result.Saved = v
+					}
+				}
+			}
+		}
+	}
+
+	return result, nil
+}

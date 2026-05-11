@@ -490,3 +490,8 @@ func (m *MockAnalyticsRepository) GetPostsThisMonth(ctx context.Context, workspa
 	args := m.Called(ctx, workspaceID)
 	return args.Get(0).(int64), args.Error(1)
 }
+
+func (m *MockAnalyticsRepository) GetWorkspaceMetricTotals(ctx context.Context, workspaceID uuid.UUID, from, to time.Time) (int64, int64, error) {
+	args := m.Called(ctx, workspaceID, from, to)
+	return args.Get(0).(int64), args.Get(1).(int64), args.Error(2)
+}

@@ -613,16 +613,26 @@ export const aiApi = {
 // ============================================================
 
 export const analyticsApi = {
-  getOverview: (params: { startDate: string; endDate: string }) =>
+  getOverview: (params: { period: string }) =>
     request<
       ApiResponse<{
-        totalPosts: number;
-        totalReach: number;
-        totalEngagement: number;
-        bestPlatform: string;
-        postsPerDay: Array<{ date: string; count: number }>;
-        engagementByPlatform: Array<{ platform: string; engagement: number }>;
-        platformBreakdown: Array<{ platform: string; posts: number; reach: number }>;
+        total_posts: number;
+        total_reach: number;
+        total_engagement: number;
+        best_platform: string;
+        posts_by_day: Array<{ date: string; count: number }>;
+        engagement_by_platform: Array<{
+          platform: string;
+          posts: number;
+          likes: number;
+          comments: number;
+          shares: number;
+          impressions: number;
+          reach: number;
+          engagement: number;
+          engagement_rate: number;
+        }>;
+        content_type_breakdown: Array<{ post_type: string; count: number }>;
       }>
     >(`${ws()}/analytics${qs(params)}`),
 

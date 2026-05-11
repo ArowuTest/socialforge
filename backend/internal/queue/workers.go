@@ -73,6 +73,9 @@ type WorkerDeps struct {
 	OAuthRefresher        OAuthRefresher
 	NotificationSender    NotificationSender
 	CampaignOrchestrator  CampaignOrchestrator
+	// MetricsFetchers maps platform name → MetricsFetcher implementation.
+	// Only platforms present in this map will have metrics synced.
+	MetricsFetchers map[string]MetricsFetcher
 	// AsynqClient is used by handlers that need to enqueue follow-up tasks
 	// (e.g. automation actions, delayed republishing). Optional: handlers guard
 	// nil before use so the server still starts without it.
@@ -141,6 +144,25 @@ func (h *PublishPostHandler) ProcessTask(ctx context.Context, t *asynq.Task) err
 		Table("campaign_posts").
 		Where("post_id = ?", post.ID).
 		Updates(map[string]interface{}{"status": "published", "updated_at": now})
+
+	// Enqueue a delayed metrics-sync task (~25 hours) so platform APIs have
+	// fresh engagement data. Non-fatal: best-effort, errors are only logged.
+	if h.deps.AsynqClient != nil && len(h.deps.MetricsFetchers) > 0 {
+		metricsTask, taskErr := NewSyncPostMetricsTask(SyncPostMetricsPayload{
+			PostID:      post.ID,
+			WorkspaceID: post.WorkspaceID,
+		}, asynq.ProcessIn(25*time.Hour))
+		if taskErr == nil {
+			if _, enqErr := h.deps.AsynqClient.EnqueueContext(ctx, metricsTask); enqErr != nil {
+				log.Warn("publishPostHandler: failed to enqueue metrics sync task",
+					zap.String("post_id", post.ID.String()),
+					zap.Error(enqErr),
+				)
+			} else {
+				log.Info("metrics sync task enqueued (fires in 25h)", zap.String("post_id", post.ID.String()))
+			}
+		}
+	}
 
 	// Fire post_published automations for this workspace.
 	h.dispatchAutomations(ctx, post.WorkspaceID, models.TriggerPostPublished, map[string]interface{}{
@@ -909,6 +931,9 @@ func NewServer(redisClient *redis.Client, deps WorkerDeps, cfg ServerConfig) (*a
 	mux.HandleFunc(TypeRefreshTokens, refreshHandler.ProcessTask)
 	mux.HandleFunc(TypeSendNotification, notifHandler.ProcessTask)
 	mux.HandleFunc(TypeRunAutomation, automationHandler.ProcessTask)
+
+	metricsSyncHandler := NewMetricsSyncHandler(deps, deps.MetricsFetchers)
+	mux.HandleFunc(TypeSyncPostMetrics, metricsSyncHandler.ProcessTask)
 
 	mux.HandleFunc(TypeGenerateCampaign, func(ctx context.Context, t *asynq.Task) error {
 		if deps.CampaignOrchestrator == nil {

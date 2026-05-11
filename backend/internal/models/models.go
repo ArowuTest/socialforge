@@ -428,6 +428,20 @@ type Post struct {
 
 func (Post) TableName() string { return "posts" }
 
+// ─── PlatformMetrics ──────────────────────────────────────────────────────────
+
+// PlatformMetrics holds engagement numbers fetched from a social platform API.
+// It is used by the metrics-sync background job and the MetricsFetcher interface.
+type PlatformMetrics struct {
+	Likes       int `json:"likes"`
+	Comments    int `json:"comments"`
+	Shares      int `json:"shares"`
+	Impressions int `json:"impressions"`
+	Reach       int `json:"reach"`
+	Saved       int `json:"saved"`
+	VideoViews  int `json:"video_views"`
+}
+
 // ─── PostPlatform ─────────────────────────────────────────────────────────────
 
 // PostPlatform tracks the per-platform publishing status and result of a Post.
@@ -444,6 +458,17 @@ type PostPlatform struct {
 	PublishedAt     *time.Time   `                                                      json:"published_at,omitempty"`
 	CreatedAt       time.Time    `gorm:"autoCreateTime"                                 json:"created_at"`
 	UpdatedAt       time.Time    `gorm:"autoUpdateTime"                                 json:"updated_at"`
+
+	// Per-platform engagement metrics populated by the metrics-sync background job
+	// ~25 hours after publishing. Zero values indicate metrics not yet fetched.
+	Likes             int        `gorm:"default:0"                                      json:"likes"`
+	Comments          int        `gorm:"default:0"                                      json:"comments"`
+	Shares            int        `gorm:"default:0"                                      json:"shares"`
+	Impressions       int        `gorm:"default:0"                                      json:"impressions"`
+	Reach             int        `gorm:"default:0"                                      json:"reach"`
+	Saved             int        `gorm:"default:0"                                      json:"saved"`
+	VideoViews        int        `gorm:"default:0"                                      json:"video_views"`
+	MetricsFetchedAt  *time.Time `                                                      json:"metrics_fetched_at,omitempty"`
 
 	// Associations
 	Post          Post          `gorm:"foreignKey:PostID"          json:"-"`

@@ -32,12 +32,14 @@ func NewService(repo repository.AnalyticsRepository, log *zap.Logger) *Service {
 // DashboardStats is the composite analytics payload returned to the frontend.
 type DashboardStats struct {
 	TotalPosts           int64                           `json:"total_posts"`
+	TotalReach           int64                           `json:"total_reach"`
+	TotalEngagement      int64                           `json:"total_engagement"`
 	PostsByDay           []repository.DayCount           `json:"posts_by_day"`
 	EngagementByPlatform []repository.PlatformEngagement `json:"engagement_by_platform"`
 	ContentTypeBreakdown []repository.ContentTypeCount   `json:"content_type_breakdown"`
 	TopPosts             []*models.Post                  `json:"top_posts"`
 	PostsThisMonth       int64                           `json:"posts_this_month"`
-	BestPlatform         string                          `json:"best_platform"` // platform with most posts
+	BestPlatform         string                          `json:"best_platform"` // platform with most engagement
 }
 
 // ─── GetDashboardStats ────────────────────────────────────────────────────────
@@ -56,6 +58,8 @@ func (s *Service) GetDashboardStats(
 		contentTypeBreakdown []repository.ContentTypeCount
 		topPosts             []*models.Post
 		postsThisMonth       int64
+		totalReach           int64
+		totalEngagement      int64
 	)
 
 	eg, egCtx := errgroup.WithContext(ctx)
@@ -105,6 +109,15 @@ func (s *Service) GetDashboardStats(
 		return err
 	})
 
+	eg.Go(func() error {
+		var err error
+		totalReach, totalEngagement, err = s.repo.GetWorkspaceMetricTotals(egCtx, workspaceID, from, to)
+		if err != nil {
+			s.log.Error("analytics: GetWorkspaceMetricTotals", zap.Error(err))
+		}
+		return err
+	})
+
 	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
@@ -115,10 +128,12 @@ func (s *Service) GetDashboardStats(
 		totalPosts += dc.Count
 	}
 
-	bestPlatform := bestPlatformFromEngagement(engagementByPlatform)
+	bestPlatform := bestPlatformByEngagement(engagementByPlatform)
 
 	return &DashboardStats{
 		TotalPosts:           totalPosts,
+		TotalReach:           totalReach,
+		TotalEngagement:      totalEngagement,
 		PostsByDay:           postsByDay,
 		EngagementByPlatform: engagementByPlatform,
 		ContentTypeBreakdown: contentTypeBreakdown,
@@ -165,16 +180,21 @@ func (s *Service) GetDateRange(period string) (from, to time.Time) {
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-// bestPlatformFromEngagement returns the platform name with the highest post
-// count. Returns an empty string if the slice is empty.
-func bestPlatformFromEngagement(platforms []repository.PlatformEngagement) string {
+// bestPlatformByEngagement returns the platform name with the highest total
+// engagement (likes+comments+shares). Falls back to post count when all
+// platforms have zero engagement (metrics not yet fetched). Returns empty
+// string when the slice is empty.
+func bestPlatformByEngagement(platforms []repository.PlatformEngagement) string {
 	if len(platforms) == 0 {
 		return ""
 	}
 
+	// Prefer platform with most real engagement; fall back to post count.
 	best := platforms[0]
 	for _, p := range platforms[1:] {
-		if p.Posts > best.Posts {
+		if p.Engagement > best.Engagement {
+			best = p
+		} else if p.Engagement == best.Engagement && p.Posts > best.Posts {
 			best = p
 		}
 	}

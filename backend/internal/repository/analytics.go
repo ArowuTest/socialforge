@@ -21,7 +21,15 @@ type DayCount struct {
 type PlatformEngagement struct {
 	Platform      string  `json:"platform"`
 	Posts         int64   `json:"posts"`
-	AvgEngagement float64 `json:"avg_engagement"`
+	Likes         int64   `json:"likes"`
+	Comments      int64   `json:"comments"`
+	Shares        int64   `json:"shares"`
+	Impressions   int64   `json:"impressions"`
+	Reach         int64   `json:"reach"`
+	// Engagement is total interactions (likes+comments+shares) for the platform.
+	Engagement    int64   `json:"engagement"`
+	// EngagementRate is engagement / reach * 100, or 0 when reach is unknown.
+	EngagementRate float64 `json:"engagement_rate"`
 }
 
 // ContentTypeCount holds a content type and its count.
@@ -51,6 +59,10 @@ type AnalyticsRepository interface {
 	// GetPostsThisMonth returns the number of published posts created since the
 	// start of the current UTC calendar month.
 	GetPostsThisMonth(ctx context.Context, workspaceID uuid.UUID) (int64, error)
+
+	// GetWorkspaceMetricTotals returns aggregate reach and engagement totals
+	// (likes+comments+shares) across all published post_platforms in the period.
+	GetWorkspaceMetricTotals(ctx context.Context, workspaceID uuid.UUID, from, to time.Time) (reach, engagement int64, err error)
 }
 
 // ─── analyticsRepo ───────────────────────────────────────────────────────────
@@ -99,16 +111,18 @@ func (r *analyticsRepo) GetPostCountByDay(ctx context.Context, workspaceID uuid.
 
 // platformEngagementRow is the raw scan target for GetEngagementByPlatform.
 type platformEngagementRow struct {
-	Platform      string
-	Posts         int64
-	AvgEngagement float64
+	Platform    string
+	Posts       int64
+	Likes       int64
+	Comments    int64
+	Shares      int64
+	Impressions int64
+	Reach       int64
 }
 
-// GetEngagementByPlatform returns per-platform post counts from the
-// post_platforms table for posts in the given workspace and date range.
-// AvgEngagement is the ratio of published posts to total posts attempted on
-// each platform; real engagement signals (likes, comments) would be stored
-// separately once fetched from platform APIs.
+// GetEngagementByPlatform returns per-platform post counts and real engagement
+// metrics aggregated from the post_platforms metrics columns. Metrics are only
+// non-zero once the background metrics-sync job has run (~25h after publishing).
 func (r *analyticsRepo) GetEngagementByPlatform(ctx context.Context, workspaceID uuid.UUID, from, to time.Time) ([]PlatformEngagement, error) {
 	var rows []platformEngagementRow
 	result := r.db.WithContext(ctx).
@@ -116,7 +130,11 @@ func (r *analyticsRepo) GetEngagementByPlatform(ctx context.Context, workspaceID
 		Select(
 			"pp.platform, " +
 				"COUNT(*) AS posts, " +
-				"COALESCE(AVG(CASE WHEN pp.status = 'published' THEN 1.0 ELSE 0.0 END), 0) AS avg_engagement",
+				"COALESCE(SUM(pp.likes), 0) AS likes, " +
+				"COALESCE(SUM(pp.comments), 0) AS comments, " +
+				"COALESCE(SUM(pp.shares), 0) AS shares, " +
+				"COALESCE(SUM(pp.impressions), 0) AS impressions, " +
+				"COALESCE(SUM(pp.reach), 0) AS reach",
 		).
 		Joins("JOIN posts p ON p.id = pp.post_id").
 		Where(
@@ -132,10 +150,21 @@ func (r *analyticsRepo) GetEngagementByPlatform(ctx context.Context, workspaceID
 
 	out := make([]PlatformEngagement, len(rows))
 	for i, row := range rows {
+		engagement := row.Likes + row.Comments + row.Shares
+		var engRate float64
+		if row.Reach > 0 {
+			engRate = float64(engagement) / float64(row.Reach) * 100
+		}
 		out[i] = PlatformEngagement{
-			Platform:      row.Platform,
-			Posts:         row.Posts,
-			AvgEngagement: row.AvgEngagement,
+			Platform:       row.Platform,
+			Posts:          row.Posts,
+			Likes:          row.Likes,
+			Comments:       row.Comments,
+			Shares:         row.Shares,
+			Impressions:    row.Impressions,
+			Reach:          row.Reach,
+			Engagement:     engagement,
+			EngagementRate: engRate,
 		}
 	}
 	return out, nil
@@ -172,10 +201,10 @@ func (r *analyticsRepo) GetContentTypeBreakdown(ctx context.Context, workspaceID
 	return out, nil
 }
 
-// GetTopPosts returns the top posts for the given workspace ordered by
-// published_at descending (most recently published first) within the date
-// range, up to the provided limit. When real engagement signals (likes,
-// shares) are ingested from platform APIs they can replace this ordering.
+// GetTopPosts returns the top posts for the given workspace ordered by total
+// engagement (likes+comments+shares summed across platforms) descending, then
+// by impressions descending as a tiebreaker. Posts with no metrics yet are
+// ordered at the bottom by published_at DESC.
 func (r *analyticsRepo) GetTopPosts(ctx context.Context, workspaceID uuid.UUID, from, to time.Time, limit int) ([]*models.Post, error) {
 	if limit < 1 {
 		limit = 10
@@ -187,13 +216,46 @@ func (r *analyticsRepo) GetTopPosts(ctx context.Context, workspaceID uuid.UUID, 
 			workspaceID, models.PostStatusPublished, from, to,
 		).
 		Preload("PostPlatforms").
-		Order("published_at DESC").
+		// Subquery-based ordering: sum engagement from post_platforms for this post
+		Order(
+			"(SELECT COALESCE(SUM(pp.likes + pp.comments + pp.shares), 0) " +
+				"FROM post_platforms pp WHERE pp.post_id = posts.id) DESC, " +
+				"(SELECT COALESCE(SUM(pp.impressions), 0) " +
+				"FROM post_platforms pp WHERE pp.post_id = posts.id) DESC, " +
+				"published_at DESC",
+		).
 		Limit(limit).
 		Find(&posts)
 	if result.Error != nil {
 		return nil, result.Error
 	}
 	return posts, nil
+}
+
+// GetWorkspaceMetricTotals returns aggregate totals for reach and engagement
+// across all published posts in the workspace for the given date range.
+func (r *analyticsRepo) GetWorkspaceMetricTotals(ctx context.Context, workspaceID uuid.UUID, from, to time.Time) (reach, engagement int64, err error) {
+	type totalsRow struct {
+		TotalReach      int64
+		TotalEngagement int64
+	}
+	var row totalsRow
+	result := r.db.WithContext(ctx).
+		Table("post_platforms pp").
+		Select(
+			"COALESCE(SUM(pp.reach), 0) AS total_reach, " +
+				"COALESCE(SUM(pp.likes + pp.comments + pp.shares), 0) AS total_engagement",
+		).
+		Joins("JOIN posts p ON p.id = pp.post_id").
+		Where(
+			"p.workspace_id = ? AND pp.status = ? AND pp.published_at >= ? AND pp.published_at <= ? AND p.deleted_at IS NULL",
+			workspaceID, models.PostStatusPublished, from, to,
+		).
+		Scan(&row)
+	if result.Error != nil {
+		return 0, 0, result.Error
+	}
+	return row.TotalReach, row.TotalEngagement, nil
 }
 
 // GetPostsThisMonth returns the count of posts with status 'published' for the

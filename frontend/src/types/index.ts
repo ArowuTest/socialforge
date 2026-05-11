@@ -136,13 +136,15 @@ export interface PostPlatform {
   caption?: string;
   publishedAt?: string;
   error?: string;
-  metrics?: {
-    likes: number;
-    comments: number;
-    shares: number;
-    reach: number;
-    impressions: number;
-  };
+  // Engagement metrics synced ~25h after publish
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  reach?: number;
+  impressions?: number;
+  saved?: number;
+  video_views?: number;
+  metrics_fetched_at?: string;
 }
 
 export interface Post {

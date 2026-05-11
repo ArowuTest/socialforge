@@ -175,6 +175,11 @@ func main() {
 	// ── Campaign orchestrator ─────────────────────────────────────────────────
 	campaignOrchestrator := campaignsvc.New(db, asynqClient, cfg.OpenAI.APIKey, cfg.FalAI.APIKey, encryptionSecret, log)
 
+	// ── Metrics fetchers (platform clients that support engagement metrics) ───
+	metricsFetchers := map[string]queue.MetricsFetcher{
+		"instagram": igClient,
+	}
+
 	// ── Asynq server + worker deps ────────────────────────────────────────────
 	workerDeps := queue.WorkerDeps{
 		DB:                   db,
@@ -185,6 +190,7 @@ func main() {
 		OAuthRefresher:       publishService,
 		NotificationSender:   notificationsService,
 		CampaignOrchestrator: campaignOrchestrator,
+		MetricsFetchers:      metricsFetchers,
 		AsynqClient:          asynqClient,
 	}
 	queueSrv, mux := queue.NewServer(rdb, workerDeps, queue.DefaultServerConfig())

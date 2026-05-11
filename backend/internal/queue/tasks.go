@@ -228,6 +228,34 @@ func NewCheckScheduledAutomationsTask(opts ...asynq.Option) (*asynq.Task, error)
 	return asynq.NewTask(TypeCheckScheduledAutomations, nil, append(defaults, opts...)...), nil
 }
 
+// ─── Sync Post Metrics ───────────────────────────────────────────────────────
+
+// TypeSyncPostMetrics is the task type for fetching per-platform engagement
+// metrics ~25 hours after a post is published.
+const TypeSyncPostMetrics = "metrics:sync-post"
+
+// SyncPostMetricsPayload carries the IDs needed to fetch and store metrics.
+type SyncPostMetricsPayload struct {
+	PostID      uuid.UUID `json:"post_id"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+}
+
+// NewSyncPostMetricsTask creates an asynq task that fetches platform metrics
+// for all PostPlatforms belonging to the given post. It is typically enqueued
+// with a ~25-hour ProcessIn delay so the platform APIs have fresh data.
+func NewSyncPostMetricsTask(payload SyncPostMetricsPayload, opts ...asynq.Option) (*asynq.Task, error) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("queue: marshal SyncPostMetricsPayload: %w", err)
+	}
+	defaults := []asynq.Option{
+		asynq.MaxRetry(3),
+		asynq.Timeout(2 * time.Minute),
+		asynq.Queue("low"), // low priority — metrics are best-effort
+	}
+	return asynq.NewTask(TypeSyncPostMetrics, b, append(defaults, opts...)...), nil
+}
+
 // ─── Campaign Generation ──────────────────────────────────────────────────────
 
 const TypeGenerateCampaign     = "campaign:generate"
