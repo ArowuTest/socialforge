@@ -92,6 +92,12 @@ tmp/
 *.seed
 *.pid.lock
 
+# TypeScript build cache
+*.tsbuildinfo
+
+# Claude Code session files
+.claude/
+
 # ============================================================
 # Secrets / certificates
 # ============================================================
