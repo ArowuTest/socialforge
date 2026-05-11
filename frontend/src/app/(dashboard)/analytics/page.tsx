@@ -274,7 +274,7 @@ export default function AnalyticsPage() {
 
   const { data: overviewData, isLoading: overviewLoading } = useQuery({
     queryKey: ["analytics-overview", dateRange],
-    queryFn: () => analyticsApi.getOverview({ startDate, endDate }),
+    queryFn: () => analyticsApi.getOverview({ period: dateRange }),
   });
 
   const { data: topPostsData, isLoading: topPostsLoading } = useQuery({
@@ -282,15 +282,15 @@ export default function AnalyticsPage() {
     queryFn: () => analyticsApi.getTopPosts({ startDate, endDate, limit: 10 }),
   });
 
-  const postsPerDay = (overviewData?.data?.postsPerDay ?? []).map((d) => ({
+  const postsPerDay = (overviewData?.data?.posts_by_day ?? []).map((d) => ({
     date: format(new Date(d.date), "MMM d"),
     count: d.count,
   }));
 
-  const engagementByPlatform = overviewData?.data?.engagementByPlatform ?? [];
+  const engagementByPlatform = overviewData?.data?.engagement_by_platform ?? [];
 
-  const contentTypeBreakdown = (overviewData?.data?.platformBreakdown ?? []).map(
-    (p, i) => ({ name: p.platform, value: p.posts }),
+  const contentTypeBreakdown = (overviewData?.data?.content_type_breakdown ?? []).map(
+    (p) => ({ name: p.post_type, value: Number(p.count) }),
   );
 
   const topPosts: TopPost[] = (topPostsData?.data ?? []).map((p) => ({
@@ -298,12 +298,12 @@ export default function AnalyticsPage() {
     excerpt: p.caption,
     platform: (p.platforms?.[0] as Platform | undefined) ?? Platform.INSTAGRAM,
     publishedAt: p.publishedAt ?? p.scheduledAt ?? p.createdAt,
-    impressions: p.postPlatforms?.[0]?.metrics?.impressions ?? 0,
+    impressions: p.postPlatforms?.[0]?.impressions ?? 0,
     engagement: (() => {
-      const m = p.postPlatforms?.[0]?.metrics;
-      if (!m) return 0;
-      const totalEng = (m.likes ?? 0) + (m.comments ?? 0) + (m.shares ?? 0);
-      return totalEng > 0 ? Number(((totalEng / (m.impressions || 1)) * 100).toFixed(1)) : 0;
+      const pp = p.postPlatforms?.[0];
+      if (!pp) return 0;
+      const totalEng = (pp.likes ?? 0) + (pp.comments ?? 0) + (pp.shares ?? 0);
+      return totalEng > 0 ? Number(((totalEng / (pp.impressions || 1)) * 100).toFixed(1)) : 0;
     })(),
   }));
 
@@ -321,7 +321,7 @@ export default function AnalyticsPage() {
     }
   };
 
-  const hasData = !overviewLoading && (overviewData?.data?.totalPosts ?? 0) > 0;
+  const hasData = !overviewLoading && (overviewData?.data?.total_posts ?? 0) > 0;
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
@@ -355,28 +355,28 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard
           label="Total Posts Published"
-          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.totalPosts ?? 0)}
+          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.total_posts ?? 0)}
           icon={FileText}
           iconColor="text-violet-600"
           loading={overviewLoading}
         />
         <KpiCard
-          label="Total Impressions"
-          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.totalReach ?? 0)}
+          label="Total Reach"
+          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.total_reach ?? 0)}
           icon={Eye}
           iconColor="text-sky-600"
           loading={overviewLoading}
         />
         <KpiCard
-          label="Avg Engagement Rate"
-          value={overviewLoading ? "—" : `${overviewData?.data?.totalEngagement ? ((overviewData.data.totalEngagement / (overviewData.data.totalReach || 1)) * 100).toFixed(1) : "0"}%`}
+          label="Total Engagement"
+          value={overviewLoading ? "—" : formatNumber(overviewData?.data?.total_engagement ?? 0)}
           icon={Heart}
           iconColor="text-pink-600"
           loading={overviewLoading}
         />
         <KpiCard
           label="Best Performing Platform"
-          value={overviewLoading ? "—" : overviewData?.data?.bestPlatform ? getPlatformDisplayName(overviewData.data.bestPlatform as Platform) : "—"}
+          value={overviewLoading ? "—" : overviewData?.data?.best_platform ? getPlatformDisplayName(overviewData.data.best_platform as Platform) : "—"}
           icon={Trophy}
           iconColor="text-amber-600"
           loading={overviewLoading}
