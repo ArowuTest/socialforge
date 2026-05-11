@@ -434,6 +434,18 @@ export const postsApi = {
       body: JSON.stringify({ posts }),
     }),
 
+  submitForReview: (id: string) =>
+    request<ApiResponse<Post>>(`${ws()}/posts/${id}/submit`, { method: "PATCH" }),
+
+  approve: (id: string) =>
+    request<ApiResponse<Post>>(`${ws()}/posts/${id}/approve`, { method: "PATCH" }),
+
+  reject: (id: string, note: string) =>
+    request<ApiResponse<Post>>(`${ws()}/posts/${id}/reject`, {
+      method: "PATCH",
+      body: JSON.stringify({ note }),
+    }),
+
   /**
    * Fetch calendar entries for a given month (YYYY-MM). Convenience wrapper
    * around the schedule/calendar endpoint used by the dashboard calendar view.

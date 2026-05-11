@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/models"
@@ -22,12 +24,13 @@ type PostsHandler struct {
 	repo     repository.PostRepository
 	schedule *scheduling.Service
 	asynq    *asynq.Client
+	db       *gorm.DB
 	log      *zap.Logger
 }
 
 // NewPostsHandler creates a new PostsHandler.
-func NewPostsHandler(repo repository.PostRepository, schedule *scheduling.Service, asynqClient *asynq.Client, log *zap.Logger) *PostsHandler {
-	return &PostsHandler{repo: repo, schedule: schedule, asynq: asynqClient, log: log.Named("posts_handler")}
+func NewPostsHandler(db *gorm.DB, repo repository.PostRepository, schedule *scheduling.Service, asynqClient *asynq.Client, log *zap.Logger) *PostsHandler {
+	return &PostsHandler{db: db, repo: repo, schedule: schedule, asynq: asynqClient, log: log.Named("posts_handler")}
 }
 
 // resolveWorkspaceID extracts and validates the :workspaceId parameter.
@@ -536,4 +539,239 @@ func (h *PostsHandler) BulkCreatePosts(c *fiber.Ctx) error {
 		"data": created,
 		"meta": fiber.Map{"created": len(created)},
 	})
+}
+
+// ── SubmitPostForReview ───────────────────────────────────────────────────────
+
+// SubmitPostForReview transitions a post from draft/rejected → pending_review
+// and notifies all workspace admins/owners.
+// PATCH /api/v1/workspaces/:wid/posts/:id/submit
+func (h *PostsHandler) SubmitPostForReview(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	postID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
+	}
+
+	user := currentUser(c)
+	if user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "post not found", "NOT_FOUND")
+		}
+		return internalError(c, "failed to fetch post")
+	}
+	if post.WorkspaceID != wid {
+		return notFound(c, "post not found", "NOT_FOUND")
+	}
+
+	// Only the author may submit their own post.
+	if post.AuthorID != user.ID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "you can only submit your own posts for review",
+			"code":  "FORBIDDEN",
+		})
+	}
+
+	// Only draft or rejected posts can be submitted.
+	if post.Status != models.PostStatusDraft && post.Status != models.PostStatusRejected {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"error": fmt.Sprintf("cannot submit a post with status %q for review", post.Status),
+			"code":  "INVALID_STATUS_TRANSITION",
+		})
+	}
+
+	post.Status = models.PostStatusPendingReview
+	if err := h.repo.Update(c.Context(), post); err != nil {
+		h.log.Error("SubmitPostForReview: repo.Update", zap.Error(err))
+		return internalError(c, "failed to submit post for review")
+	}
+
+	// Notify all admins and owners in the workspace.
+	go func() {
+		var admins []models.WorkspaceMember
+		h.db.Where("workspace_id = ? AND role IN ?", wid, []string{"admin", "owner"}).
+			Find(&admins)
+		for _, m := range admins {
+			n := &models.Notification{
+				WorkspaceID: wid,
+				UserID:      m.UserID,
+				Title:       "Post pending review",
+				Body:        fmt.Sprintf("%s submitted a post for your approval.", user.Name),
+				ActionURL:   "/review",
+			}
+			if err := h.db.Create(n).Error; err != nil {
+				h.log.Warn("SubmitPostForReview: failed to create notification",
+					zap.Error(err), zap.String("user_id", m.UserID.String()))
+			}
+		}
+	}()
+
+	h.log.Info("SubmitPostForReview",
+		zap.String("post_id", postID.String()),
+		zap.String("author_id", user.ID.String()),
+	)
+
+	return c.JSON(fiber.Map{"data": post})
+}
+
+// ── ApprovePost ───────────────────────────────────────────────────────────────
+
+// ApprovePost approves a pending_review post (admin/owner only).
+// If scheduled_at is set the post moves to scheduled; otherwise back to draft
+// so the author can pick a time.
+// PATCH /api/v1/workspaces/:wid/posts/:id/approve
+func (h *PostsHandler) ApprovePost(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	postID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
+	}
+
+	approver := currentUser(c)
+	if approver == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "post not found", "NOT_FOUND")
+		}
+		return internalError(c, "failed to fetch post")
+	}
+	if post.WorkspaceID != wid {
+		return notFound(c, "post not found", "NOT_FOUND")
+	}
+
+	if post.Status != models.PostStatusPendingReview {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"error": fmt.Sprintf("cannot approve a post with status %q", post.Status),
+			"code":  "INVALID_STATUS_TRANSITION",
+		})
+	}
+
+	// Approval is the final step: auto-schedule if a time is set.
+	if post.ScheduledAt != nil && post.ScheduledAt.After(time.Now()) {
+		post.Status = models.PostStatusScheduled
+	} else {
+		post.Status = models.PostStatusDraft
+	}
+	post.ApprovalNote = "" // clear any previous rejection note
+
+	if err := h.repo.Update(c.Context(), post); err != nil {
+		h.log.Error("ApprovePost: repo.Update", zap.Error(err))
+		return internalError(c, "failed to approve post")
+	}
+
+	// Notify the author.
+	go func() {
+		n := &models.Notification{
+			WorkspaceID: wid,
+			UserID:      post.AuthorID,
+			Title:       "Your post was approved ✓",
+			Body:        "Your post has been approved and is ready to go.",
+			ActionURL:   "/calendar",
+		}
+		if err := h.db.Create(n).Error; err != nil {
+			h.log.Warn("ApprovePost: failed to create notification", zap.Error(err))
+		}
+	}()
+
+	h.log.Info("ApprovePost",
+		zap.String("post_id", postID.String()),
+		zap.String("approver_id", approver.ID.String()),
+		zap.String("new_status", string(post.Status)),
+	)
+
+	return c.JSON(fiber.Map{"data": post})
+}
+
+// ── RejectPost ────────────────────────────────────────────────────────────────
+
+type rejectPostRequest struct {
+	Note string `json:"note"`
+}
+
+// RejectPost rejects a pending_review post with an optional note (admin/owner only).
+// PATCH /api/v1/workspaces/:wid/posts/:id/reject
+func (h *PostsHandler) RejectPost(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	postID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
+	}
+
+	rejector := currentUser(c)
+	if rejector == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req rejectPostRequest
+	// Body is optional (note may be empty).
+	_ = c.BodyParser(&req)
+
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "post not found", "NOT_FOUND")
+		}
+		return internalError(c, "failed to fetch post")
+	}
+	if post.WorkspaceID != wid {
+		return notFound(c, "post not found", "NOT_FOUND")
+	}
+
+	if post.Status != models.PostStatusPendingReview {
+		return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+			"error": fmt.Sprintf("cannot reject a post with status %q", post.Status),
+			"code":  "INVALID_STATUS_TRANSITION",
+		})
+	}
+
+	post.Status = models.PostStatusRejected
+	post.ApprovalNote = req.Note
+
+	if err := h.repo.Update(c.Context(), post); err != nil {
+		h.log.Error("RejectPost: repo.Update", zap.Error(err))
+		return internalError(c, "failed to reject post")
+	}
+
+	// Notify the author.
+	go func() {
+		body := "Your post needs changes before it can be published."
+		if req.Note != "" {
+			body = fmt.Sprintf("Your post needs changes: %s", req.Note)
+		}
+		n := &models.Notification{
+			WorkspaceID: wid,
+			UserID:      post.AuthorID,
+			Title:       "Your post needs changes",
+			Body:        body,
+			ActionURL:   "/compose",
+		}
+		if err := h.db.Create(n).Error; err != nil {
+			h.log.Warn("RejectPost: failed to create notification", zap.Error(err))
+		}
+	}()
+
+	h.log.Info("RejectPost",
+		zap.String("post_id", postID.String()),
+		zap.String("rejector_id", rejector.ID.String()),
+	)
+
+	return c.JSON(fiber.Map{"data": post})
 }

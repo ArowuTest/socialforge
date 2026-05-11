@@ -48,11 +48,13 @@ func (p PlatformType) String() string { return string(p) }
 type PostStatus string
 
 const (
-	PostStatusDraft      PostStatus = "draft"
-	PostStatusScheduled  PostStatus = "scheduled"
-	PostStatusPublishing PostStatus = "publishing"
-	PostStatusPublished  PostStatus = "published"
-	PostStatusFailed     PostStatus = "failed"
+	PostStatusDraft         PostStatus = "draft"
+	PostStatusScheduled     PostStatus = "scheduled"
+	PostStatusPublishing    PostStatus = "publishing"
+	PostStatusPublished     PostStatus = "published"
+	PostStatusFailed        PostStatus = "failed"
+	PostStatusPendingReview PostStatus = "pending_review" // Submitted by editor, awaiting admin approval
+	PostStatusRejected      PostStatus = "rejected"       // Rejected by admin, returned to editor with note
 )
 
 func (s PostStatus) String() string { return string(s) }
@@ -402,6 +404,7 @@ type Post struct {
 	ThumbnailURL    string      `gorm:"size:2048"                             json:"thumbnail_url,omitempty"`
 	PlatformPostIDs JSONMap     `gorm:"type:text"                             json:"platform_post_ids,omitempty"`
 	ErrorMessage    string      `gorm:"type:text"                             json:"error_message,omitempty"`
+	ApprovalNote    string      `gorm:"size:1000"                             json:"approval_note,omitempty"`
 	AIGenerated     bool        `gorm:"not null;default:false"                json:"ai_generated"`
 	AIJobID         *uuid.UUID  `gorm:"type:uuid"                             json:"ai_job_id,omitempty"`
 	Hashtags        StringSlice `gorm:"type:text"                             json:"hashtags,omitempty"`

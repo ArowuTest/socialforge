@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   format,
   startOfMonth,
@@ -33,6 +33,7 @@ import {
   Video,
   MessageCircle,
   Globe,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn, getPlatformColor, getPlatformDisplayName, truncateText } from "@/lib/utils";
 import { postsApi } from "@/lib/api";
 import { Platform, Post, PostStatus } from "@/types";
+import { CSVImportModal } from "@/components/csv-import-modal";
 
 const platformFilterOptions = [
   { label: "All", value: "all" },
@@ -152,19 +154,23 @@ function DayPanel({ date, posts, onClose }: { date: Date; posts: Post[]; onClose
 }
 
 function StatusBadge({ status }: { status: PostStatus }) {
-  const config = {
+  const config: Record<PostStatus, string> = {
     [PostStatus.SCHEDULED]: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
     [PostStatus.PUBLISHED]: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
     [PostStatus.DRAFT]: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
     [PostStatus.FAILED]: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
     [PostStatus.PROCESSING]: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+    [PostStatus.PENDING_REVIEW]: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+    [PostStatus.REJECTED]: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
   };
-  const labels = {
+  const labels: Record<PostStatus, string> = {
     [PostStatus.SCHEDULED]: "Scheduled",
     [PostStatus.PUBLISHED]: "Published",
     [PostStatus.DRAFT]: "Draft",
     [PostStatus.FAILED]: "Failed",
     [PostStatus.PROCESSING]: "Processing",
+    [PostStatus.PENDING_REVIEW]: "Pending Review",
+    [PostStatus.REJECTED]: "Rejected",
   };
   return (
     <span className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium", config[status])}>
@@ -189,10 +195,12 @@ function CalendarSkeleton() {
 
 export default function CalendarPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [currentDate, setCurrentDate] = React.useState(new Date());
   const [viewMode, setViewMode] = React.useState<ViewMode>("month");
   const [selectedPlatforms, setSelectedPlatforms] = React.useState<string[]>(["all"]);
   const [selectedDate, setSelectedDate] = React.useState<Date | null>(null);
+  const [csvImportOpen, setCsvImportOpen] = React.useState(false);
 
   const monthKey = format(currentDate, "yyyy-MM");
 
@@ -271,22 +279,33 @@ export default function CalendarPage() {
             </Button>
           </div>
 
-          {/* View mode */}
-          <div className="flex items-center gap-1 ml-auto bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
-            {(["month", "list"] as ViewMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={cn(
-                  "px-3 py-1 rounded text-xs font-medium transition-all capitalize",
-                  viewMode === mode
-                    ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
-                    : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                )}
-              >
-                {mode}
-              </button>
-            ))}
+          {/* View mode + Import CSV */}
+          <div className="flex items-center gap-2 ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={() => setCsvImportOpen(true)}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Import CSV
+            </Button>
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+              {(["month", "list"] as ViewMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={cn(
+                    "px-3 py-1 rounded text-xs font-medium transition-all capitalize",
+                    viewMode === mode
+                      ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                  )}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -466,6 +485,13 @@ export default function CalendarPage() {
       >
         <Plus className="h-6 w-6" />
       </button>
+
+      {/* CSV Import Modal */}
+      <CSVImportModal
+        open={csvImportOpen}
+        onOpenChange={setCsvImportOpen}
+        onSuccess={() => queryClient.invalidateQueries({ queryKey: ["calendar"] })}
+      />
     </div>
   );
 }

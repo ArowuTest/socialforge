@@ -155,6 +155,14 @@ function PostStatusBadge({ status }: { status: PostStatus }) {
       label: 'Processing',
       className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     },
+    [PostStatus.PENDING_REVIEW]: {
+      label: 'Pending Review',
+      className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+    },
+    [PostStatus.REJECTED]: {
+      label: 'Rejected',
+      className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    },
   }
   const { label, className } = config[status] ?? config[PostStatus.DRAFT]
   return (

@@ -29,11 +29,13 @@ import {
   Palette,
   AlertTriangle,
   X,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
-import { postsApi, campaignsApi, billingApi, accountsApi, brandKitApi } from "@/lib/api";
-import { Post, SocialAccount, Platform } from "@/types";
+import { postsApi, campaignsApi, billingApi, accountsApi, brandKitApi, workspaceApi } from "@/lib/api";
+import { Post, SocialAccount, Platform, PostStatus } from "@/types";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -265,6 +267,27 @@ export default function DashboardPage() {
   const workspace = useAuthStore((s) => s.workspace);
   const user = useAuthStore((s) => s.user);
 
+  // Detect pending-review posts and current user's role
+  const { data: pendingReviewData } = useQuery({
+    queryKey: ["posts", "pending_review_dashboard"],
+    queryFn: () => postsApi.list({ status: PostStatus.PENDING_REVIEW, pageSize: 1 }),
+    enabled: !!workspace?.id,
+  });
+  const { data: membersData } = useQuery({
+    queryKey: ["workspace-members"],
+    queryFn: () => workspaceApi.listMembers(),
+    enabled: !!workspace?.id,
+  });
+  const currentMember = membersData?.data?.find(
+    (m: { user_id: string; role: string }) => m.user_id === user?.id
+  );
+  const canModerate =
+    currentMember?.role === "admin" ||
+    currentMember?.role === "owner" ||
+    user?.id === workspace?.ownerId;
+  const pendingReviewCount = (pendingReviewData as any)?.meta?.total ?? 0;
+  const [reviewDismissed, setReviewDismissed] = React.useState(false);
+
   const [loading, setLoading] = React.useState(true);
   const [checklistDismissed, setChecklistDismissed] = React.useState(() => {
     if (typeof window !== "undefined") {
@@ -486,6 +509,30 @@ export default function DashboardPage() {
               </div>
             ))}
       </div>
+
+      {/* Pending review alert (admin/owner only) */}
+      {canModerate && pendingReviewCount > 0 && !reviewDismissed && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+          <ClipboardCheck className="h-5 w-5 text-amber-600 shrink-0" />
+          <p className="text-sm text-amber-800 dark:text-amber-300 flex-1">
+            <span className="font-semibold">{pendingReviewCount}</span>{" "}
+            post{pendingReviewCount !== 1 ? "s" : ""} awaiting your approval.
+          </p>
+          <Link
+            href="/review"
+            className="text-sm font-medium text-amber-700 dark:text-amber-400 hover:underline whitespace-nowrap"
+          >
+            Review now →
+          </Link>
+          <button
+            onClick={() => setReviewDismissed(true)}
+            className="text-amber-600/60 hover:text-amber-600 ml-1"
+            aria-label="Dismiss"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Onboarding checklist */}
       {showChecklist && (

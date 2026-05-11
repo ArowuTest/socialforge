@@ -28,6 +28,7 @@ import {
   Rocket,
   CheckCheck,
   ExternalLink,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
@@ -47,7 +48,8 @@ import {
 import { getInitials } from "@/lib/utils";
 import { PlanType } from "@/types";
 import { toast } from "sonner";
-import { notificationsApi } from "@/lib/api";
+import { notificationsApi, postsApi } from "@/lib/api";
+import { PostStatus } from "@/types";
 
 const navSections = [
   {
@@ -65,6 +67,7 @@ const navSections = [
     autopilot: false,
     items: [
       { href: "/compose", icon: PenSquare, label: "Compose Post" },
+      { href: "/review", icon: ClipboardCheck, label: "Review Queue" },
       { href: "/ai", icon: Sparkles, label: "AI Studio" },
       { href: "/repurpose", icon: RefreshCw, label: "Repurpose" },
       { href: "/media", icon: Image, label: "Media Library" },
@@ -98,6 +101,7 @@ const pageTitles: Record<string, string> = {
   "/analytics": "Analytics",
   "/calendar": "Content Calendar",
   "/compose": "Compose Post",
+  "/review": "Review Queue",
   "/ai": "AI Studio",
   "/repurpose": "Content Repurpose",
   "/media": "Media Library",
@@ -284,6 +288,14 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
   const router = useRouter();
   const { user, workspace, logout } = useAuthStore();
 
+  // Pending review badge count (polls every 60 s)
+  const { data: pendingData } = useQuery({
+    queryKey: ["posts", "pending_review_count"],
+    queryFn: () => postsApi.list({ status: PostStatus.PENDING_REVIEW, pageSize: 1 }),
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+  });
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -380,7 +392,12 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
                               : "text-gray-400 dark:text-gray-500"
                         )}
                       />
-                      {item.label}
+                      <span className="flex-1">{item.label}</span>
+                      {item.href === "/review" && (pendingData as any)?.meta?.total > 0 && (
+                        <span className="ml-auto text-[10px] font-semibold bg-amber-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
+                          {(pendingData as any).meta.total}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

@@ -26,6 +26,7 @@ import {
   MessageCircle,
   Pin,
   Globe,
+  CheckCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -734,6 +735,38 @@ export default function ComposePage() {
     }
   };
 
+  const handleSubmitForReview = async () => {
+    setHasAttemptedSubmit(true);
+    if (!caption.trim()) {
+      toast.error("Please add some content before submitting for review");
+      return;
+    }
+    if (selectedPlatforms.length === 0) {
+      toast.error("Please select at least one platform");
+      return;
+    }
+    setIsPublishing(true);
+    try {
+      const mediaUrls = await uploadPendingMedia();
+      const post = await postsApi.create({
+        caption,
+        platforms: selectedPlatforms as Platform[],
+        postType,
+        ...(mediaUrls.length > 0 && { mediaUrls }),
+      });
+      const postId = (post as any)?.data?.id;
+      if (postId) {
+        await postsApi.submitForReview(postId);
+      }
+      toast.success("Post submitted for review");
+      reset();
+    } catch {
+      toast.error("Failed to submit post for review");
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <React.Suspense fallback={null}>
@@ -1085,6 +1118,18 @@ export default function ComposePage() {
         >
           <Save className="h-4 w-4 mr-1.5" />
           Save Draft
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSubmitForReview}
+          disabled={isPublishing}
+          className="border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-900/20"
+          title="Save as draft and submit for admin approval"
+        >
+          <CheckCheck className="h-4 w-4 mr-1.5" />
+          Submit for Review
         </Button>
 
         <div className="flex-1" />

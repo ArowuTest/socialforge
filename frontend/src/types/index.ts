@@ -20,6 +20,8 @@ export enum PostStatus {
   PUBLISHED = "published",
   FAILED = "failed",
   PROCESSING = "processing",
+  PENDING_REVIEW = "pending_review",
+  REJECTED = "rejected",
 }
 
 export enum PostType {
@@ -161,6 +163,8 @@ export interface Post {
   tags?: string[];
   aiGenerated?: boolean;
   originalPostId?: string;
+  approval_note?: string;
+  author_id?: string;
 }
 
 export interface ScheduleSlot {

@@ -51,7 +51,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 
 	// Build handler groups, injecting repository interfaces instead of raw *gorm.DB.
 	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.NotificationsService, deps.Config, deps.Log)
-	postsH := handlers.NewPostsHandler(repos.Posts, deps.ScheduleService, deps.AsynqClient, deps.Log)
+	postsH := handlers.NewPostsHandler(deps.DB, repos.Posts, deps.ScheduleService, deps.AsynqClient, deps.Log)
 	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.BlueskyClient, deps.Config, deps.Log)
 	scheduleH := handlers.NewScheduleHandler(deps.DB, deps.ScheduleService, deps.Log)
 	aiH := handlers.NewAIHandler(deps.DB, deps.AIService, deps.AnalyticsService, deps.AsynqClient, deps.Log)
@@ -148,6 +148,10 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Delete("/posts/:id", postsH.DeletePost)
 	ws.Post("/posts/:id/publish", postsH.PublishNow)
 	ws.Post("/posts/bulk", postsH.BulkCreatePosts)
+	// Post approval workflow
+	ws.Patch("/posts/:id/submit", postsH.SubmitPostForReview)
+	ws.Patch("/posts/:id/approve", mw.RequireRole(models.WorkspaceRoleAdmin), postsH.ApprovePost)
+	ws.Patch("/posts/:id/reject", mw.RequireRole(models.WorkspaceRoleAdmin), postsH.RejectPost)
 
 	// Schedule
 	ws.Get("/schedule/slots", scheduleH.ListSlots)
