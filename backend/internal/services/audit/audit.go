@@ -7,12 +7,11 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-
-	"github.com/socialforge/backend/internal/models"
 )
 
 // Service writes audit entries asynchronously.
@@ -27,22 +26,37 @@ func New(db *gorm.DB, log *zap.Logger) *Service {
 }
 
 // Write records an audit entry fire-and-forget. Never blocks the caller.
-// Use uuid.Nil for workspaceID/userID when they don't apply.
+// Use uuid.Nil for workspaceID/userID when they don't apply — they'll be
+// stored as NULL so we don't violate the foreign keys on audit_logs.
 func (s *Service) Write(workspaceID, userID uuid.UUID, action, resourceType, resourceID string, metadata map[string]any) {
 	if s == nil || s.db == nil {
 		return
 	}
-	entry := &models.AuditLog{
-		WorkspaceID:  workspaceID,
-		UserID:       userID,
-		Action:       action,
-		ResourceType: resourceType,
-		ResourceID:   resourceID,
-		Metadata:     models.JSONMap(metadata),
+	var wsArg, userArg, resArg interface{}
+	if workspaceID != uuid.Nil {
+		wsArg = workspaceID
 	}
-	go func(e *models.AuditLog) {
-		if err := s.db.WithContext(context.Background()).Create(e).Error; err != nil {
-			s.log.Warn("audit write failed", zap.Error(err), zap.String("action", e.Action))
+	if userID != uuid.Nil {
+		userArg = userID
+	}
+	if resourceID != "" {
+		resArg = resourceID
+	}
+	var metaArg interface{}
+	if metadata != nil {
+		if b, err := json.Marshal(metadata); err == nil {
+			metaArg = string(b)
 		}
-	}(entry)
+	}
+	go func() {
+		err := s.db.WithContext(context.Background()).Exec(
+			`INSERT INTO audit_logs
+			    (workspace_id, user_id, action, resource_type, resource_id, metadata, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?::jsonb, NOW())`,
+			wsArg, userArg, action, resourceType, resArg, metaArg,
+		).Error
+		if err != nil {
+			s.log.Warn("audit write failed", zap.Error(err), zap.String("action", action))
+		}
+	}()
 }
