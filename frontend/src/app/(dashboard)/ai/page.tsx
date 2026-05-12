@@ -410,6 +410,17 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = React.useState("");
 
+  // Fetch live credit costs from the DB-backed endpoint
+  const { data: jobCosts } = useQuery({
+    queryKey: ["ai-job-costs"],
+    queryFn: () => aiApi.getJobCosts(),
+    staleTime: 5 * 60 * 1000, // cache for 5 min
+  });
+  const costMap = jobCosts?.cost_map ?? {};
+  // Fallback values match the DB seed defaults
+  const standardImageCredits = costMap["image_standard"] ?? costMap["generate_image"] ?? 10;
+  const premiumImageCredits  = costMap["image_premium"]  ?? costMap["generate_image_premium"] ?? 25;
+
   // When a suggested prompt arrives from the caption tab, apply it once
   React.useEffect(() => {
     if (suggestedPrompt) {
@@ -521,8 +532,8 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
           <Label>Generation Model</Label>
           <div className="grid grid-cols-2 gap-2">
             {([
-              { value: "standard" as const, label: "⚡ Standard", sub: "Flux Dev · 10 credits", badge: null },
-              { value: "premium" as const,  label: "✨ Premium",  sub: "GPT Image 2 · 25 credits", badge: "NEW" },
+              { value: "standard" as const, label: "⚡ Standard", sub: `Flux Dev · ${standardImageCredits} credits`, badge: null },
+              { value: "premium" as const,  label: "✨ Premium",  sub: `GPT Image 2 · ${premiumImageCredits} credits`, badge: "NEW" },
             ]).map(({ value, label, sub, badge }) => (
               <button
                 key={value}
@@ -581,7 +592,7 @@ function GenerateImageTab({ suggestedPrompt, onPromptConsumed }: { suggestedProm
           ) : (
             <>
               <Image className="h-4 w-4 mr-2" />
-              Generate Image · {imageModel === "premium" ? 25 : 10} credits
+              Generate Image · {imageModel === "premium" ? premiumImageCredits : standardImageCredits} credits
             </>
           )}
         </Button>

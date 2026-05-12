@@ -619,3 +619,37 @@ func (h *AIHandler) GetAnalytics(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{"data": stats})
 }
+
+// ── GetJobCreditCosts ─────────────────────────────────────────────────────────
+
+// GetJobCreditCosts returns the credit cost for each AI job type.
+// Workspace members use this to display accurate costs in the UI without
+// requiring admin access to the full cost-config table.
+//
+// GET /api/v1/workspaces/:workspaceId/ai/costs
+func (h *AIHandler) GetJobCreditCosts(c *fiber.Ctx) error {
+	type jobCostRow struct {
+		JobType     string `gorm:"column:job_type" json:"job_type"`
+		Label       string `gorm:"column:label"    json:"label"`
+		Credits     int    `gorm:"column:credits"  json:"credits"`
+		IsActive    bool   `gorm:"column:is_active" json:"is_active"`
+	}
+	var rows []jobCostRow
+	if err := h.db.WithContext(c.Context()).
+		Table("ai_job_costs").
+		Where("is_active = true").
+		Order("job_type ASC").
+		Find(&rows).Error; err != nil {
+		h.log.Error("GetJobCreditCosts: db query", zap.Error(err))
+		return internalError(c, "failed to load job costs")
+	}
+
+	// Build a map for easy lookup on the frontend.
+	costMap := make(map[string]int, len(rows))
+	for _, r := range rows {
+		costMap[r.JobType] = r.Credits
+	}
+
+	return c.JSON(fiber.Map{"data": rows, "cost_map": costMap})
+}
+

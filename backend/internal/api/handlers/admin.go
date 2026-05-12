@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -811,5 +812,102 @@ func clamp(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+// ── GetRevenueStats ───────────────────────────────────────────────────────────
+
+// GetRevenueStats returns a revenue breakdown by subscription plan.
+// Prices are read from platform_settings so they stay in sync with admin edits.
+//
+// GET /api/v1/admin/revenue
+func (h *AdminHandler) GetRevenueStats(c *fiber.Ctx) error {
+	ctx := c.Context()
+
+	// Load plan prices from platform_settings
+	type kv struct {
+		Key   string `gorm:"column:key"`
+		Value string `gorm:"column:value"`
+	}
+	var settings []kv
+	h.db.WithContext(ctx).
+		Raw(`SELECT key, value FROM platform_settings WHERE key LIKE 'plan_price_%'`).
+		Scan(&settings)
+
+	prices := map[string]float64{
+		"starter": 29,
+		"pro":     79,
+		"agency":  199,
+	}
+	for _, s := range settings {
+		var plan string
+		switch s.Key {
+		case "plan_price_starter":
+			plan = "starter"
+		case "plan_price_pro":
+			plan = "pro"
+		case "plan_price_agency":
+			plan = "agency"
+		default:
+			continue
+		}
+		if v, err := strconv.ParseFloat(s.Value, 64); err == nil && v > 0 {
+			prices[plan] = v
+		}
+	}
+
+	// Count paid workspaces by plan
+	type planCount struct {
+		Plan  string `gorm:"column:plan"`
+		Count int64  `gorm:"column:count"`
+	}
+	var counts []planCount
+	h.db.WithContext(ctx).
+		Raw(`SELECT plan, COUNT(*) as count FROM workspaces
+		     WHERE plan IN ('starter','pro','agency')
+		     AND subscription_status IN ('active','trialing')
+		     GROUP BY plan`).
+		Scan(&counts)
+
+	type planRevenue struct {
+		Plan         string  `json:"plan"`
+		Subscriptions int64  `json:"subscriptions"`
+		MonthlyPrice float64 `json:"monthly_price"`
+		MRR          float64 `json:"mrr"`
+	}
+
+	planMap := map[string]int64{}
+	for _, c := range counts {
+		planMap[c.Plan] = c.Count
+	}
+
+	plans := []string{"starter", "pro", "agency"}
+	breakdown := make([]planRevenue, 0, len(plans))
+	totalMRR := 0.0
+	for _, plan := range plans {
+		cnt := planMap[plan]
+		price := prices[plan]
+		mrr := float64(cnt) * price
+		totalMRR += mrr
+		breakdown = append(breakdown, planRevenue{
+			Plan:          plan,
+			Subscriptions: cnt,
+			MonthlyPrice:  price,
+			MRR:           mrr,
+		})
+	}
+
+	// Free plan count
+	var freeCount int64
+	h.db.WithContext(ctx).
+		Raw(`SELECT COUNT(*) FROM workspaces WHERE plan = 'free' OR plan IS NULL`).
+		Scan(&freeCount)
+
+	return c.JSON(fiber.Map{
+		"data": fiber.Map{
+			"total_mrr":  totalMRR,
+			"breakdown":  breakdown,
+			"free_users": freeCount,
+		},
+	})
 }
 

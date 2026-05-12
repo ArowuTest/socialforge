@@ -10,9 +10,6 @@ import { cn } from "@/lib/utils";
 import { adminApi, AdminCampaign } from "@/lib/api";
 import { toast } from "sonner";
 
-// TODO: GET /api/v1/admin/campaigns — backend endpoint must be implemented.
-// The adminApi.listAllCampaigns() call is ready; wire it up once the route is live.
-
 type CampaignStatus = AdminCampaign["status"];
 
 const STATUS_FILTERS: { value: string; label: string }[] = [

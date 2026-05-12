@@ -33,11 +33,12 @@ const health = [
   { label: "Storage", status: "healthy", icon: HardDrive },
 ];
 
-// Placeholder revenue chart — real billing analytics endpoint not yet wired
-const revenueData = Array.from({ length: 30 }, (_, i) => ({
-  day: `Day ${i + 1}`,
-  mrr: 0,
-}));
+interface PlanRevenue {
+  plan: string;
+  subscriptions: number;
+  monthly_price: number;
+  mrr: number;
+}
 
 function StatSkeleton() {
   return (
@@ -64,6 +65,11 @@ export default function AdminOverviewPage() {
     ai_credits_today: number;
   } | null>(null);
   const [recentUsers, setRecentUsers] = React.useState<User[]>([]);
+  const [revenue, setRevenue] = React.useState<{
+    total_mrr: number;
+    breakdown: PlanRevenue[];
+    free_users: number;
+  } | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -86,6 +92,12 @@ export default function AdminOverviewPage() {
       } finally {
         if (!cancelled) setLoading(false);
       }
+      // Revenue is non-critical — load separately so a failure doesn't blank the page
+      adminApi.getRevenue()
+        .then((res) => {
+          if (!cancelled && res?.data) setRevenue(res.data as typeof revenue);
+        })
+        .catch(() => { /* revenue chart stays empty */ });
     }
     load();
     return () => { cancelled = true; };
@@ -128,23 +140,66 @@ export default function AdminOverviewPage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Revenue chart — placeholder until billing analytics is wired */}
+        {/* Revenue breakdown */}
         <div className="xl:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="font-semibold text-white">Monthly Recurring Revenue</h3>
-              <p className="text-sm text-slate-400 mt-0.5">Billing analytics coming soon</p>
+              <p className="text-sm text-slate-400 mt-0.5">
+                {revenue
+                  ? `$${revenue.total_mrr.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} MRR · ${revenue.breakdown.reduce((s, p) => s + p.subscriptions, 0)} paid subs`
+                  : "Loading…"}
+              </p>
             </div>
+            {revenue && (
+              <span className="text-2xl font-extrabold text-emerald-400">
+                ${revenue.total_mrr.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              </span>
+            )}
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={revenueData} margin={{ top: 0, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-              <XAxis dataKey="day" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} interval={4} />
-              <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-              <Tooltip contentStyle={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: 8, fontSize: 12 }} formatter={(v: number) => [`$${v.toLocaleString()}`, "MRR"]} />
-              <Line type="monotone" dataKey="mrr" stroke="#7C3AED" strokeWidth={2.5} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+
+          {/* Plan breakdown bars */}
+          <div className="space-y-4">
+            {(revenue?.breakdown ?? [{ plan: "starter", mrr: 0, subscriptions: 0, monthly_price: 29 }, { plan: "pro", mrr: 0, subscriptions: 0, monthly_price: 79 }, { plan: "agency", mrr: 0, subscriptions: 0, monthly_price: 199 }]).map((p) => {
+              const maxMRR = revenue ? Math.max(...revenue.breakdown.map((b) => b.mrr), 1) : 1;
+              const pct = revenue ? Math.round((p.mrr / maxMRR) * 100) : 0;
+              const barColor = p.plan === "agency" ? "bg-amber-500" : p.plan === "pro" ? "bg-violet-500" : "bg-blue-500";
+              return (
+                <div key={p.plan}>
+                  <div className="flex items-center justify-between mb-1.5 text-sm">
+                    <span className="capitalize font-medium text-slate-300">{p.plan}</span>
+                    <span className="text-slate-400">
+                      {p.subscriptions} × ${p.monthly_price}/mo = <span className="text-white font-semibold">${p.mrr.toLocaleString()}</span>
+                    </span>
+                  </div>
+                  <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Chart (kept for visual; shows plan MRR as bar data) */}
+          {revenue && revenue.total_mrr > 0 && (
+            <div className="mt-5">
+              <ResponsiveContainer width="100%" height={140}>
+                <LineChart
+                  data={revenue.breakdown.map((p) => ({ plan: p.plan.charAt(0).toUpperCase() + p.plan.slice(1), mrr: p.mrr }))}
+                  margin={{ top: 0, right: 8, bottom: 0, left: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="plan" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+                  <Tooltip contentStyle={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: 8, fontSize: 12 }} formatter={(v: number) => [`$${v.toLocaleString()}`, "MRR"]} />
+                  <Line type="monotone" dataKey="mrr" stroke="#7C3AED" strokeWidth={2.5} dot={{ fill: "#7C3AED", r: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
         {/* System health */}

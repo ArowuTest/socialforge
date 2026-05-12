@@ -51,7 +51,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-// ── Constants & mock data ────────────────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const ZERO_BALANCE: CreditBalance = {
   credit_balance: 0,
@@ -59,20 +59,6 @@ const ZERO_BALANCE: CreditBalance = {
   plan_credits_limit: 0,
   monthly_usd_cost: 0,
 };
-
-const USD_PACKAGES: CreditPackage[] = [
-  { id: "pkg_100_usd", credits: 100, price_usd: 4.99, display_price: "$4.99", currency: "USD" },
-  { id: "pkg_250_usd", credits: 250, price_usd: 9.99, display_price: "$9.99", currency: "USD" },
-  { id: "pkg_600_usd", credits: 600, price_usd: 19.99, display_price: "$19.99", currency: "USD", best_value: true },
-  { id: "pkg_1500_usd", credits: 1500, price_usd: 39.99, display_price: "$39.99", currency: "USD" },
-];
-
-const NGN_PACKAGES: CreditPackage[] = [
-  { id: "pkg_100_ngn", credits: 100, price_usd: 4.99, display_price: "₦7,500", currency: "NGN" },
-  { id: "pkg_250_ngn", credits: 250, price_usd: 9.99, display_price: "₦15,000", currency: "NGN" },
-  { id: "pkg_600_ngn", credits: 600, price_usd: 19.99, display_price: "₦30,000", currency: "NGN", best_value: true },
-  { id: "pkg_1500_ngn", credits: 1500, price_usd: 39.99, display_price: "₦60,000", currency: "NGN" },
-];
 
 const LEDGER_PAGE_SIZE = 20;
 
@@ -685,11 +671,11 @@ export default function BillingPage() {
   const { workspace } = useWorkspace();
   const workspaceId = workspace?.id ?? "ws_default";
 
-  // Currency toggle
+  // Currency toggle — set by IP detection from first API response, then manually overrideable
   const [currency, setCurrency] = React.useState<Currency>("USD");
 
-  // Packages state
-  const [packages, setPackages] = React.useState<CreditPackage[]>(USD_PACKAGES);
+  // Packages state — loaded from API; empty until first fetch completes
+  const [packages, setPackages] = React.useState<CreditPackage[]>([]);
   const [packagesLoading, setPackagesLoading] = React.useState(true);
 
   // Balance state (fetched from API, fallback to zeros)
@@ -730,19 +716,27 @@ export default function BillingPage() {
     },
   };
 
-  // Load all data on mount
+  // Fetch packages whenever the currency changes (covers initial load + manual toggle)
   React.useEffect(() => {
-    // Credit packages
+    setPackagesLoading(true);
     billingApi
-      .getCreditPackages()
+      .getCreditPackages(currency)
       .then((res) => {
         if (res.packages?.length) {
           setPackages(res.packages);
-          if (res.currency === "NGN") setCurrency("NGN");
+          // Honour the server-detected currency on the first load (before any manual toggle)
+          if (packages.length === 0 && res.currency) {
+            setCurrency(res.currency as Currency);
+          }
         }
       })
-      .catch(() => { /* fall back to local constants */ })
+      .catch(() => { /* keep existing packages on error */ })
       .finally(() => setPackagesLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currency]);
+
+  // Load balance, ledger and usage on mount
+  React.useEffect(() => {
 
     // Credit balance
     billingApi
@@ -786,14 +780,8 @@ export default function BillingPage() {
     setCurrency((prev) => (prev === "USD" ? "NGN" : "USD"));
   };
 
-  // Use API-loaded packages when available; otherwise fall back to local constants
-  // so the currency toggle still works before the API responds.
-  const apiPackagesLoaded = packages !== USD_PACKAGES && packages !== NGN_PACKAGES;
-  const displayPackages = apiPackagesLoaded
-    ? packages
-    : currency === "NGN"
-    ? NGN_PACKAGES
-    : USD_PACKAGES;
+  // Always use API-loaded packages; an empty array shows a loading skeleton.
+  const displayPackages = packages;
 
   const handlePortalClick = async () => {
     setPortalLoading(true);

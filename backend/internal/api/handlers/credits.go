@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -10,14 +12,89 @@ import (
 	billingsvc "github.com/socialforge/backend/internal/services/billing"
 )
 
+// creditPackageConfigRow is the DB row for a credit package (mirrors credit_package_config).
+type creditPackageConfigRow struct {
+	ID          string  `gorm:"column:id"`
+	Label       string  `gorm:"column:label"`
+	Credits     int     `gorm:"column:credits"`
+	USDPrice    float64 `gorm:"column:usd_price"`
+	NGNPrice    float64 `gorm:"column:ngn_price"`
+	IsBestValue bool    `gorm:"column:is_best_value"`
+	SortOrder   int     `gorm:"column:sort_order"`
+}
+
 // GetCreditPackages returns available credit top-up packages based on the caller's IP.
+// It reads from the credit_package_config DB table first; falls back to hardcoded values
+// when the table is empty (e.g. fresh install before the admin has seeded packages).
+//
+// An optional ?currency=NGN|USD query param overrides the IP-detected currency
+// (used by the frontend's manual currency toggle).
 func (h *BillingHandler) GetCreditPackages(c *fiber.Ctx) error {
 	currency := billingsvc.DetectCurrency(c.Context(), c.IP(), h.rdb, nil)
+	if override := c.Query("currency"); override == "NGN" || override == "USD" {
+		currency = override
+	}
+	isNGN := currency == "NGN"
+
+	var rows []creditPackageConfigRow
+	h.db.WithContext(c.Context()).
+		Table("credit_package_config").
+		Where("is_active = true").
+		Order("sort_order ASC").
+		Find(&rows)
+
+	if len(rows) > 0 {
+		type pkg struct {
+			ID           string  `json:"id"`
+			Label        string  `json:"label"`
+			Credits      int     `json:"credits"`
+			PriceUSD     float64 `json:"price_usd"`
+			DisplayPrice string  `json:"display_price"`
+			Currency     string  `json:"currency"`
+			BestValue    bool    `json:"best_value,omitempty"`
+		}
+		packages := make([]pkg, 0, len(rows))
+		for _, r := range rows {
+			var displayPrice string
+			if isNGN {
+				displayPrice = "₦" + formatNGN(r.NGNPrice)
+			} else {
+				displayPrice = fmt.Sprintf("$%.0f", r.USDPrice)
+			}
+			packages = append(packages, pkg{
+				ID:           r.ID,
+				Label:        r.Label,
+				Credits:      r.Credits,
+				PriceUSD:     r.USDPrice,
+				DisplayPrice: displayPrice,
+				Currency:     currency,
+				BestValue:    r.IsBestValue,
+			})
+		}
+		return c.JSON(fiber.Map{"currency": currency, "packages": packages})
+	}
+
+	// Fallback: hardcoded packages (used when table is empty).
 	packages := billingsvc.CreditPackages(currency)
 	return c.JSON(fiber.Map{
 		"currency": currency,
 		"packages": packages,
 	})
+}
+
+// formatNGN formats a float64 Naira price as a comma-separated integer string.
+func formatNGN(price float64) string {
+	n := int64(price)
+	s := fmt.Sprintf("%d", n)
+	// Insert commas every 3 digits from the right.
+	result := ""
+	for i, ch := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result += ","
+		}
+		result += string(ch)
+	}
+	return result
 }
 
 // InitiateCreditTopUp creates a Stripe or Paystack checkout session.

@@ -23,7 +23,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { whitelabelApi } from "@/lib/api";
+import { whitelabelApi, billingApi } from "@/lib/api";
 import { PlanType, Client } from "@/types";
 import {
   cn,
@@ -101,46 +101,21 @@ function PlanBadge({ plan }: { plan: PlanType }) {
   );
 }
 
-// ── Mock data ──────────────────────────────────────────────────────────────
+// ── Plan price hook ────────────────────────────────────────────────────────
 
-const MOCK_CLIENTS: Client[] = [
-  {
-    id: "c1",
-    agencyWorkspaceId: "ws1",
-    clientWorkspaceId: "ws2",
-    clientWorkspace: { id: "ws2", name: "Acme Corp", slug: "acme-corp", timezone: "America/New_York", plan: PlanType.PRO, ownerId: "u2", createdAt: "2024-01-10T00:00:00Z", updatedAt: "2024-03-01T00:00:00Z", isAgency: false, whitelabelEnabled: false },
-    plan: PlanType.PRO,
-    status: "active",
-    socialAccountsCount: 5,
-    postsThisMonth: 34,
-    lastActiveAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    createdAt: "2024-01-10T00:00:00Z",
-  },
-  {
-    id: "c2",
-    agencyWorkspaceId: "ws1",
-    clientWorkspaceId: "ws3",
-    clientWorkspace: { id: "ws3", name: "Bright Media", slug: "bright-media", timezone: "Europe/London", plan: PlanType.STARTER, ownerId: "u3", createdAt: "2024-02-05T00:00:00Z", updatedAt: "2024-03-10T00:00:00Z", isAgency: false, whitelabelEnabled: false },
-    plan: PlanType.STARTER,
-    status: "active",
-    socialAccountsCount: 3,
-    postsThisMonth: 12,
-    lastActiveAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    createdAt: "2024-02-05T00:00:00Z",
-  },
-  {
-    id: "c3",
-    agencyWorkspaceId: "ws1",
-    clientWorkspaceId: "ws4",
-    clientWorkspace: { id: "ws4", name: "Nova Brands", slug: "nova-brands", timezone: "America/Los_Angeles", plan: PlanType.PRO, ownerId: "u4", createdAt: "2024-03-01T00:00:00Z", updatedAt: "2024-03-28T00:00:00Z", isAgency: false, whitelabelEnabled: false },
-    plan: PlanType.PRO,
-    status: "pending",
-    socialAccountsCount: 0,
-    postsThisMonth: 0,
-    lastActiveAt: undefined,
-    createdAt: "2024-03-01T00:00:00Z",
-  },
-];
+function usePlanPrices() {
+  const { data } = useQuery({
+    queryKey: ["billing-plans"],
+    queryFn: () => billingApi.getPlans(),
+    staleTime: 10 * 60 * 1000,
+  });
+  const plans = (data as any)?.data ?? [];
+  const priceFor = (planId: string): number => {
+    const p = plans.find((pl: any) => pl.id === planId);
+    return p?.monthly_price ?? (planId === "pro" ? 79 : planId === "agency" ? 199 : 29);
+  };
+  return { priceFor };
+}
 
 // ── Add Client Dialog ──────────────────────────────────────────────────────
 
@@ -155,6 +130,7 @@ function AddClientDialog({ open, onOpenChange, onSuccess }: AddClientDialogProps
   const [email, setEmail] = React.useState("");
   const [plan, setPlan] = React.useState<string>(PlanType.STARTER);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const { priceFor } = usePlanPrices();
 
   const reset = () => {
     setName("");
@@ -217,9 +193,9 @@ function AddClientDialog({ open, onOpenChange, onSuccess }: AddClientDialogProps
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={PlanType.STARTER}>Starter — $29/mo</SelectItem>
-                <SelectItem value={PlanType.PRO}>Pro — $97/mo</SelectItem>
-                <SelectItem value={PlanType.AGENCY}>Agency — $499/mo</SelectItem>
+                <SelectItem value={PlanType.STARTER}>Starter — ${priceFor("starter")}/mo</SelectItem>
+                <SelectItem value={PlanType.PRO}>Pro — ${priceFor("pro")}/mo</SelectItem>
+                <SelectItem value={PlanType.AGENCY}>Agency — ${priceFor("agency")}/mo</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -522,6 +498,7 @@ function WhitelabelPanel() {
 // ── Upgrade CTA ────────────────────────────────────────────────────────────
 
 function AgencyUpgradeCta() {
+  const { priceFor } = usePlanPrices();
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center max-w-md mx-auto">
       <div className="h-16 w-16 rounded-2xl bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center mb-5">
@@ -553,7 +530,7 @@ function AgencyUpgradeCta() {
         </CardContent>
       </Card>
       <Button className="bg-violet-600 hover:bg-violet-700 text-white w-full" size="lg">
-        Upgrade to Agency — $499/mo
+        Upgrade to Agency — ${priceFor("agency")}/mo
       </Button>
     </div>
   );

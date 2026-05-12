@@ -170,6 +170,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/ai/hashtags", aiH.GenerateHashtags)
 	ws.Get("/ai/jobs/:id", aiH.GetAIJobStatus)
 	ws.Post("/ai/analyse", aiH.AnalyseViralPotential)
+	ws.Get("/ai/costs", aiH.GetJobCreditCosts)
 
 	// Analytics
 	ws.Get("/analytics", analyticsH.GetDashboard)

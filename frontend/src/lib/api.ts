@@ -611,6 +611,12 @@ export const aiApi = {
       return { success: true, data: { used: 0, limit: 0, resetAt: "" } };
     }
   },
+
+  /** Returns credits-per-job-type from the ai_job_costs table. */
+  getJobCosts: () =>
+    request<{ data: { job_type: string; label: string; credits: number }[]; cost_map: Record<string, number> }>(
+      `${ws()}/ai/costs`,
+    ),
 };
 
 // ============================================================
@@ -669,9 +675,11 @@ export const billingApi = {
   getWorkspaceUsage: () =>
     request<ApiResponse<BillingUsage>>(`${ws()}/billing/usage`),
 
-  getCreditPackages: () =>
+  getCreditPackages: (currency?: string) =>
     request<{ currency: string; packages: CreditPackage[] }>(
-      "/api/v1/billing/credits/packages",
+      currency
+        ? `/api/v1/billing/credits/packages?currency=${currency}`
+        : "/api/v1/billing/credits/packages",
     ),
 
   initiateCreditTopUp: (packageId: string) =>
