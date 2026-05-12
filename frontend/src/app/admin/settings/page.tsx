@@ -1245,9 +1245,15 @@ export default function SettingsPage() {
             <p className="text-xs text-slate-400 font-medium mb-3">Margin preview — at current prices</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {packages.map((pkg) => {
-                const cost = aiCosts.reduce((sum, r) => sum + parseFloat(r.usdCost || "0") * parseFloat(r.credits || "1"), 0);
+                // Average API cost per credit across all AI job types
+                const costPerCredit = aiCosts.length > 0
+                  ? aiCosts.reduce((sum, r) => {
+                      const cr = parseInt(r.credits || "1") || 1;
+                      const usd = parseFloat(r.usdCost || "0");
+                      return sum + (usd / cr);
+                    }, 0) / aiCosts.length
+                  : 0;
                 const revenuePerCredit = parseFloat(pkg.usdPrice || "0") / (parseInt(pkg.credits || "1") || 1);
-                const costPerCredit = cost / aiCosts.reduce((s, r) => s + parseInt(r.credits || "1"), 0);
                 const margin = revenuePerCredit > 0 ? ((revenuePerCredit - costPerCredit) / revenuePerCredit * 100) : 0;
                 return (
                   <div key={pkg.id} className="text-center">

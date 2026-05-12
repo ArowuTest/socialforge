@@ -106,8 +106,17 @@ export default function ModerationPage() {
   const [filtersSaving, setFiltersSaving] = React.useState(false);
 
   // ── Flagged content state ─────────────────────────────────────────────
-  const [flagged] = React.useState<FlaggedItem[]>(MOCK_FLAGGED);
+  const [flagged, setFlagged] = React.useState<FlaggedItem[]>(MOCK_FLAGGED);
   const [flagSearch, setFlagSearch] = React.useState("");
+
+  const handleFlaggedAction = (id: string, action: "approved" | "rejected") => {
+    setFlagged((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, status: action } : item))
+    );
+    toast.success(
+      action === "approved" ? "Content approved" : "Content rejected"
+    );
+  };
 
   // Load keywords and safety filters from platform_settings on mount
   React.useEffect(() => {
@@ -457,11 +466,17 @@ export default function ModerationPage() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {item.status === "pending" ? (
                         <>
-                          <button className="flex items-center gap-1 px-3 py-1.5 bg-green-900/30 hover:bg-green-900/50 border border-green-800/40 text-green-400 text-xs font-medium rounded-lg transition-colors">
+                          <button
+                            onClick={() => handleFlaggedAction(item.id, "approved")}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-green-900/30 hover:bg-green-900/50 border border-green-800/40 text-green-400 text-xs font-medium rounded-lg transition-colors"
+                          >
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             Approve
                           </button>
-                          <button className="flex items-center gap-1 px-3 py-1.5 bg-red-900/30 hover:bg-red-900/50 border border-red-800/40 text-red-400 text-xs font-medium rounded-lg transition-colors">
+                          <button
+                            onClick={() => handleFlaggedAction(item.id, "rejected")}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-red-900/30 hover:bg-red-900/50 border border-red-800/40 text-red-400 text-xs font-medium rounded-lg transition-colors"
+                          >
                             <X className="h-3.5 w-3.5" />
                             Reject
                           </button>

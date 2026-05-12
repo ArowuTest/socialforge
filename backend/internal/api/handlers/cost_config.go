@@ -152,6 +152,8 @@ func (h *CostConfigHandler) UpdateAIJobCost(c *fiber.Ctx) error {
 	// Return updated row
 	var updated AIJobCostRow
 	h.db.WithContext(c.Context()).Where("job_type = ?", jobType).First(&updated)
+	writeAudit(c, h.db, h.log, uuid.Nil, "ai_cost.updated", "ai_job_cost", jobType,
+		map[string]any{"job_type": jobType, "updates": updates})
 	return c.JSON(fiber.Map{"data": updated})
 }
 
@@ -190,6 +192,8 @@ func (h *CostConfigHandler) BulkUpdateAIJobCosts(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "bulk update failed")
 	}
 
+	writeAudit(c, h.db, h.log, uuid.Nil, "ai_cost.bulk_updated", "ai_job_cost", "",
+		map[string]any{"count": len(rows)})
 	return c.JSON(fiber.Map{"data": rows, "updated": len(rows)})
 }
 
@@ -351,6 +355,14 @@ func (h *CostConfigHandler) UpdatePlatformSetting(c *fiber.Ctx) error {
 			return fiber.NewError(fiber.StatusInternalServerError, "create failed")
 		}
 	}
+
+	// Audit — mask value for sensitive keys so the log never stores plaintext API keys.
+	logValue := req.Value
+	if sensitiveSettingKeys[key] {
+		logValue = maskKey(req.Value)
+	}
+	writeAudit(c, h.db, h.log, uuid.Nil, "settings.updated", "platform_setting", key,
+		map[string]any{"key": key, "value": logValue})
 
 	// Return masked value for sensitive keys.
 	displayValue := req.Value

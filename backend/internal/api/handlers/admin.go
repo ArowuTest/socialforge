@@ -202,11 +202,18 @@ func (h *AdminHandler) SuspendUser(c *fiber.Ctx) error {
 		return internalError(c, "failed to update user status")
 	}
 
-	action := "suspended"
+	action := "user.suspended"
 	if !user.IsSuspended {
-		action = "unsuspended"
+		action = "user.unsuspended"
 	}
-	return c.JSON(fiber.Map{"message": "user " + action + " successfully", "is_suspended": user.IsSuspended})
+	writeAudit(c, h.db, h.log, uuid.Nil, action, "user", id.String(),
+		map[string]any{"target_email": user.Email})
+
+	label := "suspended"
+	if !user.IsSuspended {
+		label = "unsuspended"
+	}
+	return c.JSON(fiber.Map{"message": "user " + label + " successfully", "is_suspended": user.IsSuspended})
 }
 
 // ── ListAllWorkspaces ─────────────────────────────────────────────────────────
@@ -544,6 +551,8 @@ func (h *AdminHandler) GrantCredits(c *fiber.Ctx) error {
 		zap.Int("credits", req.Credits),
 		zap.Int("new_balance", newBalance),
 	)
+	writeAudit(c, h.db, h.log, wsID, "credits.granted", "workspace", wsID.String(),
+		map[string]any{"credits": req.Credits, "new_balance": newBalance, "note": req.Note})
 
 	return c.JSON(fiber.Map{
 		"message":     "credits granted successfully",
@@ -625,6 +634,13 @@ func (h *AdminHandler) GrantPlanAccess(c *fiber.Ctx) error {
 		Model(&models.Workspace{}).
 		Where("owner_id = ?", uid).
 		Update("plan", req.Plan)
+
+	auditAction := "plan.updated"
+	if isTrial {
+		auditAction = "plan.trial_granted"
+	}
+	writeAudit(c, h.db, h.log, uuid.Nil, auditAction, "user", uid.String(),
+		map[string]any{"plan": req.Plan, "trial_days": req.TrialDays})
 
 	msg := "plan updated successfully"
 	if isTrial {
@@ -783,6 +799,7 @@ func (h *AdminHandler) ResetUserPassword(c *fiber.Ctx) error {
 	}
 
 	h.log.Info("admin reset user password", zap.String("user_id", id.String()))
+	writeAudit(c, h.db, h.log, uuid.Nil, "user.password_reset", "user", id.String(), nil)
 	return c.JSON(fiber.Map{"message": "password reset successfully"})
 }
 
