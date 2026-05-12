@@ -426,62 +426,93 @@ func (h *AdminHandler) ListAuditLogs(c *fiber.Ctx) error {
 // ── GetRevenueStats ───────────────────────────────────────────────────────────
 
 type planRevenue struct {
-	Plan      string `json:"plan"`
-	UserCount int64  `json:"user_count"`
-	UnitPrice int    `json:"unit_price_usd"`
-	MRR       int64  `json:"mrr_usd"`
-}
-
-// planPrice returns the monthly price in USD for a given plan.
-func planPrice(plan string) int {
-	switch plan {
-	case "starter":
-		return 29
-	case "pro":
-		return 79
-	case "agency":
-		return 199
-	default:
-		return 0
-	}
+	Plan          string  `json:"plan"`
+	Subscriptions int64   `json:"subscriptions"`
+	MonthlyPrice  float64 `json:"monthly_price"`
+	MRR           float64 `json:"mrr"`
 }
 
 // GetRevenueStats returns MRR breakdown by plan.
+// Prices are read from platform_settings so they stay in sync with admin edits.
+//
 // GET /api/v1/admin/revenue
 func (h *AdminHandler) GetRevenueStats(c *fiber.Ctx) error {
+	ctx := c.Context()
+
+	// Load plan prices from platform_settings, fall back to safe defaults.
+	type kv struct {
+		Key   string `gorm:"column:key"`
+		Value string `gorm:"column:value"`
+	}
+	var settings []kv
+	h.db.WithContext(ctx).
+		Raw(`SELECT key, value FROM platform_settings WHERE key LIKE 'plan_price_%'`).
+		Scan(&settings)
+
+	prices := map[string]float64{"starter": 29, "pro": 79, "agency": 199}
+	for _, s := range settings {
+		var plan string
+		switch s.Key {
+		case "plan_price_starter":
+			plan = "starter"
+		case "plan_price_pro":
+			plan = "pro"
+		case "plan_price_agency":
+			plan = "agency"
+		default:
+			continue
+		}
+		if v, err := strconv.ParseFloat(s.Value, 64); err == nil && v > 0 {
+			prices[plan] = v
+		}
+	}
+
+	// Count paid workspaces by plan.
 	type planCount struct {
-		Plan  string
-		Count int64
+		Plan  string `gorm:"column:plan"`
+		Count int64  `gorm:"column:count"`
+	}
+	var counts []planCount
+	h.db.WithContext(ctx).
+		Raw(`SELECT plan, COUNT(*) as count FROM workspaces
+		     WHERE plan IN ('starter','pro','agency')
+		     AND subscription_status IN ('active','trialing')
+		     GROUP BY plan`).
+		Scan(&counts)
+
+	planMap := map[string]int64{}
+	for _, pc := range counts {
+		planMap[pc.Plan] = pc.Count
 	}
 
-	var planCounts []planCount
-	if err := h.db.WithContext(c.Context()).
-		Model(&models.User{}).
-		Select("plan, COUNT(*) AS count").
-		Where("subscription_status = ?", "active").
-		Group("plan").
-		Scan(&planCounts).Error; err != nil {
-		h.log.Error("GetRevenueStats: query", zap.Error(err))
-		return internalError(c, "failed to load revenue stats")
-	}
-
-	var totalMRR int64
-	breakdown := make([]planRevenue, 0, len(planCounts))
-	for _, pc := range planCounts {
-		price := planPrice(pc.Plan)
-		mrr := pc.Count * int64(price)
+	plans := []string{"starter", "pro", "agency"}
+	breakdown := make([]planRevenue, 0, len(plans))
+	totalMRR := 0.0
+	for _, plan := range plans {
+		cnt := planMap[plan]
+		price := prices[plan]
+		mrr := float64(cnt) * price
 		totalMRR += mrr
 		breakdown = append(breakdown, planRevenue{
-			Plan:      pc.Plan,
-			UserCount: pc.Count,
-			UnitPrice: price,
-			MRR:       mrr,
+			Plan:          plan,
+			Subscriptions: cnt,
+			MonthlyPrice:  price,
+			MRR:           mrr,
 		})
 	}
 
+	// Free plan count.
+	var freeCount int64
+	h.db.WithContext(ctx).
+		Raw(`SELECT COUNT(*) FROM workspaces WHERE plan = 'free' OR plan IS NULL`).
+		Scan(&freeCount)
+
 	return c.JSON(fiber.Map{
-		"breakdown": breakdown,
-		"total_mrr": totalMRR,
+		"data": fiber.Map{
+			"total_mrr":  totalMRR,
+			"breakdown":  breakdown,
+			"free_users": freeCount,
+		},
 	})
 }
 
@@ -814,100 +845,4 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-// ── GetRevenueStats ───────────────────────────────────────────────────────────
-
-// GetRevenueStats returns a revenue breakdown by subscription plan.
-// Prices are read from platform_settings so they stay in sync with admin edits.
-//
-// GET /api/v1/admin/revenue
-func (h *AdminHandler) GetRevenueStats(c *fiber.Ctx) error {
-	ctx := c.Context()
-
-	// Load plan prices from platform_settings
-	type kv struct {
-		Key   string `gorm:"column:key"`
-		Value string `gorm:"column:value"`
-	}
-	var settings []kv
-	h.db.WithContext(ctx).
-		Raw(`SELECT key, value FROM platform_settings WHERE key LIKE 'plan_price_%'`).
-		Scan(&settings)
-
-	prices := map[string]float64{
-		"starter": 29,
-		"pro":     79,
-		"agency":  199,
-	}
-	for _, s := range settings {
-		var plan string
-		switch s.Key {
-		case "plan_price_starter":
-			plan = "starter"
-		case "plan_price_pro":
-			plan = "pro"
-		case "plan_price_agency":
-			plan = "agency"
-		default:
-			continue
-		}
-		if v, err := strconv.ParseFloat(s.Value, 64); err == nil && v > 0 {
-			prices[plan] = v
-		}
-	}
-
-	// Count paid workspaces by plan
-	type planCount struct {
-		Plan  string `gorm:"column:plan"`
-		Count int64  `gorm:"column:count"`
-	}
-	var counts []planCount
-	h.db.WithContext(ctx).
-		Raw(`SELECT plan, COUNT(*) as count FROM workspaces
-		     WHERE plan IN ('starter','pro','agency')
-		     AND subscription_status IN ('active','trialing')
-		     GROUP BY plan`).
-		Scan(&counts)
-
-	type planRevenue struct {
-		Plan         string  `json:"plan"`
-		Subscriptions int64  `json:"subscriptions"`
-		MonthlyPrice float64 `json:"monthly_price"`
-		MRR          float64 `json:"mrr"`
-	}
-
-	planMap := map[string]int64{}
-	for _, c := range counts {
-		planMap[c.Plan] = c.Count
-	}
-
-	plans := []string{"starter", "pro", "agency"}
-	breakdown := make([]planRevenue, 0, len(plans))
-	totalMRR := 0.0
-	for _, plan := range plans {
-		cnt := planMap[plan]
-		price := prices[plan]
-		mrr := float64(cnt) * price
-		totalMRR += mrr
-		breakdown = append(breakdown, planRevenue{
-			Plan:          plan,
-			Subscriptions: cnt,
-			MonthlyPrice:  price,
-			MRR:           mrr,
-		})
-	}
-
-	// Free plan count
-	var freeCount int64
-	h.db.WithContext(ctx).
-		Raw(`SELECT COUNT(*) FROM workspaces WHERE plan = 'free' OR plan IS NULL`).
-		Scan(&freeCount)
-
-	return c.JSON(fiber.Map{
-		"data": fiber.Map{
-			"total_mrr":  totalMRR,
-			"breakdown":  breakdown,
-			"free_users": freeCount,
-		},
-	})
-}
 
