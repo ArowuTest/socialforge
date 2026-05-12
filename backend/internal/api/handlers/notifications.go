@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
+	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/models"
 )
 
@@ -32,10 +33,11 @@ func (h *NotificationsHandler) ListNotifications(c *fiber.Ctx) error {
 		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
 	}
 
-	userID, ok := c.Locals("userID").(uuid.UUID)
-	if !ok {
+	u, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || u == nil {
 		return unauthorised(c, "missing user identity")
 	}
+	userID := u.ID
 
 	page := c.QueryInt("page", 1)
 	limit := c.QueryInt("limit", 20)
@@ -98,10 +100,11 @@ func (h *NotificationsHandler) MarkRead(c *fiber.Ctx) error {
 		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
 	}
 
-	userID, ok := c.Locals("userID").(uuid.UUID)
-	if !ok {
+	u, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || u == nil {
 		return unauthorised(c, "missing user identity")
 	}
+	userID := u.ID
 
 	notifID, err := uuid.Parse(c.Params("id"))
 	if err != nil {
@@ -133,10 +136,11 @@ func (h *NotificationsHandler) MarkAllRead(c *fiber.Ctx) error {
 		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
 	}
 
-	userID, ok := c.Locals("userID").(uuid.UUID)
-	if !ok {
+	u, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || u == nil {
 		return unauthorised(c, "missing user identity")
 	}
+	userID := u.ID
 
 	result := h.db.WithContext(c.Context()).
 		Model(&models.Notification{}).
@@ -160,10 +164,11 @@ func (h *NotificationsHandler) UnreadCount(c *fiber.Ctx) error {
 		return badRequest(c, "workspace id must be a valid UUID", "INVALID_ID")
 	}
 
-	userID, ok := c.Locals("userID").(uuid.UUID)
-	if !ok {
+	u, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || u == nil {
 		return unauthorised(c, "missing user identity")
 	}
+	userID := u.ID
 
 	var count int64
 	if err := h.db.WithContext(c.Context()).Model(&models.Notification{}).
