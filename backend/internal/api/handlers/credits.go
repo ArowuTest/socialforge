@@ -125,16 +125,30 @@ func (h *BillingHandler) InitiateCreditTopUp(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
+	writeAudit(c, h.db, h.log, wid, "credits.topup_initiated", "credit_package", req.PackageID, map[string]any{
+		"package_id": req.PackageID,
+		"currency":   currency,
+	})
+
 	return c.JSON(sess)
 }
 
 // PaystackWebhook handles Paystack webhook events.
 func (h *BillingHandler) PaystackWebhook(c *fiber.Ctx) error {
 	signature := c.Get("X-Paystack-Signature")
+	bodyLen := len(c.Body())
 	if err := h.svc.HandlePaystackWebhook(c.Context(), c.Body(), signature); err != nil {
 		h.log.Error("paystack webhook", zap.Error(err))
+		writeAuditAs(c, h.db, h.log, uuid.Nil, uuid.Nil, "payment.webhook_failed", "paystack_webhook", "", map[string]any{
+			"error":     err.Error(),
+			"body_size": bodyLen,
+		})
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
+	writeAuditAs(c, h.db, h.log, uuid.Nil, uuid.Nil, "payment.webhook_received", "paystack_webhook", "", map[string]any{
+		"provider":  "paystack",
+		"body_size": bodyLen,
+	})
 	return c.SendStatus(fiber.StatusOK)
 }
 

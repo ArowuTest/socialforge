@@ -49,3 +49,33 @@ func writeAudit(
 		}
 	}(entry)
 }
+
+// writeAuditAs is like writeAudit but takes an explicit actor user ID, for
+// flows where the user isn't yet in c.Locals (login, register, password reset).
+// Pass uuid.Nil for userID on anonymous failures.
+func writeAuditAs(
+	c *fiber.Ctx,
+	db *gorm.DB,
+	log *zap.Logger,
+	userID uuid.UUID,
+	workspaceID uuid.UUID,
+	action, resourceType, resourceID string,
+	metadata map[string]any,
+) {
+	entry := &models.AuditLog{
+		WorkspaceID:  workspaceID,
+		UserID:       userID,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Metadata:     models.JSONMap(metadata),
+		IPAddress:    c.IP(),
+		UserAgent:    c.Get("User-Agent"),
+	}
+
+	go func(e *models.AuditLog) {
+		if err := db.WithContext(context.Background()).Create(e).Error; err != nil {
+			log.Warn("audit log write failed", zap.Error(err), zap.String("action", e.Action))
+		}
+	}(entry)
+}

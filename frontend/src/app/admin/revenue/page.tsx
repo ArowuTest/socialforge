@@ -11,9 +11,9 @@ import { adminApi } from "@/lib/api";
 
 interface PlanBreakdown {
   plan: string;
-  user_count: number;
-  unit_price_usd: number;
-  mrr_usd: number;
+  subscriptions: number;
+  monthly_price: number;
+  mrr: number;
 }
 
 const planColors: Record<string, string> = {
@@ -57,7 +57,7 @@ export default function RevenuePage() {
     adminApi.getRevenue()
       .then((res) => {
         if (!cancelled) {
-          const raw = res as unknown as { breakdown: PlanBreakdown[]; total_mrr: number };
+          const raw = (res?.data ?? res) as unknown as { breakdown: PlanBreakdown[]; total_mrr: number };
           setBreakdown(raw.breakdown ?? []);
           setTotalMrr(raw.total_mrr ?? 0);
         }
@@ -70,14 +70,14 @@ export default function RevenuePage() {
   }, []);
 
   const arr = totalMrr * 12;
-  const totalUsers = breakdown.reduce((sum, b) => sum + b.user_count, 0);
+  const totalUsers = breakdown.reduce((sum, b) => sum + b.subscriptions, 0);
   const arpu = totalUsers > 0 ? (totalMrr / totalUsers) : 0;
 
   const pieData = breakdown
-    .filter((b) => b.plan !== "free" && b.mrr_usd > 0)
+    .filter((b) => b.plan !== "free" && b.mrr > 0)
     .map((b) => ({
       name: planLabels[b.plan] ?? b.plan,
-      value: b.mrr_usd,
+      value: b.mrr,
       color: planColors[b.plan] ?? "#64748b",
     }));
 
@@ -85,8 +85,8 @@ export default function RevenuePage() {
     .filter((b) => b.plan !== "free")
     .map((b) => ({
       plan: planLabels[b.plan] ?? b.plan,
-      users: b.user_count,
-      mrr: b.mrr_usd,
+      users: b.subscriptions,
+      mrr: b.mrr,
     }));
 
   return (
@@ -209,15 +209,15 @@ export default function RevenuePage() {
                 className="grid grid-cols-4 gap-4 px-5 py-3 items-center border-b border-slate-800/60 last:border-0 hover:bg-slate-800/30 transition-colors"
               >
                 <span className="text-sm text-white font-medium capitalize">{row.plan}</span>
-                <span className="text-sm text-slate-300">{row.user_count.toLocaleString()}</span>
-                <span className="text-sm text-slate-300">${row.unit_price_usd}/mo</span>
-                <span className="text-sm text-violet-400 font-semibold">${row.mrr_usd.toLocaleString()}</span>
+                <span className="text-sm text-slate-300">{row.subscriptions.toLocaleString()}</span>
+                <span className="text-sm text-slate-300">${row.monthly_price}/mo</span>
+                <span className="text-sm text-violet-400 font-semibold">${row.mrr.toLocaleString()}</span>
               </div>
             ))}
         {!loading && breakdown.length > 0 && (
           <div className="grid grid-cols-4 gap-4 px-5 py-3 bg-slate-800/30 border-t border-slate-800">
             <span className="text-sm font-bold text-white">Total</span>
-            <span className="text-sm font-semibold text-white">{breakdown.reduce((s, b) => s + b.user_count, 0).toLocaleString()}</span>
+            <span className="text-sm font-semibold text-white">{breakdown.reduce((s, b) => s + b.subscriptions, 0).toLocaleString()}</span>
             <span />
             <span className="text-sm font-bold text-violet-400">${totalMrr.toLocaleString()}</span>
           </div>

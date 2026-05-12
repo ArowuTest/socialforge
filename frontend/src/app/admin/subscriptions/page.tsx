@@ -71,13 +71,13 @@ export default function AdminSubscriptionsPage() {
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [revenue, setRevenue] = React.useState<{ total_mrr: number; breakdown: Array<{ plan: string; user_count: number }> } | null>(null);
+  const [revenue, setRevenue] = React.useState<{ total_mrr: number; breakdown: Array<{ plan: string; subscriptions: number }> } | null>(null);
 
   const PAGE_SIZE = 25;
 
   React.useEffect(() => {
     adminApi.getRevenue()
-      .then((res) => setRevenue(res as unknown as typeof revenue))
+      .then((res) => setRevenue((res?.data ?? res) as unknown as typeof revenue))
       .catch(() => null);
   }, []);
 
@@ -106,7 +106,7 @@ export default function AdminSubscriptionsPage() {
   }, [page, planFilter, search]);
 
   const totalMrr = revenue?.total_mrr ?? 0;
-  const paidCount = revenue?.breakdown?.filter((b) => b.plan !== "free").reduce((s, b) => s + b.user_count, 0) ?? 0;
+  const paidCount = revenue?.breakdown?.filter((b) => b.plan !== "free").reduce((s, b) => s + b.subscriptions, 0) ?? 0;
 
   const filtered = statusFilter === "all"
     ? users

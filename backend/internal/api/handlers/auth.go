@@ -9,6 +9,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/config"
@@ -26,6 +27,7 @@ type AuthHandler struct {
 	auth          *authsvc.Service
 	notifications *notifications.Service
 	cfg           *config.Config
+	db            *gorm.DB
 	log           *zap.Logger
 }
 
@@ -37,6 +39,7 @@ func NewAuthHandler(
 	auth *authsvc.Service,
 	notif *notifications.Service,
 	cfg *config.Config,
+	db *gorm.DB,
 	log *zap.Logger,
 ) *AuthHandler {
 	return &AuthHandler{
@@ -46,6 +49,7 @@ func NewAuthHandler(
 		auth:          auth,
 		notifications: notif,
 		cfg:           cfg,
+		db:            db,
 		log:           log.Named("auth_handler"),
 	}
 }
@@ -114,6 +118,16 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		}(user, workspace)
 	}
 
+	// Audit log
+	wsID := uuid.Nil
+	if workspace != nil {
+		wsID = workspace.ID
+	}
+	writeAuditAs(c, h.db, h.log, user.ID, wsID, "user.register", "user", user.ID.String(), map[string]any{
+		"email":          user.Email,
+		"workspace_name": req.WorkspaceName,
+	})
+
 	setRefreshCookie(c, pair.RefreshToken)
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
@@ -150,6 +164,11 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	user, pair, err := h.auth.Login(c.Context(), req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, authsvc.ErrInvalidCredentials) {
+			// Audit failed login (no user_id since auth didn't succeed)
+			writeAuditAs(c, h.db, h.log, uuid.Nil, uuid.Nil, "user.login_failed", "user", "", map[string]any{
+				"email":  req.Email,
+				"reason": "invalid_credentials",
+			})
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "invalid email or password",
 				"code":  "INVALID_CREDENTIALS",
@@ -165,6 +184,15 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	if err == nil && len(workspaces) > 0 {
 		workspace = workspaces[0]
 	}
+
+	// Audit successful login
+	wsID := uuid.Nil
+	if workspace != nil {
+		wsID = workspace.ID
+	}
+	writeAuditAs(c, h.db, h.log, user.ID, wsID, "user.login", "user", user.ID.String(), map[string]any{
+		"email": user.Email,
+	})
 
 	setRefreshCookie(c, pair.RefreshToken)
 

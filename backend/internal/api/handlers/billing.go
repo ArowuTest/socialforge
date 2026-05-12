@@ -240,6 +240,10 @@ func (h *BillingHandler) CreateSubscription(c *fiber.Ctx) error {
 		return internalError(c, "failed to create checkout session")
 	}
 
+	writeAudit(c, h.db, h.log, workspaceID, "subscription.checkout_initiated", "subscription", req.PriceID, map[string]any{
+		"price_id": req.PriceID,
+	})
+
 	return c.JSON(fiber.Map{"data": fiber.Map{"checkout_url": checkoutURL}})
 }
 
@@ -350,6 +354,15 @@ func (h *BillingHandler) StripeWebhook(c *fiber.Ctx) error {
 			zap.String("signature", sig),
 			zap.String("remote_ip", c.IP()),
 		)
+		writeAuditAs(c, h.db, h.log, uuid.Nil, uuid.Nil, "payment.webhook_failed", "stripe_webhook", "", map[string]any{
+			"error":     err.Error(),
+			"body_size": len(body),
+		})
+	} else {
+		writeAuditAs(c, h.db, h.log, uuid.Nil, uuid.Nil, "payment.webhook_received", "stripe_webhook", "", map[string]any{
+			"provider":  "stripe",
+			"body_size": len(body),
+		})
 	}
 
 	return c.SendStatus(fiber.StatusOK)

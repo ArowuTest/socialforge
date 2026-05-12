@@ -51,7 +51,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	mw := middleware.New(deps.AuthService, deps.DB, deps.RDB, deps.Config, deps.Log)
 
 	// Build handler groups, injecting repository interfaces instead of raw *gorm.DB.
-	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.NotificationsService, deps.Config, deps.Log)
+	authH := handlers.NewAuthHandler(repos.Users, repos.Workspaces, repos.APIKeys, deps.AuthService, deps.NotificationsService, deps.Config, deps.DB, deps.Log)
 	postsH := handlers.NewPostsHandler(deps.DB, repos.Posts, deps.ScheduleService, deps.AsynqClient, deps.Log)
 	accountsH := handlers.NewAccountsHandler(deps.DB, deps.PlatformClients, deps.BlueskyClient, deps.Config, deps.Log)
 	scheduleH := handlers.NewScheduleHandler(deps.DB, deps.ScheduleService, deps.Log)
