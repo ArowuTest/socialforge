@@ -133,7 +133,7 @@ function passwordStrength(pw: string): { score: number; label: string; color: st
 function ProfileTab() {
   const { user, setUser } = useAuthStore();
   const [name, setName] = React.useState(user?.name ?? "");
-  const [email] = React.useState(user?.email ?? "");
+  const email = user?.email ?? "";
   const [bio, setBio] = React.useState("");
   const [avatarPreview, setAvatarPreview] = React.useState<string | null>(user?.avatar ?? null);
 
@@ -141,6 +141,9 @@ function ProfileTab() {
   React.useEffect(() => {
     if (user?.name) setName(user.name);
   }, [user?.name]);
+  React.useEffect(() => {
+    if (user?.avatar) setAvatarPreview(user.avatar);
+  }, [user?.avatar]);
   const [currentPw, setCurrentPw] = React.useState("");
   const [newPw, setNewPw] = React.useState("");
   const [confirmPw, setConfirmPw] = React.useState("");
