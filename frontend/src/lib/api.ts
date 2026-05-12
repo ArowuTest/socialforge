@@ -222,7 +222,11 @@ export const authApi = {
   register: (data: RegisterRequest) =>
     request<ApiResponse<{ user: User; workspace: Workspace; tokens: AuthTokens }>>(
       "/api/v1/auth/register",
-      { method: "POST", body: JSON.stringify(data) },
+      {
+        method: "POST",
+        // Backend expects snake_case workspace_name; transform from camelCase
+        body: JSON.stringify({ ...data, workspace_name: data.workspaceName }),
+      },
     ),
 
   refreshToken: (token: string) =>

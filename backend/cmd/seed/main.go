@@ -71,6 +71,11 @@ type seeder struct {
 }
 
 func (s *seeder) run() error {
+	// ── Platform Super Admin ─────────────────────────────────────────────────────
+	if err := s.ensureSuperAdmin(); err != nil {
+		return fmt.Errorf("superadmin: %w", err)
+	}
+
 	// ── User 1: tester_april2026@gmail.com (already registered, upgrade to Pro) ──
 	user1ID, ws1ID, err := s.ensureUser1()
 	if err != nil {
@@ -111,6 +116,47 @@ func (s *seeder) run() error {
 		}
 	}
 
+	return nil
+}
+
+// ── Platform Super Admin ─────────────────────────────────────────────────────
+
+// ensureSuperAdmin creates (or ensures) the platform super-admin account.
+// Credentials: admin@chiselpost.com / AdminPass789!
+// You can change the password via the admin portal after first login.
+func (s *seeder) ensureSuperAdmin() error {
+	const email = "admin@chiselpost.com"
+	const password = "AdminPass789!"
+
+	var userID uuid.UUID
+	err := s.db.QueryRow(`SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL`, email).Scan(&userID)
+	if err == sql.ErrNoRows {
+		hash, herr := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if herr != nil {
+			return fmt.Errorf("hash pw: %w", herr)
+		}
+		userID = uuid.New()
+		now := time.Now().UTC()
+		_, ierr := s.db.Exec(`
+			INSERT INTO users
+			    (id, email, password_hash, name, full_name, plan,
+			     subscription_status, is_super_admin, is_suspended,
+			     email_verified_at, created_at, updated_at)
+			VALUES ($1,$2,$3,'Platform Admin','Platform Admin','agency',
+			        'active',TRUE,FALSE,$4,$5,$5)`,
+			userID, email, string(hash), now, now)
+		if ierr != nil {
+			return fmt.Errorf("insert super admin: %w", ierr)
+		}
+		log.Printf("seed: ✅ created super admin id=%s email=%s password=%s", userID, email, password)
+		log.Printf("seed: ⚠️  Change the super admin password after first login!")
+	} else if err != nil {
+		return err
+	} else {
+		// Ensure the existing user has is_super_admin=true in case it was unset.
+		_, _ = s.db.Exec(`UPDATE users SET is_super_admin=TRUE, updated_at=NOW() WHERE id=$1`, userID)
+		log.Printf("seed: super admin already exists id=%s — ensured is_super_admin=true", userID)
+	}
 	return nil
 }
 

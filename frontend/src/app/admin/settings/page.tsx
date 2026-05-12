@@ -156,6 +156,11 @@ export default function SettingsPage() {
   const [postsPro, setPostsPro] = React.useState("1000");
   const [postsAgency, setPostsAgency] = React.useState("10000");
 
+  // Plan monthly pricing (USD) — configurable from admin, drives the /billing/plans endpoint
+  const [priceStarter, setPriceStarter] = React.useState("29");
+  const [pricePro, setPricePro] = React.useState("79");
+  const [priceAgency, setPriceAgency] = React.useState("199");
+
   // AI Costs state
   const [aiCosts, setAiCosts] = React.useState<AIJobCostRow[]>(DEFAULT_AI_COSTS);
   const [packages, setPackages] = React.useState<CreditPackageRow[]>(DEFAULT_PACKAGES);
@@ -184,6 +189,9 @@ export default function SettingsPage() {
         adminApi.updatePlatformSetting("plan_posts_starter", postsStarter),
         adminApi.updatePlatformSetting("plan_posts_pro", postsPro),
         adminApi.updatePlatformSetting("plan_posts_agency", postsAgency),
+        adminApi.updatePlatformSetting("plan_price_starter", priceStarter),
+        adminApi.updatePlatformSetting("plan_price_pro", pricePro),
+        adminApi.updatePlatformSetting("plan_price_agency", priceAgency),
       ]);
       toast.success("General settings saved");
     } catch {
@@ -405,6 +413,9 @@ export default function SettingsPage() {
         if (s.campaign_limit_starter) setCampaignLimitsStarter(s.campaign_limit_starter);
         if (s.campaign_limit_pro) setCampaignLimitsPro(s.campaign_limit_pro);
         if (s.campaign_limit_agency) setCampaignLimitsAgency(s.campaign_limit_agency);
+        if (s.plan_price_starter) setPriceStarter(s.plan_price_starter);
+        if (s.plan_price_pro) setPricePro(s.plan_price_pro);
+        if (s.plan_price_agency) setPriceAgency(s.plan_price_agency);
       }
     }).catch((err) => {
       // If we get redirected to login, the error is swallowed by the redirect.
@@ -569,6 +580,35 @@ export default function SettingsPage() {
               ))}
             </div>
             <p className="text-xs text-slate-600 mt-1.5">Use -1 for unlimited. Backend reads on next enforcement check.</p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Plan Pricing (Monthly USD)</label>
+            <p className="text-xs text-slate-600 mb-2">
+              Stored in platform_settings. Drives the /billing/plans API and user-facing upgrade UI.
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Starter", value: priceStarter, set: setPriceStarter },
+                { label: "Pro",     value: pricePro,     set: setPricePro     },
+                { label: "Agency",  value: priceAgency,  set: setPriceAgency  },
+              ].map((p) => (
+                <div key={p.label}>
+                  <label className="text-xs text-slate-500 block mb-1">{p.label} ($/mo)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={p.value}
+                      onChange={(e) => p.set(e.target.value)}
+                      className={cn(inputClass, "pl-7")}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           <SaveButton onClick={handleSaveGeneral} />

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"strconv"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
@@ -35,8 +37,67 @@ func NewBillingHandler(billing *billingsvc.Service, log *zap.Logger, rdb *redis.
 // ── Plan definitions ──────────────────────────────────────────────────────────
 
 // GetPlans returns all available billing plans.
+// Prices and per-plan limits are read from the platform_settings table so the
+// platform admin can update them without a redeployment.  Hard-coded values are
+// used as safe defaults when the corresponding key is absent from the DB.
+//
 // GET /api/v1/billing/plans
 func (h *BillingHandler) GetPlans(c *fiber.Ctx) error {
+	// ── Read relevant platform_settings rows ───────────────────────────────────
+	type kv struct {
+		Key   string `gorm:"column:key"`
+		Value string `gorm:"column:value"`
+	}
+	var rows []kv
+	h.db.WithContext(c.Context()).
+		Raw(`SELECT key, value FROM platform_settings
+		     WHERE key LIKE 'plan_%' OR key LIKE 'max_accounts_%'`).
+		Scan(&rows)
+
+	setting := make(map[string]string, len(rows))
+	for _, r := range rows {
+		setting[r.Key] = r.Value
+	}
+
+	// intSetting returns the int stored under key, or def if absent/invalid.
+	intSetting := func(key string, def int) int {
+		if v, ok := setting[key]; ok {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				return n
+			}
+		}
+		return def
+	}
+	// floatSetting returns the float64 stored under key, or def if absent/invalid.
+	floatSetting := func(key string, def float64) float64 {
+		if v, ok := setting[key]; ok {
+			if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+				return f
+			}
+		}
+		return def
+	}
+
+	// ── Build plan list ────────────────────────────────────────────────────────
+	starterAccounts := intSetting("max_accounts_starter", 20)
+	proAccounts     := intSetting("max_accounts_pro", 40)
+	agencyAccounts  := intSetting("max_accounts_agency", 999)
+	freeAccounts    := intSetting("max_accounts_free", 2)
+
+	starterCredits := intSetting("plan_credits_starter", 1250)
+	proCredits     := intSetting("plan_credits_pro", 5000)
+	agencyCredits  := intSetting("plan_credits_agency", 28000)
+	freeCredits    := intSetting("plan_credits_free", 10)
+
+	starterPosts := intSetting("plan_posts_starter", 500)
+	proPosts     := intSetting("plan_posts_pro", 2000)
+	agencyPosts  := intSetting("plan_posts_agency", 50000)
+	freePosts    := intSetting("plan_posts_free", 10)
+
+	starterPrice := floatSetting("plan_price_starter", 29)
+	proPrice     := floatSetting("plan_price_pro", 79)
+	agencyPrice  := floatSetting("plan_price_agency", 199)
+
 	plans := []models.Plan{
 		{
 			ID:             "free",
@@ -48,16 +109,16 @@ func (h *BillingHandler) GetPlans(c *fiber.Ctx) error {
 			YearlyPriceID:  "",
 			Limits: models.PlanLimits{
 				MaxWorkspaces:     1,
-				MaxSocialAccounts: 2,
-				MaxScheduledPosts: 10,
-				AICreditsPerMonth: 10,
+				MaxSocialAccounts: freeAccounts,
+				MaxScheduledPosts: freePosts,
+				AICreditsPerMonth: freeCredits,
 				MaxTeamMembers:    1,
 				CanWhiteLabel:     false,
 			},
 			Features: []string{
-				"2 social accounts",
-				"10 scheduled posts/month",
-				"10 AI credits/month",
+				strconv.Itoa(freeAccounts) + " social accounts",
+				strconv.Itoa(freePosts) + " scheduled posts/month",
+				strconv.Itoa(freeCredits) + " AI credits/month",
 				"Basic analytics",
 			},
 		},
@@ -65,20 +126,20 @@ func (h *BillingHandler) GetPlans(c *fiber.Ctx) error {
 			ID:           "starter",
 			Name:         "Starter",
 			Description:  "For creators and small businesses growing their presence.",
-			MonthlyPrice: 29,
-			YearlyPrice:  290,
+			MonthlyPrice: starterPrice,
+			YearlyPrice:  floatSetting("plan_price_starter_yearly", starterPrice*10),
 			Limits: models.PlanLimits{
 				MaxWorkspaces:     1,
-				MaxSocialAccounts: 20,
-				MaxScheduledPosts: 500,
-				AICreditsPerMonth: 1250,
+				MaxSocialAccounts: starterAccounts,
+				MaxScheduledPosts: starterPosts,
+				AICreditsPerMonth: starterCredits,
 				MaxTeamMembers:    5,
 				CanWhiteLabel:     false,
 			},
 			Features: []string{
-				"20 social accounts",
-				"500 scheduled posts/month",
-				"1,250 AI credits/month",
+				strconv.Itoa(starterAccounts) + " social accounts",
+				strconv.Itoa(starterPosts) + " scheduled posts/month",
+				strconv.Itoa(starterCredits) + " AI credits/month",
 				"Advanced analytics",
 				"5 team members",
 				"API access",
@@ -89,20 +150,20 @@ func (h *BillingHandler) GetPlans(c *fiber.Ctx) error {
 			ID:           "pro",
 			Name:         "Pro",
 			Description:  "For marketing teams that need powerful automation.",
-			MonthlyPrice: 79,
-			YearlyPrice:  790,
+			MonthlyPrice: proPrice,
+			YearlyPrice:  floatSetting("plan_price_pro_yearly", proPrice*10),
 			Limits: models.PlanLimits{
 				MaxWorkspaces:     5,
-				MaxSocialAccounts: 40,
-				MaxScheduledPosts: 2000,
-				AICreditsPerMonth: 5000,
+				MaxSocialAccounts: proAccounts,
+				MaxScheduledPosts: proPosts,
+				AICreditsPerMonth: proCredits,
 				MaxTeamMembers:    15,
 				CanWhiteLabel:     false,
 			},
 			Features: []string{
-				"40 social accounts",
-				"2,000 scheduled posts/month",
-				"5,000 AI credits/month",
+				strconv.Itoa(proAccounts) + " social accounts",
+				strconv.Itoa(proPosts) + " scheduled posts/month",
+				strconv.Itoa(proCredits) + " AI credits/month",
 				"Advanced analytics & reports",
 				"15 team members",
 				"5 workspaces",
@@ -114,20 +175,20 @@ func (h *BillingHandler) GetPlans(c *fiber.Ctx) error {
 			ID:           "agency",
 			Name:         "Agency",
 			Description:  "For agencies managing multiple clients with white-label options.",
-			MonthlyPrice: 199,
-			YearlyPrice:  1990,
+			MonthlyPrice: agencyPrice,
+			YearlyPrice:  floatSetting("plan_price_agency_yearly", agencyPrice*10),
 			Limits: models.PlanLimits{
 				MaxWorkspaces:     999,
-				MaxSocialAccounts: 999,
-				MaxScheduledPosts: 50000,
-				AICreditsPerMonth: 28000,
+				MaxSocialAccounts: agencyAccounts,
+				MaxScheduledPosts: agencyPosts,
+				AICreditsPerMonth: agencyCredits,
 				MaxTeamMembers:    100,
 				CanWhiteLabel:     true,
 			},
 			Features: []string{
 				"Unlimited social accounts",
 				"Unlimited scheduled posts",
-				"28,000 AI credits/month",
+				strconv.Itoa(agencyCredits) + " AI credits/month",
 				"Custom analytics dashboards",
 				"Unlimited team members",
 				"Unlimited workspaces",

@@ -19,6 +19,14 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "uploadthing.com" },
     ],
   },
+  async redirects() {
+    return [
+      // /register → /signup (common URL users or docs may reference)
+      { source: "/register", destination: "/signup", permanent: true },
+      // /ai-studio → /ai (typo-friendly alias)
+      { source: "/ai-studio", destination: "/ai", permanent: true },
+    ];
+  },
   async rewrites() {
     const backendUrl =
       process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";

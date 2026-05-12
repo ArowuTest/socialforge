@@ -576,43 +576,25 @@ function WorkspaceTab() {
 // BILLING TAB
 // ══════════════════════════════════════════════════════════════════════════
 
-const PLAN_CONFIG = [
-  {
-    type: PlanType.STARTER,
-    name: "Starter",
-    price: 29,
-    features: {
-      "Social Accounts": "10",
-      "AI Credits": "100/mo",
-      "API Access": false,
-      "White-label": false,
-      "Dedicated Support": false,
-    },
-  },
-  {
-    type: PlanType.PRO,
-    name: "Pro",
-    price: 97,
-    features: {
-      "Social Accounts": "50",
-      "AI Credits": "500/mo",
-      "API Access": true,
-      "White-label": false,
-      "Dedicated Support": false,
-    },
-  },
-  {
-    type: PlanType.AGENCY,
-    name: "Agency",
-    price: 499,
-    features: {
-      "Social Accounts": "500",
-      "AI Credits": "Unlimited",
-      "API Access": true,
-      "White-label": true,
-      "Dedicated Support": true,
-    },
-  },
+// Raw shape returned by GET /api/v1/billing/plans (snake_case from Go).
+// The Plan type in types/index.ts uses camelCase; this matches reality.
+interface _RawApiPlan {
+  id: string;
+  name: string;
+  monthly_price: number;
+  limits: {
+    max_social_accounts: number;
+    ai_credits_per_month: number;
+    max_team_members: number;
+    can_white_label: boolean;
+  };
+}
+
+// Static fallback prices/labels used before the API resolves.
+const PLAN_FALLBACKS: Array<{ type: PlanType; name: string; price: number }> = [
+  { type: PlanType.STARTER, name: "Starter", price: 29  },
+  { type: PlanType.PRO,     name: "Pro",     price: 79  },
+  { type: PlanType.AGENCY,  name: "Agency",  price: 199 },
 ];
 
 function BillingTab() {
@@ -627,6 +609,39 @@ function BillingTab() {
     queryKey: ["billing-usage"],
     queryFn: () => billingApi.getUsage(),
   });
+
+  const { data: plansData } = useQuery({
+    queryKey: ["billing-plans"],
+    queryFn: () => billingApi.getPlans(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Build the plan comparison config from live API data, falling back to
+  // static defaults while the request is in-flight or if the DB has no overrides.
+  const planConfig = React.useMemo(() => {
+    const raw = (plansData?.data ?? []) as unknown as _RawApiPlan[];
+    const byId: Record<string, _RawApiPlan> = {};
+    for (const p of raw) byId[p.id] = p;
+
+    return PLAN_FALLBACKS.map(({ type, name, price: fallbackPrice }) => {
+      const api = byId[type];
+      const price = api?.monthly_price ?? fallbackPrice;
+      const lim   = api?.limits;
+      return {
+        type,
+        name,
+        price,
+        features: {
+          "Social Accounts":   lim ? String(lim.max_social_accounts)                       : "—",
+          "AI Credits/mo":     lim ? `${lim.ai_credits_per_month.toLocaleString()}/mo`     : "—",
+          "Team Members":      lim ? String(lim.max_team_members)                          : "—",
+          "API Access":        type !== PlanType.STARTER,
+          "White-label":       lim ? lim.can_white_label                                   : type === PlanType.AGENCY,
+          "Dedicated Support": type === PlanType.AGENCY,
+        } as Record<string, string | boolean>,
+      };
+    });
+  }, [plansData]);
 
   const handleManageBilling = async () => {
     try {
@@ -766,7 +781,7 @@ function BillingTab() {
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-800">
                 <th className="text-left p-4 font-medium text-muted-foreground w-[35%]">Feature</th>
-                {PLAN_CONFIG.map((plan) => (
+                {planConfig.map((plan) => (
                   <th
                     key={plan.type}
                     className={cn(
@@ -788,10 +803,10 @@ function BillingTab() {
               </tr>
             </thead>
             <tbody>
-              {Object.keys(PLAN_CONFIG[0].features).map((feature, fi) => (
+              {Object.keys(planConfig[0].features).map((feature, fi) => (
                 <tr key={feature} className={cn("border-b border-gray-50 dark:border-gray-800/50", fi % 2 === 0 && "bg-gray-50/50 dark:bg-gray-800/10")}>
                   <td className="p-4 text-gray-700 dark:text-gray-300">{feature}</td>
-                  {PLAN_CONFIG.map((plan) => {
+                  {planConfig.map((plan) => {
                     const val = plan.features[feature as keyof typeof plan.features];
                     return (
                       <td key={plan.type} className="p-4 text-center">
@@ -809,7 +824,7 @@ function BillingTab() {
               ))}
               <tr>
                 <td className="p-4" />
-                {PLAN_CONFIG.map((plan) => (
+                {planConfig.map((plan) => (
                   <td key={plan.type} className="p-4 text-center">
                     {currentPlan === plan.type ? (
                       <Button size="sm" variant="outline" disabled className="w-full text-xs">
@@ -820,13 +835,13 @@ function BillingTab() {
                         size="sm"
                         className={cn(
                           "w-full text-xs",
-                          plan.price > (PLAN_CONFIG.find((p) => p.type === currentPlan)?.price ?? 0)
+                          plan.price > (planConfig.find((p) => p.type === currentPlan)?.price ?? 0)
                             ? "bg-violet-600 hover:bg-violet-700 text-white"
                             : "bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-300"
                         )}
                         onClick={() => handleUpgrade(plan.type)}
                       >
-                        {plan.price > (PLAN_CONFIG.find((p) => p.type === currentPlan)?.price ?? 0)
+                        {plan.price > (planConfig.find((p) => p.type === currentPlan)?.price ?? 0)
                           ? "Upgrade"
                           : "Downgrade"}
                       </Button>
