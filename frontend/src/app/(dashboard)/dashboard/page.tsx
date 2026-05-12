@@ -92,6 +92,16 @@ const statusConfig: Record<string, { label: string; className: string }> = {
     label: "Failed",
     className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
   },
+  pending_review: {
+    label: "Pending Review",
+    className:
+      "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  },
+  rejected: {
+    label: "Rejected",
+    className:
+      "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+  },
 };
 
 const colorMap: Record<string, string> = {
