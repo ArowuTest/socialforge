@@ -180,6 +180,11 @@ func main() {
 		"instagram": igClient,
 	}
 
+	// ── Inbox fetchers (platform clients that support reading comments/DMs) ───
+	inboxFetchers := map[string]queue.InboxFetcher{
+		"instagram": igClient,
+	}
+
 	// ── Asynq server + worker deps ────────────────────────────────────────────
 	workerDeps := queue.WorkerDeps{
 		DB:                   db,
@@ -191,6 +196,7 @@ func main() {
 		NotificationSender:   notificationsService,
 		CampaignOrchestrator: campaignOrchestrator,
 		MetricsFetchers:      metricsFetchers,
+		InboxFetchers:        inboxFetchers,
 		AsynqClient:          asynqClient,
 	}
 	queueSrv, mux := queue.NewServer(rdb, workerDeps, queue.DefaultServerConfig())
@@ -280,6 +286,9 @@ func main() {
 			"threads":   thClient,
 		},
 		BlueskyClient: bsClient,
+		InboxRepliers: map[string]handlers.InboxReplier{
+			"instagram": igClient,
+		},
 	}
 	api.SetupRoutes(app, deps)
 

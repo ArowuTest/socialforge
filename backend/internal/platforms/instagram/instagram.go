@@ -776,3 +776,130 @@ func (c *Client) FetchMetrics(ctx context.Context, account *models.SocialAccount
 
 	return result, nil
 }
+
+// ─── FetchInbox ──────────────────────────────────────────────────────────────
+
+// FetchInbox fetches recent comments on the account's published media and
+// returns them as InboxItems for import into the unified inbox.
+// It implements the queue.InboxFetcher interface.
+func (c *Client) FetchInbox(ctx context.Context, account *models.SocialAccount) ([]models.InboxItem, error) {
+	token, err := crypto.Decrypt(account.AccessToken, c.secret)
+	if err != nil {
+		return nil, fmt.Errorf("instagram FetchInbox: decrypt token: %w", err)
+	}
+
+	igID := account.AccountID
+
+	// 1. Fetch the 10 most recent media items.
+	mediaURL := fmt.Sprintf(
+		"%s/%s/media?fields=id,caption,timestamp&limit=10&access_token=%s",
+		graphBaseURL, url.PathEscape(igID), url.QueryEscape(token),
+	)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("instagram FetchInbox: build media request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("instagram FetchInbox: media request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var mediaResp struct {
+		Data []struct {
+			ID        string `json:"id"`
+			Caption   string `json:"caption"`
+			Timestamp string `json:"timestamp"`
+		} `json:"data"`
+		Error *graphAPIError `json:"error,omitempty"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&mediaResp); err != nil {
+		return nil, fmt.Errorf("instagram FetchInbox: decode media: %w", err)
+	}
+	if mediaResp.Error != nil {
+		return nil, fmt.Errorf("instagram FetchInbox: API error: %s", mediaResp.Error.Message)
+	}
+
+	var items []models.InboxItem
+
+	// 2. For each media item fetch its comments.
+	for _, media := range mediaResp.Data {
+		excerpt := media.Caption
+		if len(excerpt) > 120 {
+			excerpt = excerpt[:120] + "…"
+		}
+
+		commentsURL := fmt.Sprintf(
+			"%s/%s/comments?fields=id,text,username,timestamp&limit=25&access_token=%s",
+			graphBaseURL, url.PathEscape(media.ID), url.QueryEscape(token),
+		)
+		creq, err := http.NewRequestWithContext(ctx, http.MethodGet, commentsURL, nil)
+		if err != nil {
+			continue
+		}
+		cresp, err := c.http.Do(creq)
+		if err != nil {
+			continue
+		}
+
+		var commentResp struct {
+			Data []struct {
+				ID        string `json:"id"`
+				Text      string `json:"text"`
+				Username  string `json:"username"`
+				Timestamp string `json:"timestamp"`
+			} `json:"data"`
+		}
+		if err := json.NewDecoder(cresp.Body).Decode(&commentResp); err != nil {
+			cresp.Body.Close()
+			continue
+		}
+		cresp.Body.Close()
+
+		for _, comment := range commentResp.Data {
+			ts, _ := time.Parse(time.RFC3339, comment.Timestamp)
+			if ts.IsZero() {
+				ts = time.Now().UTC()
+			}
+			items = append(items, models.InboxItem{
+				ExternalID:        comment.ID,
+				MessageType:       "comment",
+				SenderName:        comment.Username,
+				SenderHandle:      "@" + comment.Username,
+				SenderAvatar:      "",
+				Content:           comment.Text,
+				PlatformPostID:    media.ID,
+				PostExcerpt:       excerpt,
+				PlatformCreatedAt: ts,
+			})
+		}
+	}
+
+	return items, nil
+}
+
+// ReplyToMessage posts a reply to an Instagram comment.
+// It implements the queue.InboxReplier interface.
+func (c *Client) ReplyToMessage(ctx context.Context, account *models.SocialAccount, externalID, replyText string) error {
+	token, err := crypto.Decrypt(account.AccessToken, c.secret)
+	if err != nil {
+		return fmt.Errorf("instagram ReplyToMessage: decrypt token: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("%s/%s/replies", graphBaseURL, url.PathEscape(externalID))
+	params := url.Values{
+		"message":      {replyText},
+		"access_token": {token},
+	}
+	var result struct {
+		ID    string         `json:"id"`
+		Error *graphAPIError `json:"error,omitempty"`
+	}
+	if err := c.doPost(ctx, endpoint, params, &result); err != nil {
+		return fmt.Errorf("instagram ReplyToMessage: %w", err)
+	}
+	if result.Error != nil {
+		return fmt.Errorf("instagram ReplyToMessage API error: %s", result.Error.Message)
+	}
+	return nil
+}

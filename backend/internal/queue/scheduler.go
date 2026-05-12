@@ -157,6 +157,20 @@ func (s *Scheduler) registerJobs() error {
 		}
 	}
 
+	// ── Every 30 minutes: sync social inbox (comments, mentions, DMs) ──────────
+	{
+		task, err := NewSyncInboxTask()
+		if err != nil {
+			return err
+		}
+		if _, err := s.inner.Register("*/30 * * * *", task,
+			asynq.Queue("low"),
+			asynq.Unique(29*time.Minute),
+		); err != nil {
+			return fmt.Errorf("register sync_inbox: %w", err)
+		}
+	}
+
 	s.log.Info("scheduler: all recurring jobs registered")
 	return nil
 }

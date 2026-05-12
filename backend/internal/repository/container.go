@@ -13,6 +13,7 @@ type Container struct {
 	AIJobs         AIJobRepository
 	AuditLogs      AuditLogRepository
 	Analytics      AnalyticsRepository
+	Inbox          InboxRepository
 }
 
 // NewContainer creates a Container with all GORM implementations wired to the
@@ -28,5 +29,6 @@ func NewContainer(db *gorm.DB) *Container {
 		AIJobs:         NewAIJobRepo(db),
 		AuditLogs:      NewAuditLogRepo(db),
 		Analytics:      NewAnalyticsRepo(db),
+		Inbox:          NewInboxRepo(db),
 	}
 }

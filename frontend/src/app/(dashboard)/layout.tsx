@@ -10,6 +10,7 @@ import {
   PenSquare,
   Share2,
   Sparkles,
+  Inbox,
   BarChart3,
   Users,
   Settings2,
@@ -48,7 +49,7 @@ import {
 import { getInitials } from "@/lib/utils";
 import { PlanType } from "@/types";
 import { toast } from "sonner";
-import { notificationsApi, postsApi } from "@/lib/api";
+import { notificationsApi, postsApi, inboxApi } from "@/lib/api";
 import { PostStatus } from "@/types";
 
 const navSections = [
@@ -59,6 +60,7 @@ const navSections = [
       { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
       { href: "/analytics", icon: BarChart3, label: "Analytics" },
       { href: "/calendar", icon: CalendarDays, label: "Calendar" },
+      { href: "/inbox", icon: Inbox, label: "Inbox" },
       { href: "/accounts", icon: Share2, label: "Accounts" },
     ],
   },
@@ -102,6 +104,7 @@ const pageTitles: Record<string, string> = {
   "/calendar": "Content Calendar",
   "/compose": "Compose Post",
   "/review": "Review Queue",
+  "/inbox": "Social Inbox",
   "/ai": "AI Studio",
   "/repurpose": "Content Repurpose",
   "/media": "Media Library",
@@ -296,6 +299,15 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
     refetchIntervalInBackground: false,
   });
 
+  // Inbox unread badge count (polls every 30 s)
+  const { data: inboxCountData } = useQuery({
+    queryKey: ["inbox", "unread-count"],
+    queryFn: () => inboxApi.unreadCount(),
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+  });
+  const inboxUnread = inboxCountData?.unread_count ?? 0;
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -396,6 +408,11 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
                       {item.href === "/review" && (pendingData as any)?.meta?.total > 0 && (
                         <span className="ml-auto text-[10px] font-semibold bg-amber-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
                           {(pendingData as any).meta.total}
+                        </span>
+                      )}
+                      {item.href === "/inbox" && inboxUnread > 0 && (
+                        <span className="ml-auto text-[10px] font-semibold bg-violet-600 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center leading-none">
+                          {inboxUnread > 99 ? "99+" : inboxUnread}
                         </span>
                       )}
                     </Link>

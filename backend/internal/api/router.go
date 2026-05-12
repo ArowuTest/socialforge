@@ -39,6 +39,7 @@ type Deps struct {
 	AsynqClient          *asynq.Client
 	PlatformClients  map[string]handlers.PlatformOAuthClient
 	BlueskyClient    handlers.BlueskyConnector
+	InboxRepliers    map[string]handlers.InboxReplier
 }
 
 // SetupRoutes registers all API routes on the provided Fiber app.
@@ -75,6 +76,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	membersH := handlers.NewMembersHandler(deps.DB, deps.RDB, repos.Workspaces, repos.Users, deps.NotificationsService, deps.Config, deps.Log)
 	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
 	gdprH := handlers.NewGDPRHandler(deps.DB, deps.Log)
+	inboxH := handlers.NewInboxHandler(deps.DB, deps.InboxRepliers, deps.Log)
 
 	// ── Health & root probe ──────────────────────────────────────────────────
 	// GET /health — structured health check used by Render, k8s, etc.
@@ -190,6 +192,13 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Get("/notifications/unread-count", notificationsH.UnreadCount)
 	ws.Post("/notifications/read-all", notificationsH.MarkAllRead)
 	ws.Patch("/notifications/:id/read", notificationsH.MarkRead)
+
+	// Social Inbox (unified comments, mentions, DMs)
+	ws.Get("/inbox", inboxH.ListInbox)
+	ws.Get("/inbox/unread-count", inboxH.UnreadCount)
+	ws.Post("/inbox/read-all", inboxH.MarkAllRead)
+	ws.Patch("/inbox/:id/read", inboxH.MarkRead)
+	ws.Post("/inbox/:id/reply", inboxH.ReplyToMessage)
 
 	// Automations
 	ws.Get("/automations", automationsH.ListAutomations)

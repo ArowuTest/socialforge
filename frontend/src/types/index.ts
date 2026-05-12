@@ -672,3 +672,41 @@ export interface CreateTemplateRequest {
   example_output?: string
   is_public?: boolean
 }
+
+// ============================================================
+// Social Inbox
+// ============================================================
+
+export type InboxMessageType = "comment" | "mention" | "dm"
+
+export interface InboxMessage {
+  id: string
+  workspace_id: string
+  social_account_id: string
+  platform: string
+  message_type: InboxMessageType
+  external_id: string
+  sender_name: string
+  sender_handle: string
+  sender_avatar: string
+  content: string
+  post_id?: string
+  platform_post_id: string
+  post_excerpt: string
+  is_read: boolean
+  replied_at?: string
+  platform_created_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface InboxListResponse {
+  data: InboxMessage[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+  }
+  unread_count: number
+}

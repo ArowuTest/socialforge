@@ -76,6 +76,9 @@ type WorkerDeps struct {
 	// MetricsFetchers maps platform name → MetricsFetcher implementation.
 	// Only platforms present in this map will have metrics synced.
 	MetricsFetchers map[string]MetricsFetcher
+	// InboxFetchers maps platform name → InboxFetcher implementation.
+	// Only platforms present in this map will participate in the 30-min inbox sync.
+	InboxFetchers map[string]InboxFetcher
 	// AsynqClient is used by handlers that need to enqueue follow-up tasks
 	// (e.g. automation actions, delayed republishing). Optional: handlers guard
 	// nil before use so the server still starts without it.
@@ -934,6 +937,9 @@ func NewServer(redisClient *redis.Client, deps WorkerDeps, cfg ServerConfig) (*a
 
 	metricsSyncHandler := NewMetricsSyncHandler(deps, deps.MetricsFetchers)
 	mux.HandleFunc(TypeSyncPostMetrics, metricsSyncHandler.ProcessTask)
+
+	inboxSyncHandler := NewInboxSyncHandler(deps, deps.InboxFetchers)
+	mux.HandleFunc(TypeSyncInbox, inboxSyncHandler.ProcessTask)
 
 	mux.HandleFunc(TypeGenerateCampaign, func(ctx context.Context, t *asynq.Task) error {
 		if deps.CampaignOrchestrator == nil {

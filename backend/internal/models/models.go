@@ -949,3 +949,60 @@ type Template struct {
 }
 
 func (Template) TableName() string { return "templates" }
+
+// ─── InboxItem (in-memory, not persisted) ────────────────────────────────────
+
+// InboxItem is the in-memory representation of a single inbox entry (comment,
+// mention, or DM) returned by the InboxFetcher.FetchInbox interface method.
+// It is mapped to an InboxMessage by the sync worker before persisting.
+type InboxItem struct {
+	ExternalID        string    // platform's unique ID for this message
+	MessageType       string    // "comment" | "mention" | "dm"
+	SenderName        string
+	SenderHandle      string
+	SenderAvatar      string
+	Content           string
+	PlatformPostID    string // the post/media this message is attached to (if any)
+	PostExcerpt       string // snippet of the parent post caption
+	PlatformCreatedAt time.Time
+}
+
+// ─── InboxMessage ─────────────────────────────────────────────────────────────
+
+// InboxMessage is a unified social inbox item: a comment, @mention or DM
+// fetched from a platform API and stored locally so users can read and reply
+// without leaving ChiselPost.
+type InboxMessage struct {
+	ID               uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	WorkspaceID      uuid.UUID  `gorm:"type:uuid;not null;index"                       json:"workspace_id"`
+	SocialAccountID  uuid.UUID  `gorm:"type:uuid;not null;index"                       json:"social_account_id"`
+	Platform         string     `gorm:"not null;size:50"                               json:"platform"`
+	MessageType      string     `gorm:"not null;size:20;default:'comment'"             json:"message_type"` // comment | mention | dm
+	ExternalID       string     `gorm:"not null;size:255"                              json:"external_id"`
+	SenderName       string     `gorm:"not null;size:255;default:''"                   json:"sender_name"`
+	SenderHandle     string     `gorm:"not null;size:255;default:''"                   json:"sender_handle"`
+	SenderAvatar     string     `gorm:"type:text;not null;default:''"                  json:"sender_avatar"`
+	Content          string     `gorm:"type:text;not null;default:''"                  json:"content"`
+	PostID           *uuid.UUID `gorm:"type:uuid"                                      json:"post_id,omitempty"`
+	PlatformPostID   string     `gorm:"not null;size:255;default:''"                   json:"platform_post_id"`
+	PostExcerpt      string     `gorm:"not null;size:500;default:''"                   json:"post_excerpt"`
+	IsRead           bool       `gorm:"not null;default:false"                         json:"is_read"`
+	RepliedAt        *time.Time `                                                      json:"replied_at,omitempty"`
+	PlatformCreatedAt time.Time `gorm:"not null;default:now()"                         json:"platform_created_at"`
+	CreatedAt        time.Time  `gorm:"autoCreateTime"                                 json:"created_at"`
+	UpdatedAt        time.Time  `gorm:"autoUpdateTime"                                 json:"updated_at"`
+
+	// Associations
+	Workspace     Workspace     `gorm:"foreignKey:WorkspaceID"     json:"-"`
+	SocialAccount SocialAccount `gorm:"foreignKey:SocialAccountID" json:"-"`
+}
+
+func (InboxMessage) TableName() string { return "inbox_messages" }
+
+// BeforeCreate sets the UUID when the database default is unavailable.
+func (m *InboxMessage) BeforeCreate(_ *gorm.DB) error {
+	if m.ID == uuid.Nil {
+		m.ID = uuid.New()
+	}
+	return nil
+}

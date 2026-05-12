@@ -256,6 +256,27 @@ func NewSyncPostMetricsTask(payload SyncPostMetricsPayload, opts ...asynq.Option
 	return asynq.NewTask(TypeSyncPostMetrics, b, append(defaults, opts...)...), nil
 }
 
+// ─── Sync Inbox ──────────────────────────────────────────────────────────────
+
+// TypeSyncInbox is the task type for fetching new inbox messages (comments,
+// mentions, DMs) from connected platform accounts into the unified inbox.
+const TypeSyncInbox = "inbox:sync"
+
+// SyncInboxPayload is intentionally empty — the worker queries the DB for all
+// active social accounts and fetches each one.
+type SyncInboxPayload struct{}
+
+// NewSyncInboxTask creates an asynq.Task that triggers the inbox sync sweep.
+func NewSyncInboxTask(opts ...asynq.Option) (*asynq.Task, error) {
+	b, _ := json.Marshal(SyncInboxPayload{})
+	defaults := []asynq.Option{
+		asynq.MaxRetry(2),
+		asynq.Timeout(5 * time.Minute),
+		asynq.Queue("low"),
+	}
+	return asynq.NewTask(TypeSyncInbox, b, append(defaults, opts...)...), nil
+}
+
 // ─── Campaign Generation ──────────────────────────────────────────────────────
 
 const TypeGenerateCampaign     = "campaign:generate"

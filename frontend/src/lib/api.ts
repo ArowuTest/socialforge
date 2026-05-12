@@ -39,6 +39,7 @@ import {
   NotificationsListResponse,
   Template,
   CreateTemplateRequest,
+  InboxListResponse,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -894,6 +895,47 @@ export const templatesApi = {
     request<void>(`${ws()}/templates/${id}`, { method: 'DELETE' }),
   use: (id: string) =>
     request<void>(`${ws()}/templates/${id}/use`, { method: 'POST' }),
+}
+
+// ============================================================
+// Social Inbox
+// ============================================================
+
+export const inboxApi = {
+  /** List inbox messages with optional filters. */
+  list: (params?: {
+    platform?: string
+    message_type?: string
+    unread?: boolean
+    account_id?: string
+    page?: number
+    limit?: number
+  }) => {
+    const p = params ?? {}
+    const qs = new URLSearchParams()
+    if (p.platform) qs.set("platform", p.platform)
+    if (p.message_type) qs.set("message_type", p.message_type)
+    if (p.unread) qs.set("unread", "true")
+    if (p.account_id) qs.set("account_id", p.account_id)
+    qs.set("page", String(p.page ?? 1))
+    qs.set("limit", String(p.limit ?? 20))
+    return request<InboxListResponse>(`${ws()}/inbox?${qs.toString()}`)
+  },
+
+  unreadCount: () =>
+    request<{ unread_count: number }>(`${ws()}/inbox/unread-count`),
+
+  markRead: (id: string) =>
+    request<{ success: boolean }>(`${ws()}/inbox/${id}/read`, { method: "PATCH" }),
+
+  markAllRead: () =>
+    request<{ success: boolean }>(`${ws()}/inbox/read-all`, { method: "POST" }),
+
+  reply: (id: string, text: string) =>
+    request<{ success: boolean; replied_at: string }>(`${ws()}/inbox/${id}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
 }
 
 // ============================================================
