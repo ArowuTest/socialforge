@@ -612,7 +612,12 @@ func (s *Service) CreateCreditTopUpSession(ctx context.Context, userID, workspac
 	}
 
 	// Create a pending topup record.
+	// ProviderRef has a UNIQUE constraint so we seed it with a temporary unique
+	// placeholder (the topup's own UUID) and overwrite it once Paystack/Stripe
+	// returns the real reference. This avoids duplicate-empty-string collisions
+	// when multiple users initiate top-ups before the provider call completes.
 	rate := NGNPerUSD
+	tmpRef := "pending_" + uuid.New().String()
 	topup := &models.CreditTopUp{
 		WorkspaceID:      workspaceID,
 		UserID:           userID,
@@ -620,6 +625,7 @@ func (s *Service) CreateCreditTopUpSession(ctx context.Context, userID, workspac
 		USDAmount:        pkg.PriceUSD,
 		Currency:         currency,
 		AmountInCurrency: pkg.PriceUSD,
+		ProviderRef:      tmpRef,
 		Status:           models.TopUpPending,
 	}
 
