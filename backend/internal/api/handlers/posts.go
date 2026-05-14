@@ -511,14 +511,24 @@ func (h *PostsHandler) BulkCreatePosts(c *fiber.Ctx) error {
 			FirstComment: pr.FirstComment,
 		}
 
-		// Assign to next free slot using the first platform.
-		if len(pr.Platforms) > 0 {
+		// 1) If the caller provided an explicit scheduled_at, use it.
+		if pr.ScheduledAt != nil && *pr.ScheduledAt != "" {
+			t, err := time.Parse(time.RFC3339, *pr.ScheduledAt)
+			if err != nil {
+				return badRequest(c,
+					fmt.Sprintf("row %d: scheduled_at must be RFC3339 (e.g. 2026-06-01T09:00:00+01:00)", i+1),
+					"VALIDATION_ERROR")
+			}
+			post.ScheduledAt = &t
+			post.Status = models.PostStatusScheduled
+		} else if len(pr.Platforms) > 0 {
+			// 2) Otherwise assign to next free slot using the first platform.
 			slotTime, err := h.schedule.GetNextFreeSlot(wid, pr.Platforms[0])
 			if err == nil {
 				post.ScheduledAt = &slotTime
 				post.Status = models.PostStatusScheduled
 			} else {
-				h.log.Warn("BulkCreatePosts: no free slot",
+				h.log.Warn("BulkCreatePosts: no free slot, leaving as draft",
 					zap.Int("index", i),
 					zap.String("platform", pr.Platforms[0]),
 					zap.Error(err),
