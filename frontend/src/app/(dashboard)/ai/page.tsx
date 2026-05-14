@@ -19,6 +19,7 @@ import {
   Download,
   ExternalLink,
   Zap,
+  LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -1065,6 +1066,235 @@ function RepurposeTab() {
   );
 }
 
+// ==================== Carousel Generator Tab ====================
+//
+// Generates a swipeable slide deck for a topic. Each slide has a headline,
+// body copy, optional CTA, and an image-prompt the user can feed straight
+// into Generate Image. The tab does NOT auto-generate images for every slide
+// — that would burn 6× the credits without confirmation. Users opt in
+// per-slide instead.
+
+interface CarouselSlide {
+  slide_number: number;
+  headline: string;
+  body_text: string;
+  call_to_action?: string;
+  image_prompt: string;
+}
+
+function CarouselGeneratorTab() {
+  const [topic, setTopic] = React.useState("");
+  const [slides, setSlides] = React.useState(6);
+  const [platform, setPlatform] = React.useState("instagram");
+  const [result, setResult] = React.useState<CarouselSlide[] | null>(null);
+  const [active, setActive] = React.useState(0);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      aiApi.generateCarousel({ topic, slides, platform }),
+    onSuccess: (res) => {
+      const list = res.data?.slides ?? [];
+      setResult(list);
+      setActive(0);
+      toast.success(`${list.length} slides generated`);
+    },
+    onError: (err: Error) => {
+      const m = err.message ?? "Failed to generate carousel";
+      toast.error(
+        m.toLowerCase().includes("insufficient")
+          ? "Out of AI credits. Top up in Billing to keep using AI."
+          : m
+      );
+    },
+  });
+
+  const copyOne = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => toast.success("Copied"));
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ── Left: form ──────────────────────────────────────────────── */}
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <div>
+            <Label htmlFor="carousel-topic" className="text-sm">Topic / Hook</Label>
+            <Textarea
+              id="carousel-topic"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="e.g. 5 ways to grow your Instagram following organically in 2026"
+              rows={3}
+              className="mt-1.5"
+            />
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Tip: write it like the first slide hook. The AI mirrors your phrasing.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-sm">Number of slides</Label>
+              <Select value={String(slides)} onValueChange={(v) => setSlides(Number(v))}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[3, 5, 6, 7, 8, 10].map((n) => (
+                    <SelectItem key={n} value={String(n)}>{n} slides</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-sm">Platform</Label>
+              <Select value={platform} onValueChange={setPlatform}>
+                <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="instagram">Instagram</SelectItem>
+                  <SelectItem value="linkedin">LinkedIn</SelectItem>
+                  <SelectItem value="tiktok">TikTok</SelectItem>
+                  <SelectItem value="threads">Threads</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <Button
+            className="w-full bg-violet-600 hover:bg-violet-700 text-white"
+            onClick={() => mut.mutate()}
+            disabled={!topic.trim() || mut.isPending}
+          >
+            {mut.isPending ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Generating {slides} slides…</>
+            ) : (
+              <><LayoutGrid className="h-4 w-4 mr-2" /> Generate Carousel</>
+            )}
+          </Button>
+
+          <p className="text-xs text-muted-foreground text-center">
+            Uses 1 AI credit · Generates text only · Image generation is per-slide
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* ── Right: preview ──────────────────────────────────────────── */}
+      <Card>
+        <CardContent className="p-6">
+          {!result ? (
+            <div className="flex flex-col items-center justify-center text-center py-12 text-muted-foreground">
+              <LayoutGrid className="h-12 w-12 mb-3 text-gray-300 dark:text-gray-700" />
+              <p className="text-sm">Your generated slides will appear here</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Slide nav strip */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {result.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setActive(i)}
+                    className={cn(
+                      "h-8 w-8 flex-shrink-0 rounded-md text-xs font-medium border transition-colors",
+                      active === i
+                        ? "bg-violet-600 text-white border-violet-600"
+                        : "bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-violet-300"
+                    )}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+
+              {/* Active slide */}
+              {result[active] && (
+                <div className="space-y-3">
+                  <div className="p-5 rounded-lg bg-gradient-to-br from-violet-50 to-pink-50 dark:from-violet-950/40 dark:to-pink-950/40 border border-violet-200 dark:border-violet-800 min-h-[200px] flex flex-col justify-center">
+                    <p className="text-[10px] uppercase tracking-wider text-violet-600 dark:text-violet-300 font-semibold mb-2">
+                      Slide {result[active].slide_number} of {result.length}
+                    </p>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white leading-tight mb-2">
+                      {result[active].headline}
+                    </h3>
+                    <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
+                      {result[active].body_text}
+                    </p>
+                    {result[active].call_to_action && (
+                      <div className="mt-3 pt-3 border-t border-violet-200 dark:border-violet-800/60">
+                        <p className="text-xs uppercase tracking-wider text-pink-600 dark:text-pink-300 font-semibold mb-0.5">
+                          Call to action
+                        </p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {result[active].call_to_action}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
+                      🎨 Image prompt for this slide
+                    </p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                      {result[active].image_prompt}
+                    </p>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => copyOne(result[active].image_prompt)}
+                      >
+                        <Copy className="h-3 w-3 mr-1" /> Copy prompt
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs text-muted-foreground pt-2">
+                    <button
+                      onClick={() => setActive(Math.max(0, active - 1))}
+                      disabled={active === 0}
+                      className="text-violet-600 dark:text-violet-300 hover:underline disabled:opacity-30 disabled:no-underline"
+                    >
+                      ← Previous
+                    </button>
+                    <span>{active + 1} / {result.length}</span>
+                    <button
+                      onClick={() => setActive(Math.min(result.length - 1, active + 1))}
+                      disabled={active === result.length - 1}
+                      className="text-violet-600 dark:text-violet-300 hover:underline disabled:opacity-30 disabled:no-underline"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-xs"
+                onClick={() => {
+                  const all = result
+                    .map(
+                      (s) =>
+                        `Slide ${s.slide_number}:\n${s.headline}\n\n${s.body_text}${
+                          s.call_to_action ? `\n\nCTA: ${s.call_to_action}` : ""
+                        }`
+                    )
+                    .join("\n\n———\n\n");
+                  copyOne(all);
+                }}
+              >
+                <Copy className="h-3.5 w-3.5 mr-1.5" />
+                Copy all slides
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ==================== Main Page ====================
 export default function AIPage() {
   const [activeTab, setActiveTab] = React.useState("caption");
@@ -1095,6 +1325,10 @@ export default function AIPage() {
             <RefreshCw className="h-3.5 w-3.5" />
             Repurpose
           </TabsTrigger>
+          <TabsTrigger value="carousel" className="gap-1.5">
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Carousel
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="caption">
@@ -1113,6 +1347,9 @@ export default function AIPage() {
         </TabsContent>
         <TabsContent value="repurpose">
           <RepurposeTab />
+        </TabsContent>
+        <TabsContent value="carousel">
+          <CarouselGeneratorTab />
         </TabsContent>
       </Tabs>
     </div>

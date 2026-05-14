@@ -220,6 +220,108 @@ func (h *AIHandler) GenerateHashtags(c *fiber.Ctx) error {
 	})
 }
 
+// ── GenerateCarousel ──────────────────────────────────────────────────────────
+
+type generateCarouselRequest struct {
+	Topic    string `json:"topic"`
+	Slides   int    `json:"slides"`   // 2–10; defaults to 6
+	Platform string `json:"platform"` // "instagram" | "linkedin" | "tiktok"
+}
+
+// GenerateCarousel generates a slide deck (headline + body + CTA + image prompt
+// per slide) for a swipeable carousel post. Charges the platform's carousel
+// credit cost. Returns the slides synchronously — image generation for each
+// slide is a separate optional step the UI can trigger per-slide.
+// POST /api/v1/workspaces/:wid/ai/carousel
+func (h *AIHandler) GenerateCarousel(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req generateCarouselRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if req.Topic == "" {
+		return badRequest(c, "topic is required", "VALIDATION_ERROR")
+	}
+	if req.Slides == 0 {
+		req.Slides = 6
+	}
+	if req.Platform == "" {
+		req.Platform = "instagram"
+	}
+
+	slides, _, err := h.ai.GenerateCarousel(c.Context(), wid, user.ID, req.Topic, req.Slides, req.Platform)
+	if err != nil {
+		if errors.Is(err, ai.ErrInsufficientCredits) {
+			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+				"error": "insufficient AI credits",
+				"code":  "INSUFFICIENT_CREDITS",
+			})
+		}
+		h.log.Error("GenerateCarousel: ai.GenerateCarousel", zap.Error(err))
+		return internalError(c, "failed to generate carousel")
+	}
+
+	return c.JSON(fiber.Map{
+		"data": fiber.Map{
+			"slides":   slides,
+			"platform": req.Platform,
+			"topic":    req.Topic,
+		},
+	})
+}
+
+// ── AnalyseBrandVoice ─────────────────────────────────────────────────────────
+
+type analyseBrandVoiceRequest struct {
+	Examples []string `json:"examples"` // 2-10 example posts the user pastes
+	Industry string   `json:"industry"` // optional — improves audience inference
+}
+
+// AnalyseBrandVoice extracts a structured brand voice profile from a set of
+// example posts. The returned shape maps 1:1 to BrandKit columns so the
+// frontend can offer a one-click "Apply to Brand Kit" action.
+// POST /api/v1/workspaces/:wid/ai/analyse-brand-voice
+func (h *AIHandler) AnalyseBrandVoice(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req analyseBrandVoiceRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if len(req.Examples) < 2 {
+		return badRequest(c, "at least 2 example posts are required", "VALIDATION_ERROR")
+	}
+
+	out, _, err := h.ai.AnalyseBrandVoice(c.Context(), wid, user.ID, req.Examples, req.Industry)
+	if err != nil {
+		if errors.Is(err, ai.ErrInsufficientCredits) {
+			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+				"error": "insufficient AI credits",
+				"code":  "INSUFFICIENT_CREDITS",
+			})
+		}
+		h.log.Error("AnalyseBrandVoice: ai.AnalyseBrandVoice", zap.Error(err))
+		return internalError(c, "failed to analyse brand voice")
+	}
+
+	return c.JSON(fiber.Map{"data": out})
+}
+
 // ── GenerateReplySuggestions ──────────────────────────────────────────────────
 
 type generateReplySuggestionsRequest struct {

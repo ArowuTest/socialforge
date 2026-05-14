@@ -1397,6 +1397,106 @@ Return STRICT JSON of this shape:
 	return &out, job, nil
 }
 
+// ─── AnalyseBrandVoice ────────────────────────────────────────────────────────
+
+// BrandVoiceAnalysis is what AnalyseBrandVoice returns. The fields map 1:1 to
+// BrandKit columns so the UI can pre-fill the form with a single "Apply"
+// button — saves the user from translating prose into structured fields.
+type BrandVoiceAnalysis struct {
+	BrandVoice     string   `json:"brand_voice"`     // 1–2 paragraph tone description
+	TargetAudience string   `json:"target_audience"` // who this brand talks to
+	Dos            []string `json:"dos"`             // 3-5 style do's extracted from the examples
+	Donts          []string `json:"donts"`           // 3-5 style don'ts to avoid
+	ContentPillars []string `json:"content_pillars"` // 3-5 themes the brand covers
+	Summary        string   `json:"summary"`         // 1-line gist for confirmation
+}
+
+// AnalyseBrandVoice reads a set of example posts and extracts a brand-voice
+// profile that future AI generations can use. Charges the workspace 1 caption
+// credit (since complexity is similar to a caption generation call).
+func (s *Service) AnalyseBrandVoice(
+	ctx context.Context,
+	workspaceID, userID uuid.UUID,
+	examples []string,
+	industry string,
+) (*BrandVoiceAnalysis, *models.AIJob, error) {
+	// Filter empty entries and require at least 2 substantive examples — fewer
+	// than 2 doesn't give the model enough signal to extract a consistent tone.
+	clean := make([]string, 0, len(examples))
+	for _, e := range examples {
+		t := strings.TrimSpace(e)
+		if t != "" {
+			clean = append(clean, t)
+		}
+	}
+	if len(clean) < 2 {
+		return nil, nil, fmt.Errorf("AnalyseBrandVoice: at least 2 example posts are required")
+	}
+
+	cost := s.getCreditCost("caption", CreditCostCaption)
+	if err := s.DeductCredits(ctx, workspaceID, cost); err != nil {
+		return nil, nil, err
+	}
+
+	var examplesBlock strings.Builder
+	for i, ex := range clean {
+		examplesBlock.WriteString(fmt.Sprintf("\n[Example %d]\n%s\n", i+1, ex))
+	}
+
+	industryLine := ""
+	if industry != "" {
+		industryLine = fmt.Sprintf("\nIndustry context: %s", industry)
+	}
+
+	systemPrompt := fmt.Sprintf(
+		`You are a brand strategist. The user will paste %d example social media posts that they wrote (or that represent their brand voice). Extract a precise, actionable brand voice profile that another AI can use to generate matching content.%s
+
+Rules:
+- brand_voice: 1–2 short paragraphs describing the tone, energy, sentence length, emoji use, formality, and signature moves (e.g. "starts with a question", "uses dashes for emphasis"). Be specific enough that another writer could mimic it.
+- target_audience: 1 sentence describing WHO this voice is talking to. Infer from the examples — don't say "general audience".
+- dos: 3-5 concrete style rules extracted from the examples (e.g. "Open with a contrarian claim", "Use 1-3 emojis per post, never more").
+- donts: 3-5 things this brand voice NEVER does (e.g. "Never use corporate jargon", "Never apologize for selling").
+- content_pillars: 3-5 themes the brand keeps coming back to (e.g. "AI productivity tips", "Behind-the-scenes startup stories").
+- summary: 1 short line a human could say back to confirm ("You're a punchy, opinionated B2B founder voice with a sense of humor.")
+
+Return STRICT JSON only — no markdown.`,
+		len(clean), industryLine,
+	)
+
+	openaiClient, err := s.requireOpenAIClient()
+	if err != nil {
+		job, _ := s.saveJob(ctx, workspaceID, userID, "brand_voice_analysis",
+			models.JSONMap{"example_count": len(clean)}, nil, cost, err.Error())
+		return nil, job, fmt.Errorf("AnalyseBrandVoice: %w", err)
+	}
+
+	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: "gpt-4o",
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: examplesBlock.String()},
+		},
+		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
+		Temperature:    0.5, // tighter than caption gen — we want a stable profile
+	})
+	if err != nil {
+		job, _ := s.saveJob(ctx, workspaceID, userID, "brand_voice_analysis",
+			models.JSONMap{"example_count": len(clean)}, nil, cost, err.Error())
+		return nil, job, fmt.Errorf("AnalyseBrandVoice: openai: %w", err)
+	}
+
+	var out BrandVoiceAnalysis
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &out); err != nil {
+		return nil, nil, fmt.Errorf("AnalyseBrandVoice: parse response: %w", err)
+	}
+
+	job, _ := s.saveJob(ctx, workspaceID, userID, "brand_voice_analysis",
+		models.JSONMap{"example_count": len(clean), "industry": industry},
+		models.JSONMap{"analysis": out}, cost, "")
+
+	return &out, job, nil
+}
+
 // ─── ProcessJob ───────────────────────────────────────────────────────────────
 
 // processJobPayload is a local mirror of queue.AIGeneratePayload used to avoid

@@ -585,6 +585,54 @@ export const aiApi = {
     }),
 
   /**
+   * Analyse a set of example posts and extract a brand voice profile that
+   * other AI generations can use. Returns fields that map 1:1 to BrandKit
+   * columns so the UI can offer one-click "Apply to my Brand Kit".
+   */
+  analyseBrandVoice: (data: { examples: string[]; industry?: string }) =>
+    request<
+      ApiResponse<{
+        brand_voice: string;
+        target_audience: string;
+        dos: string[];
+        donts: string[];
+        content_pillars: string[];
+        summary: string;
+      }>
+    >(`${ws()}/ai/analyse-brand-voice`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /**
+   * Generate a swipeable carousel deck for a topic. Returns N slides (2–10),
+   * each with a headline, body, optional call-to-action, and an image prompt
+   * the user can feed to Generate Image. Charges 1 carousel credit
+   * (configurable in admin → AI Costs).
+   */
+  generateCarousel: (data: { topic: string; slides?: number; platform?: string }) =>
+    request<
+      ApiResponse<{
+        slides: Array<{
+          slide_number: number;
+          headline: string;
+          body_text: string;
+          call_to_action?: string;
+          image_prompt: string;
+        }>;
+        platform: string;
+        topic: string;
+      }>
+    >(`${ws()}/ai/carousel`, {
+      method: "POST",
+      body: JSON.stringify({
+        topic: data.topic,
+        slides: data.slides ?? 6,
+        platform: data.platform ?? "instagram",
+      }),
+    }),
+
+  /**
    * Generate 3 on-brand reply suggestions for an inbound social inbox message
    * (comment / mention / DM). Charges 1 credit. Backend honours the workspace
    * default brand kit unless a specific brand_kit_id is passed.

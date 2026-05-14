@@ -445,6 +445,76 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
 
+  // ── AI Brand Voice Training state ────────────────────────────────────────
+  // User pastes 2–5 example posts → AI extracts a structured voice profile →
+  // we offer a single "Apply to this Brand Kit" action that fills brand_voice,
+  // target_audience, dos, donts, and content_pillars in one shot. Saves the
+  // user from translating prose into 5 separate form fields.
+  const [voiceTrainOpen, setVoiceTrainOpen] = React.useState(false);
+  const [voiceExamples, setVoiceExamples] = React.useState<string[]>(["", "", ""]);
+  const [voiceLoading, setVoiceLoading] = React.useState(false);
+  const [voiceResult, setVoiceResult] = React.useState<{
+    brand_voice: string;
+    target_audience: string;
+    dos: string[];
+    donts: string[];
+    content_pillars: string[];
+    summary: string;
+  } | null>(null);
+
+  const runVoiceTraining = async () => {
+    const filled = voiceExamples.map((e) => e.trim()).filter(Boolean);
+    if (filled.length < 2) {
+      toast.error("Please paste at least 2 example posts.");
+      return;
+    }
+    setVoiceLoading(true);
+    setVoiceResult(null);
+    try {
+      const { aiApi } = await import("@/lib/api");
+      const res = await aiApi.analyseBrandVoice({
+        examples: filled,
+        industry: industry || undefined,
+      });
+      setVoiceResult(res.data);
+    } catch (err) {
+      const m = err instanceof Error ? err.message : "Failed to analyse voice";
+      toast.error(
+        m.toLowerCase().includes("insufficient")
+          ? "Out of AI credits. Top up in Billing to keep training your voice."
+          : m
+      );
+    } finally {
+      setVoiceLoading(false);
+    }
+  };
+
+  const applyVoiceResult = () => {
+    if (!voiceResult) return;
+    setBrandVoice(voiceResult.brand_voice);
+    setTargetAudience(voiceResult.target_audience);
+    // Merge AI suggestions with whatever the user already had — never overwrite
+    // existing tags silently. Dedupe preserves the user's manual entries.
+    const merge = (existing: string[], add: string[]) => {
+      const seen = new Set(existing.map((s) => s.toLowerCase()));
+      const merged = [...existing];
+      for (const a of add) {
+        if (!seen.has(a.toLowerCase())) {
+          seen.add(a.toLowerCase());
+          merged.push(a);
+        }
+      }
+      return merged;
+    };
+    setDos(merge(dos, voiceResult.dos));
+    setDonts(merge(donts, voiceResult.donts));
+    setContentPillars(merge(contentPillars, voiceResult.content_pillars));
+    toast.success("Voice profile applied — don't forget to save the brand kit.");
+    setVoiceTrainOpen(false);
+    setVoiceResult(null);
+    setVoiceExamples(["", "", ""]);
+  };
+
   // Build a synthetic kit for completeness score
   const syntheticKit: BrandKit = {
     ...kit,
@@ -748,7 +818,20 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-1.5">
-                <Label htmlFor={`bk-voice-${kit.id}`}>Brand Voice / Tone</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor={`bk-voice-${kit.id}`}>Brand Voice / Tone</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2.5 text-xs border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/40"
+                    onClick={() => setVoiceTrainOpen(true)}
+                    title="Paste a few of your existing posts and let AI extract your voice profile (1 credit)"
+                  >
+                    <Mic className="h-3 w-3 mr-1.5" />
+                    Train AI on my voice
+                  </Button>
+                </div>
                 <Textarea
                   id={`bk-voice-${kit.id}`}
                   value={brandVoice}
@@ -1015,6 +1098,141 @@ function BrandKitEditor({ kit, onSaved, onDeleted }: EditorProps) {
           Save Changes
         </Button>
       </div>
+
+      {/* ── AI Brand Voice Training modal ────────────────────────────────── */}
+      <Dialog open={voiceTrainOpen} onOpenChange={(o) => {
+        setVoiceTrainOpen(o);
+        if (!o) { setVoiceResult(null); }
+      }}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mic className="h-5 w-5 text-violet-600" />
+              Train AI on your brand voice
+            </DialogTitle>
+            <DialogDescription>
+              Paste 2–5 of your existing posts. We&apos;ll extract a voice profile
+              (tone, do&apos;s, don&apos;ts, content themes) you can apply to this Brand
+              Kit in one click. <strong>Costs 1 AI credit.</strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          {!voiceResult ? (
+            <div className="space-y-3 mt-2">
+              {voiceExamples.map((ex, i) => (
+                <div key={i} className="space-y-1">
+                  <Label className="text-xs">
+                    Example post {i + 1}
+                    {i < 2 && <span className="text-red-500"> *</span>}
+                    {i >= 2 && <span className="text-muted-foreground"> (optional)</span>}
+                  </Label>
+                  <Textarea
+                    value={ex}
+                    onChange={(e) => {
+                      const next = [...voiceExamples];
+                      next[i] = e.target.value;
+                      setVoiceExamples(next);
+                    }}
+                    placeholder={
+                      i === 0
+                        ? "Paste an existing post that sounds like your brand — a recent caption, a tweet, a LinkedIn post…"
+                        : "Another example (the more variety, the better)"
+                    }
+                    rows={3}
+                    className="resize-none text-sm"
+                  />
+                </div>
+              ))}
+              {voiceExamples.length < 5 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-7"
+                  onClick={() => setVoiceExamples([...voiceExamples, ""])}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Add another
+                </Button>
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setVoiceTrainOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  onClick={runVoiceTraining}
+                  disabled={voiceLoading || voiceExamples.filter((e) => e.trim()).length < 2}
+                >
+                  {voiceLoading ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Analyzing…</>
+                  ) : (
+                    <><Mic className="h-4 w-4 mr-2" /> Analyse voice</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            // Results preview
+            <div className="space-y-4 mt-2">
+              <div className="p-3 rounded-lg bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800">
+                <p className="text-[10px] uppercase tracking-wide text-violet-700 dark:text-violet-300 font-semibold mb-1">
+                  Summary
+                </p>
+                <p className="text-sm text-gray-900 dark:text-white italic">
+                  &ldquo;{voiceResult.summary}&rdquo;
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Brand voice (will replace your current voice)</p>
+                <p className="text-sm whitespace-pre-line">{voiceResult.brand_voice}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Target audience</p>
+                <p className="text-sm">{voiceResult.target_audience}</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 font-semibold mb-1">Do&apos;s (will merge)</p>
+                  <ul className="text-xs space-y-0.5 list-disc list-inside text-gray-700 dark:text-gray-300">
+                    {voiceResult.dos.map((d, i) => <li key={i}>{d}</li>)}
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-red-700 dark:text-red-300 font-semibold mb-1">Don&apos;ts (will merge)</p>
+                  <ul className="text-xs space-y-0.5 list-disc list-inside text-gray-700 dark:text-gray-300">
+                    {voiceResult.donts.map((d, i) => <li key={i}>{d}</li>)}
+                  </ul>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-1">Content pillars (will merge)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {voiceResult.content_pillars.map((p, i) => (
+                    <Badge key={i} variant="secondary" className="text-xs">{p}</Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-between gap-2 pt-2">
+                <Button variant="ghost" onClick={() => setVoiceResult(null)}>
+                  ← Try different examples
+                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setVoiceTrainOpen(false)}>
+                    Discard
+                  </Button>
+                  <Button
+                    className="bg-violet-600 hover:bg-violet-700 text-white"
+                    onClick={applyVoiceResult}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Apply to Brand Kit
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Delete confirmation */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
