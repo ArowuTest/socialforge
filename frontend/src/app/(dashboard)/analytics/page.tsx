@@ -277,6 +277,22 @@ export default function AnalyticsPage() {
     queryFn: () => analyticsApi.getOverview({ period: dateRange }),
   });
 
+  // Period-over-period deltas — backend returns the previous period's stats
+  // under `meta.previous` so we can show "+24% vs last 30d" style indicators.
+  // pctDelta returns null when there's no prior data to compare against (avoids
+  // misleading "+∞%" when the previous period was zero).
+  const prev = (overviewData as { meta?: { previous?: {
+    total_posts?: number; total_reach?: number; total_engagement?: number;
+  } } } | undefined)?.meta?.previous;
+  const pctDelta = (curr: number, previous: number | undefined): number | undefined => {
+    if (previous === undefined || previous === null) return undefined;
+    if (previous === 0) return curr > 0 ? undefined : 0;
+    return Math.round(((curr - previous) / previous) * 100);
+  };
+  const postsTrend = pctDelta(overviewData?.data?.total_posts ?? 0, prev?.total_posts);
+  const reachTrend = pctDelta(overviewData?.data?.total_reach ?? 0, prev?.total_reach);
+  const engagementTrend = pctDelta(overviewData?.data?.total_engagement ?? 0, prev?.total_engagement);
+
   const { data: topPostsData, isLoading: topPostsLoading } = useQuery({
     queryKey: ["analytics-top-posts", dateRange],
     queryFn: () => analyticsApi.getTopPosts({ startDate, endDate, limit: 10 }),
@@ -359,6 +375,7 @@ export default function AnalyticsPage() {
           icon={FileText}
           iconColor="text-violet-600"
           loading={overviewLoading}
+          trend={postsTrend}
         />
         <KpiCard
           label="Total Reach"
@@ -366,6 +383,7 @@ export default function AnalyticsPage() {
           icon={Eye}
           iconColor="text-sky-600"
           loading={overviewLoading}
+          trend={reachTrend}
         />
         <KpiCard
           label="Total Engagement"
@@ -373,6 +391,7 @@ export default function AnalyticsPage() {
           icon={Heart}
           iconColor="text-pink-600"
           loading={overviewLoading}
+          trend={engagementTrend}
         />
         <KpiCard
           label="Best Performing Platform"

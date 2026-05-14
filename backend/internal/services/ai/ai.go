@@ -1263,6 +1263,140 @@ Be specific — not "improve the hook" but "Replace the opening with a surprisin
 	return &analysis, job, nil
 }
 
+// ─── GenerateReplies ──────────────────────────────────────────────────────────
+
+// ReplySuggestions returns 3 on-brand reply options for a social inbox message.
+type ReplySuggestions struct {
+	Replies []ReplySuggestion `json:"replies"`
+}
+
+// ReplySuggestion is a single suggested reply with a short label describing
+// the tone/intent so the user can pick the right one at a glance.
+type ReplySuggestion struct {
+	Label string `json:"label"` // e.g. "Friendly", "Apologetic", "Helpful"
+	Text  string `json:"text"`
+}
+
+// GenerateReplies produces 3 short reply suggestions for an inbound social
+// message (comment, mention, or DM). When a BrandKit is provided, the replies
+// honour the brand voice and do/don't lists. Charges the workspace 1 credit
+// (uses the "caption" cost setting since complexity is comparable).
+func (s *Service) GenerateReplies(
+	ctx context.Context,
+	workspaceID, userID uuid.UUID,
+	originalMessage string,
+	platform string,
+	messageType string, // "comment" | "mention" | "dm"
+	postContext string, // optional caption of the post the message is on
+	senderHandle string, // optional @handle of the sender
+	bk *models.BrandKit,
+) (*ReplySuggestions, *models.AIJob, error) {
+	if originalMessage == "" {
+		return nil, nil, fmt.Errorf("originalMessage is required")
+	}
+	if platform == "" {
+		platform = "general"
+	}
+	if messageType == "" {
+		messageType = "comment"
+	}
+
+	cost := s.getCreditCost("caption", CreditCostCaption)
+	if err := s.DeductCredits(ctx, workspaceID, cost); err != nil {
+		return nil, nil, err
+	}
+
+	// Brand identity section — copied pattern from GenerateCaption.
+	var brandSection strings.Builder
+	if bk != nil {
+		brandSection.WriteString("\n\n── BRAND IDENTITY (apply to ALL replies) ──")
+		if bk.BrandVoice != "" {
+			brandSection.WriteString(fmt.Sprintf("\nBrand voice: %s", bk.BrandVoice))
+		}
+		if bk.TargetAudience != "" {
+			brandSection.WriteString(fmt.Sprintf("\nWho we talk to: %s", bk.TargetAudience))
+		}
+		if len(bk.Dos) > 0 {
+			brandSection.WriteString(fmt.Sprintf("\nDo's: %s", strings.Join(bk.Dos, "; ")))
+		}
+		if len(bk.Donts) > 0 {
+			brandSection.WriteString(fmt.Sprintf("\nNEVER do: %s", strings.Join(bk.Donts, "; ")))
+		}
+		brandSection.WriteString("\n── END BRAND IDENTITY ──")
+	}
+
+	var contextLine string
+	if postContext != "" {
+		contextLine = fmt.Sprintf("\nThe message is in response to this post: %q", postContext)
+	}
+	var senderLine string
+	if senderHandle != "" {
+		senderLine = fmt.Sprintf("\nFrom: %s", senderHandle)
+	}
+
+	systemPrompt := fmt.Sprintf(
+		`You are the brand's social media community manager. Generate 3 short, distinct reply options to an inbound %s on %s.%s
+
+Rules:
+1. Each reply must be 1–2 sentences, never more than 280 characters.
+2. The 3 options should be GENUINELY different — vary the angle (e.g. friendly + helpful + concise; or appreciative + apologetic + redirecting).
+3. Match the platform's tone register: more emoji on Instagram/TikTok, more professional on LinkedIn.
+4. Never make promises the brand can't keep (no "we'll refund you", no "we'll fix it tomorrow") unless the user message clearly entitles them to that.
+5. If the message is hostile or spam, suggest measured, de-escalating replies — never sarcasm.
+6. Address them by their handle only if natural (no forced "Hi @user!").%s
+
+Return STRICT JSON of this shape:
+{
+  "replies": [
+    {"label": "<2-3 word tone label>", "text": "<reply text>"},
+    {"label": "...", "text": "..."},
+    {"label": "...", "text": "..."}
+  ]
+}`,
+		messageType, platform, brandSection.String(), contextLine+senderLine,
+	)
+
+	openaiClient, err := s.requireOpenAIClient()
+	if err != nil {
+		job, _ := s.saveJob(ctx, workspaceID, userID, "reply_suggestions",
+			models.JSONMap{"message": originalMessage, "platform": platform, "type": messageType},
+			nil, cost, err.Error())
+		return nil, job, fmt.Errorf("GenerateReplies: %w", err)
+	}
+
+	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: "gpt-4o-mini",
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: originalMessage},
+		},
+		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
+		Temperature:    0.8,
+	})
+	if err != nil {
+		job, _ := s.saveJob(ctx, workspaceID, userID, "reply_suggestions",
+			models.JSONMap{"message": originalMessage, "platform": platform, "type": messageType},
+			nil, cost, err.Error())
+		return nil, job, fmt.Errorf("GenerateReplies: openai: %w", err)
+	}
+
+	var out ReplySuggestions
+	if err := json.Unmarshal([]byte(resp.Choices[0].Message.Content), &out); err != nil {
+		return nil, nil, fmt.Errorf("GenerateReplies: parse response: %w", err)
+	}
+	// Guard against weird/empty responses — always return at least one reply.
+	if len(out.Replies) == 0 {
+		return nil, nil, fmt.Errorf("GenerateReplies: model returned 0 suggestions")
+	}
+
+	job, _ := s.saveJob(ctx, workspaceID, userID, "reply_suggestions",
+		models.JSONMap{"message": originalMessage, "platform": platform, "type": messageType},
+		models.JSONMap{"replies": out.Replies},
+		cost, "")
+
+	return &out, job, nil
+}
+
 // ─── ProcessJob ───────────────────────────────────────────────────────────────
 
 // processJobPayload is a local mirror of queue.AIGeneratePayload used to avoid

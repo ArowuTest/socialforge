@@ -17,6 +17,7 @@ import {
   Linkedin,
   Globe,
   X,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { inboxApi } from "@/lib/api";
+import { inboxApi, aiApi } from "@/lib/api";
 import { InboxMessage } from "@/types";
 
 // ─── Platform icon helper ──────────────────────────────────────────────────────
@@ -137,6 +138,43 @@ export default function InboxPage() {
     if (!selectedMsg || !replyText.trim()) return;
     replyMutation.mutate({ id: selectedMsg.id, text: replyText.trim() });
   }
+
+  // ── AI Reply Suggestions ───────────────────────────────────────────────────
+  // Charges 1 credit to generate 3 on-brand reply options. The user picks one
+  // (or edits) before sending — we never auto-send AI text.
+  const [aiSuggestions, setAiSuggestions] = React.useState<
+    Array<{ label: string; text: string }> | null
+  >(null);
+  const [aiLoading, setAiLoading] = React.useState(false);
+
+  async function handleGenerateAIReplies() {
+    if (!selectedMsg) return;
+    setAiLoading(true);
+    setAiSuggestions(null);
+    try {
+      const res = await aiApi.generateReplySuggestions({
+        message: selectedMsg.content,
+        platform: selectedMsg.platform,
+        messageType: selectedMsg.message_type as "comment" | "mention" | "dm",
+        senderHandle: selectedMsg.sender_handle,
+      });
+      setAiSuggestions(res.data?.replies ?? []);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to generate replies";
+      if (msg.toLowerCase().includes("insufficient")) {
+        toast.error("Out of AI credits. Top up in Billing to keep using AI.");
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  // Reset AI suggestions whenever the user switches messages.
+  React.useEffect(() => {
+    setAiSuggestions(null);
+  }, [selectedMsg?.id]);
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
@@ -357,6 +395,32 @@ export default function InboxPage() {
                 </p>
               ) : (
                 <div className="space-y-2">
+                  {/* AI suggestions — show above the textarea so users can pick one to load */}
+                  {aiSuggestions && aiSuggestions.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[10px] uppercase tracking-wide text-violet-600 dark:text-violet-400 font-semibold flex items-center gap-1.5">
+                        <Sparkles className="h-3 w-3" /> AI suggestions — click to use
+                      </p>
+                      {aiSuggestions.map((s, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            setReplyText(s.text);
+                            setAiSuggestions(null);
+                          }}
+                          className="w-full text-left p-2 rounded-md border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors group"
+                        >
+                          <div className="text-[10px] uppercase tracking-wide font-semibold text-violet-700 dark:text-violet-300 mb-0.5">
+                            {s.label}
+                          </div>
+                          <div className="text-sm text-gray-700 dark:text-gray-200 leading-snug">
+                            {s.text}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <Textarea
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
@@ -368,21 +432,38 @@ export default function InboxPage() {
                       }
                     }}
                   />
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] text-gray-400">⌘ + Enter to send</p>
+                  <div className="flex items-center justify-between gap-2">
                     <Button
                       size="sm"
-                      onClick={handleSendReply}
-                      disabled={!replyText.trim() || replyMutation.isPending}
-                      className="bg-violet-600 hover:bg-violet-700 text-white h-7 px-3 text-xs"
+                      variant="outline"
+                      onClick={handleGenerateAIReplies}
+                      disabled={aiLoading}
+                      className="h-7 px-3 text-xs border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/40"
+                      title="Generate 3 on-brand reply options (1 AI credit)"
                     >
-                      {replyMutation.isPending ? (
+                      {aiLoading ? (
                         <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
                       ) : (
-                        <Send className="h-3 w-3 mr-1.5" />
+                        <Sparkles className="h-3 w-3 mr-1.5" />
                       )}
-                      Reply
+                      AI Reply
                     </Button>
+                    <div className="flex items-center gap-2 ml-auto">
+                      <p className="text-[10px] text-gray-400 hidden sm:block">⌘ + Enter to send</p>
+                      <Button
+                        size="sm"
+                        onClick={handleSendReply}
+                        disabled={!replyText.trim() || replyMutation.isPending}
+                        className="bg-violet-600 hover:bg-violet-700 text-white h-7 px-3 text-xs"
+                      >
+                        {replyMutation.isPending ? (
+                          <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                        ) : (
+                          <Send className="h-3 w-3 mr-1.5" />
+                        )}
+                        Reply
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}

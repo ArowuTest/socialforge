@@ -584,6 +584,33 @@ export const aiApi = {
       body: JSON.stringify(data),
     }),
 
+  /**
+   * Generate 3 on-brand reply suggestions for an inbound social inbox message
+   * (comment / mention / DM). Charges 1 credit. Backend honours the workspace
+   * default brand kit unless a specific brand_kit_id is passed.
+   */
+  generateReplySuggestions: (data: {
+    message: string;
+    platform?: string;
+    messageType?: "comment" | "mention" | "dm";
+    postContext?: string;
+    senderHandle?: string;
+    brandKitId?: string;
+  }) =>
+    request<
+      ApiResponse<{ replies: Array<{ label: string; text: string }> }>
+    >(`${ws()}/ai/reply-suggestions`, {
+      method: "POST",
+      body: JSON.stringify({
+        message: data.message,
+        platform: data.platform,
+        message_type: data.messageType,
+        post_context: data.postContext,
+        sender_handle: data.senderHandle,
+        brand_kit_id: data.brandKitId,
+      }),
+    }),
+
   getJobStatus: (jobId: string) =>
     request<ApiResponse<AIJob>>(`${ws()}/ai/jobs/${jobId}`),
 

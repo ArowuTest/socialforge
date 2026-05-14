@@ -196,17 +196,44 @@ function CalendarSkeleton() {
 export default function CalendarPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [currentDate, setCurrentDate] = React.useState(new Date());
+  // Initialise to a stable epoch so server and client agree during SSR;
+  // the real "today" is set in an effect after mount. This eliminates the
+  // React #418 hydration mismatch on the calendar header.
+  const [currentDate, setCurrentDate] = React.useState<Date>(() => new Date(0));
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => {
+    setCurrentDate(new Date());
+    setMounted(true);
+  }, []);
   const [viewMode, setViewMode] = React.useState<ViewMode>("month");
   const [selectedPlatforms, setSelectedPlatforms] = React.useState<string[]>(["all"]);
   const [selectedDate, setSelectedDate] = React.useState<Date | null>(null);
   const [csvImportOpen, setCsvImportOpen] = React.useState(false);
+  // Status filter for the list view. Month view always shows scheduled posts
+  // grouped by date; list view can show drafts/published/failed too.
+  const [statusFilter, setStatusFilter] = React.useState<
+    "all" | "scheduled" | "draft" | "published" | "failed"
+  >("all");
 
   const monthKey = format(currentDate, "yyyy-MM");
 
   const { data: calendarData, isLoading } = useQuery({
     queryKey: ["calendar", monthKey],
     queryFn: () => postsApi.getCalendar(monthKey),
+  });
+
+  // Separate query that backs the list view when statusFilter != "all" — uses
+  // /posts?status= instead of /calendar so it can surface drafts (no
+  // scheduled_at), published posts, and failures.
+  const postsListEnabled = viewMode === "list" && statusFilter !== "all";
+  const { data: postsListData, isLoading: postsListLoading } = useQuery({
+    queryKey: ["posts-by-status", statusFilter],
+    queryFn: () =>
+      postsApi.list({
+        status: statusFilter as unknown as PostStatus,
+        pageSize: 100,
+      }),
+    enabled: postsListEnabled,
   });
 
   const calendarEntries = calendarData?.data ?? [];
@@ -260,8 +287,11 @@ export default function CalendarPage() {
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white min-w-[160px] text-center">
-              {format(currentDate, "MMMM yyyy")}
+            <h2
+              suppressHydrationWarning
+              className="text-lg font-semibold text-gray-900 dark:text-white min-w-[160px] text-center"
+            >
+              {mounted ? format(currentDate, "MMMM yyyy") : " "}
             </h2>
             <button
               onClick={() => setCurrentDate(addMonths(currentDate, 1))}
@@ -407,21 +437,88 @@ export default function CalendarPage() {
         ) : (
           // List view
           (() => {
-            const listItems = calendarEntries.flatMap((entry: { date: string; posts: Post[] }) => {
-              const filtered = selectedPlatforms.includes("all")
-                ? entry.posts
-                : entry.posts.filter((p: Post) =>
-                    p.platforms.some((platform) => selectedPlatforms.includes(platform))
-                  );
-              return filtered.map((post: Post) => ({ entry, post }));
-            });
+            // When a specific status is selected, surface posts from
+            // /posts?status= (which includes drafts and other non-scheduled
+            // statuses). Otherwise fall back to the calendar feed.
+            type ListPost = { entry: { date: string; posts: Post[] }; post: Post };
+            let listItems: ListPost[];
+            if (postsListEnabled) {
+              const raw = (postsListData as { data?: Post[] })?.data ?? [];
+              listItems = raw
+                .filter((p) =>
+                  selectedPlatforms.includes("all") ||
+                  p.platforms.some((platform) => selectedPlatforms.includes(platform))
+                )
+                .map((post) => {
+                  // Handle both camelCase and snake_case shapes since the API
+                  // serializes with json:"snake_case" tags.
+                  const p = post as Post & {
+                    scheduled_at?: string;
+                    published_at?: string;
+                    created_at?: string;
+                  };
+                  const isoString =
+                    p.scheduledAt ?? p.scheduled_at ??
+                    p.publishedAt ?? p.published_at ??
+                    p.createdAt ?? p.created_at;
+                  const dt = isoString ? new Date(isoString) : new Date();
+                  return {
+                    entry: { date: format(dt, "yyyy-MM-dd"), posts: [post] },
+                    post,
+                  };
+                });
+            } else {
+              listItems = calendarEntries.flatMap((entry: { date: string; posts: Post[] }) => {
+                const filtered = selectedPlatforms.includes("all")
+                  ? entry.posts
+                  : entry.posts.filter((p: Post) =>
+                      p.platforms.some((platform) => selectedPlatforms.includes(platform))
+                    );
+                return filtered.map((post: Post) => ({ entry, post }));
+              });
+            }
 
+            const statusOptions: Array<{ key: typeof statusFilter; label: string }> = [
+              { key: "all", label: "All scheduled" },
+              { key: "scheduled", label: "Scheduled" },
+              { key: "draft", label: "Drafts" },
+              { key: "published", label: "Published" },
+              { key: "failed", label: "Failed" },
+            ];
+            const emptyLabel =
+              statusFilter === "draft"
+                ? "No drafts yet"
+                : statusFilter === "published"
+                ? "No published posts yet"
+                : statusFilter === "failed"
+                ? "No failed posts — that's a good thing"
+                : "No scheduled posts in this period";
             return (
-              <div className="flex-1 overflow-auto space-y-2">
-                {listItems.length === 0 ? (
+              <div className="flex-1 overflow-auto">
+                {/* Status filter pills */}
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  {statusOptions.map((opt) => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setStatusFilter(opt.key)}
+                      className={cn(
+                        "px-3 py-1 rounded-full text-xs font-medium transition-colors",
+                        statusFilter === opt.key
+                          ? "bg-violet-600 text-white"
+                          : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                {postsListLoading && postsListEnabled ? (
+                  <div className="text-center py-16 text-sm text-muted-foreground">Loading…</div>
+                ) : listItems.length === 0 ? (
                   <div className="text-center py-16">
                     <CalendarDays className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-gray-600" />
-                    <p className="text-gray-500 dark:text-gray-400 font-medium">No scheduled posts in this period</p>
+                    <p className="text-gray-500 dark:text-gray-400 font-medium">{emptyLabel}</p>
                     <p className="text-sm text-muted-foreground mt-1">
                       Start by scheduling your first post
                     </p>
@@ -462,6 +559,7 @@ export default function CalendarPage() {
                     </div>
                   ))
                 )}
+                </div>
               </div>
             );
           })()

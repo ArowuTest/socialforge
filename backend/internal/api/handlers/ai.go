@@ -220,6 +220,60 @@ func (h *AIHandler) GenerateHashtags(c *fiber.Ctx) error {
 	})
 }
 
+// ── GenerateReplySuggestions ──────────────────────────────────────────────────
+
+type generateReplySuggestionsRequest struct {
+	Message      string `json:"message"`       // required — the inbound comment / DM / mention
+	Platform     string `json:"platform"`      // "instagram" | "tiktok" | ... (defaults general)
+	MessageType  string `json:"message_type"`  // "comment" | "mention" | "dm" (defaults comment)
+	PostContext  string `json:"post_context"`  // optional caption of the original post
+	SenderHandle string `json:"sender_handle"` // optional @handle of who sent it
+	BrandKitID   string `json:"brand_kit_id"`  // optional; falls back to workspace default
+}
+
+// GenerateReplySuggestions returns 3 on-brand reply options for an inbound
+// social message. Charges 1 credit (same as a caption generation).
+// POST /api/v1/workspaces/:wid/ai/reply-suggestions
+func (h *AIHandler) GenerateReplySuggestions(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req generateReplySuggestionsRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if req.Message == "" {
+		return badRequest(c, "message is required", "VALIDATION_ERROR")
+	}
+
+	bk := loadBrandKit(c.Context(), h.db, wid, req.BrandKitID)
+
+	out, _, err := h.ai.GenerateReplies(
+		c.Context(),
+		wid, user.ID,
+		req.Message, req.Platform, req.MessageType,
+		req.PostContext, req.SenderHandle, bk,
+	)
+	if err != nil {
+		if errors.Is(err, ai.ErrInsufficientCredits) {
+			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+				"error": "insufficient AI credits",
+				"code":  "INSUFFICIENT_CREDITS",
+			})
+		}
+		h.log.Error("GenerateReplySuggestions: ai.GenerateReplies", zap.Error(err))
+		return internalError(c, "failed to generate reply suggestions")
+	}
+
+	return c.JSON(fiber.Map{"data": out})
+}
+
 // ── GenerateImage ─────────────────────────────────────────────────────────────
 
 type generateImageRequest struct {

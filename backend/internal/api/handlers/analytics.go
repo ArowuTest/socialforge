@@ -24,7 +24,10 @@ func NewAnalyticsHandler(analytics *analyticssvc.Service, log *zap.Logger) *Anal
 	}
 }
 
-// GetDashboard returns aggregated analytics stats for a workspace.
+// GetDashboard returns aggregated analytics stats for a workspace, including
+// a "previous period" snapshot so the UI can show period-over-period deltas
+// ("+24% vs last week"-style indicators).
+//
 // GET /api/v1/workspaces/:wid/analytics?period=7d|30d|90d
 func (h *AnalyticsHandler) GetDashboard(c *fiber.Ctx) error {
 	widStr := c.Params("workspaceId")
@@ -46,7 +49,28 @@ func (h *AnalyticsHandler) GetDashboard(c *fiber.Ctx) error {
 		return internalError(c, "failed to load analytics")
 	}
 
-	return c.JSON(fiber.Map{"data": stats})
+	// Previous period of the same length, immediately before `from`.
+	periodLen := to.Sub(from)
+	prevFrom := from.Add(-periodLen)
+	prevTo := from
+	prevStats, prevErr := h.analytics.GetDashboardStats(c.Context(), wid, prevFrom, prevTo)
+	if prevErr != nil {
+		// Previous period is a best-effort enrichment — never fail the request
+		// if the comparison can't be computed.
+		h.log.Warn("GetDashboard: previous period failed", zap.Error(prevErr))
+	}
+
+	return c.JSON(fiber.Map{
+		"data": stats,
+		"meta": fiber.Map{
+			"period":          period,
+			"current_from":    from,
+			"current_to":      to,
+			"previous_from":   prevFrom,
+			"previous_to":     prevTo,
+			"previous":        prevStats, // may be nil on error
+		},
+	})
 }
 
 // GetTopPosts returns the top-performing posts for a workspace in a date range.

@@ -121,7 +121,11 @@ function SignupContent() {
       } else {
         toast.success("Account created! Welcome to ChiselPost.");
       }
-      router.push("/calendar");
+      // Route new accounts (no invite) into the onboarding flow so they can
+      // pick Manual vs Autopilot mode, connect a social account, and set up
+      // their Brand Kit. Existing users coming in via invite go straight to
+      // the calendar — they're joining an active workspace.
+      router.push(inviteToken ? "/calendar" : "/onboarding");
     } catch (error) {
       const message =
         error instanceof Error

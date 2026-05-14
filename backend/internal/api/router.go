@@ -168,6 +168,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/ai/generate-video", aiH.GenerateVideo)
 	// NOTE: /ai/repurpose was removed in favour of /repurpose (richer schema).
 	ws.Post("/ai/hashtags", aiH.GenerateHashtags)
+	ws.Post("/ai/reply-suggestions", aiH.GenerateReplySuggestions)
 	ws.Get("/ai/jobs/:id", aiH.GetAIJobStatus)
 	ws.Post("/ai/analyse", aiH.AnalyseViralPotential)
 	ws.Get("/ai/costs", aiH.GetJobCreditCosts)
