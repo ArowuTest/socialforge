@@ -682,10 +682,10 @@ export const billingApi = {
         : "/api/v1/billing/credits/packages",
     ),
 
-  initiateCreditTopUp: (packageId: string) =>
+  initiateCreditTopUp: (packageId: string, currency?: "USD" | "NGN") =>
     request<CreditTopUpSession>(`${ws()}/billing/credits/topup`, {
       method: "POST",
-      body: JSON.stringify({ package_id: packageId }),
+      body: JSON.stringify(currency ? { package_id: packageId, currency } : { package_id: packageId }),
     }),
 
   getCreditBalance: () =>

@@ -111,13 +111,19 @@ func (h *BillingHandler) InitiateCreditTopUp(c *fiber.Ctx) error {
 
 	type body struct {
 		PackageID string `json:"package_id"`
+		Currency  string `json:"currency"` // optional override; "USD" or "NGN"
 	}
 	var req body
 	if err := c.BodyParser(&req); err != nil || req.PackageID == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "package_id required")
 	}
 
-	currency := billingsvc.DetectCurrency(c.Context(), c.IP(), h.rdb, nil)
+	// Allow explicit override from the body (the UI sends this when the user
+	// has manually toggled USD ↔ NGN); fall back to IP-based detection.
+	currency := req.Currency
+	if currency != "USD" && currency != "NGN" {
+		currency = billingsvc.DetectCurrency(c.Context(), c.IP(), h.rdb, nil)
+	}
 
 	sess, err := h.svc.CreateCreditTopUpSession(c.Context(), user.ID, wid, req.PackageID, currency, user.Email)
 	if err != nil {
