@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -204,11 +206,17 @@ func (h *BillingHandler) GetPlans(c *fiber.Ctx) error {
 // ── CreateSubscription ────────────────────────────────────────────────────────
 
 type createSubscriptionRequest struct {
-	PriceID string `json:"price_id"`
+	PriceID  string `json:"price_id"`
+	PlanType string `json:"planType"` // optional alias: pro / starter / agency
+	Interval string `json:"interval"` // optional: monthly / yearly (default monthly)
 }
 
 // CreateSubscription creates a Stripe Checkout session via the billing service.
 // POST /api/v1/billing/subscribe
+//
+// Accepts either:
+//   - {"price_id": "<stripe_price_id>"}  (direct)
+//   - {"planType": "pro", "interval": "monthly"} (resolved against platform_settings)
 func (h *BillingHandler) CreateSubscription(c *fiber.Ctx) error {
 	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
 	if !ok || user == nil {
@@ -220,8 +228,27 @@ func (h *BillingHandler) CreateSubscription(c *fiber.Ctx) error {
 		return badRequest(c, "invalid request body", "INVALID_BODY")
 	}
 
+	// Resolve price_id from planType + interval if not given directly.
+	if req.PriceID == "" && req.PlanType != "" {
+		interval := strings.ToLower(req.Interval)
+		if interval == "" {
+			interval = "monthly"
+		}
+		key := fmt.Sprintf("stripe_price_%s_%s", strings.ToLower(req.PlanType), interval)
+		var val string
+		h.db.WithContext(c.Context()).
+			Raw(`SELECT value FROM platform_settings WHERE key = ?`, key).
+			Scan(&val)
+		if val == "" {
+			return badRequest(c,
+				fmt.Sprintf("Plan upgrades aren't fully configured yet (missing %s). Contact support to subscribe.", key),
+				"STRIPE_NOT_CONFIGURED")
+		}
+		req.PriceID = val
+	}
+
 	if req.PriceID == "" {
-		return badRequest(c, "price_id is required", "VALIDATION_ERROR")
+		return badRequest(c, "price_id or planType is required", "VALIDATION_ERROR")
 	}
 
 	// Resolve workspace: use the workspace param if present, otherwise fall

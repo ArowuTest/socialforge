@@ -344,10 +344,13 @@ interface PlanTabProps {
     limits: { accounts: number; posts: number; aiCredits: number };
   };
   onPortalClick: () => void;
+  onUpgradeClick: () => void;
   portalLoading: boolean;
+  upgradeLoading: boolean;
 }
 
-function PlanTab({ subscription, onPortalClick, portalLoading }: PlanTabProps) {
+function PlanTab({ subscription, onPortalClick, onUpgradeClick, portalLoading, upgradeLoading }: PlanTabProps) {
+  const isFreePlan = subscription.plan.toLowerCase() === "free";
   // Build dynamic "What's included" list from actual plan limits
   const planFeatures = React.useMemo(() => {
     const { accounts, posts, aiCredits } = subscription.limits;
@@ -443,32 +446,34 @@ function PlanTab({ subscription, onPortalClick, portalLoading }: PlanTabProps) {
               </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white text-xs"
-                onClick={onPortalClick}
-                disabled={portalLoading}
-              >
-                {portalLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-                ) : (
-                  <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                )}
-                Manage in Stripe
-              </Button>
+              {!isFreePlan && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white text-xs"
+                  onClick={onPortalClick}
+                  disabled={portalLoading}
+                >
+                  {portalLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  ) : (
+                    <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Manage in Stripe
+                </Button>
+              )}
               <Button
                 size="sm"
                 className="bg-violet-600 hover:bg-violet-700 text-white text-xs"
-                onClick={onPortalClick}
-                disabled={portalLoading}
+                onClick={onUpgradeClick}
+                disabled={upgradeLoading}
               >
-                {portalLoading ? (
+                {upgradeLoading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
                 ) : (
                   <ArrowUpRight className="h-3.5 w-3.5 mr-1" />
                 )}
-                Upgrade Plan
+                {isFreePlan ? "Upgrade Plan" : "Change Plan"}
               </Button>
             </div>
           </div>
@@ -795,6 +800,33 @@ export default function BillingPage() {
     }
   };
 
+  const [planPickerOpen, setPlanPickerOpen] = React.useState(false);
+  const [upgradeLoading, setUpgradeLoading] = React.useState(false);
+
+  const handleUpgradeClick = () => setPlanPickerOpen(true);
+
+  const handleSelectPlan = async (planType: "starter" | "pro" | "agency", interval: "monthly" | "yearly") => {
+    setUpgradeLoading(true);
+    try {
+      const res = await billingApi.createSubscription({ planType, interval });
+      const url = (res.data as { checkout_url?: string; checkoutUrl?: string }).checkout_url
+        ?? (res.data as { checkoutUrl?: string }).checkoutUrl;
+      if (url) {
+        window.location.href = url;
+      } else {
+        toast.error("Checkout URL not returned. Please try again.");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Could not start checkout";
+      toast.error(msg.includes("STRIPE_NOT_CONFIGURED")
+        ? "Plan upgrades aren't configured yet. Please contact support to subscribe."
+        : msg);
+    } finally {
+      setUpgradeLoading(false);
+      setPlanPickerOpen(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
       {/* Page header */}
@@ -835,9 +867,20 @@ export default function BillingPage() {
           <PlanTab
             subscription={subscription}
             onPortalClick={handlePortalClick}
+            onUpgradeClick={handleUpgradeClick}
             portalLoading={portalLoading}
+            upgradeLoading={upgradeLoading}
           />
         </TabsContent>
+
+        <PlanPickerDialog
+          open={planPickerOpen}
+          onOpenChange={setPlanPickerOpen}
+          currentPlan={subscription.plan}
+          onSelect={handleSelectPlan}
+          loading={upgradeLoading}
+        />
+
 
         {/* AI Credits */}
         <TabsContent value="credits" className="mt-0 space-y-6">
@@ -931,6 +974,113 @@ export default function BillingPage() {
           )}
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// PLAN PICKER DIALOG
+// ══════════════════════════════════════════════════════════════════════════
+
+interface PlanPickerDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  currentPlan: string;
+  onSelect: (planType: "starter" | "pro" | "agency", interval: "monthly" | "yearly") => void;
+  loading: boolean;
+}
+
+function PlanPickerDialog({ open, onOpenChange, currentPlan, onSelect, loading }: PlanPickerDialogProps) {
+  const [interval, setInterval] = React.useState<"monthly" | "yearly">("monthly");
+
+  if (!open) return null;
+
+  const plans: Array<{ id: "starter" | "pro" | "agency"; name: string; monthly: number; yearly: number; features: string[]; popular?: boolean }> = [
+    { id: "starter", name: "Starter", monthly: 29, yearly: 290, features: ["20 social accounts", "500 posts/mo", "1,250 AI credits/mo"] },
+    { id: "pro", name: "Pro", monthly: 79, yearly: 790, features: ["40 social accounts", "Unlimited posts", "5,000 AI credits/mo", "5 team members"], popular: true },
+    { id: "agency", name: "Agency", monthly: 199, yearly: 1990, features: ["Unlimited social accounts", "Unlimited posts", "28,000 AI credits/mo", "White-label", "Unlimited team"] },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={() => !loading && onOpenChange(false)}
+    >
+      <div
+        className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-white">Choose your plan</h2>
+            <p className="text-sm text-slate-400 mt-0.5">Upgrade any time. Cancel any time.</p>
+          </div>
+          <button onClick={() => onOpenChange(false)} className="text-slate-400 hover:text-white" disabled={loading}>✕</button>
+        </div>
+
+        <div className="flex gap-2 mb-6 bg-slate-800 rounded-lg p-1 w-fit">
+          {(["monthly", "yearly"] as const).map((iv) => (
+            <button
+              key={iv}
+              onClick={() => setInterval(iv)}
+              className={cn(
+                "px-4 py-1.5 text-sm rounded-md transition-colors",
+                interval === iv ? "bg-violet-600 text-white" : "text-slate-400 hover:text-white"
+              )}
+            >
+              {iv === "monthly" ? "Monthly" : "Yearly (save 17%)"}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {plans.map((p) => {
+            const isCurrent = currentPlan.toLowerCase() === p.id;
+            const price = interval === "monthly" ? p.monthly : p.yearly;
+            return (
+              <div
+                key={p.id}
+                className={cn(
+                  "rounded-xl border p-5 relative",
+                  p.popular ? "border-violet-500 bg-violet-950/20" : "border-slate-700 bg-slate-800/50"
+                )}
+              >
+                {p.popular && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-violet-600 text-white text-xs px-3 py-1 rounded-full">
+                    Most Popular
+                  </div>
+                )}
+                <h3 className="text-lg font-bold text-white">{p.name}</h3>
+                <div className="mt-2 mb-4">
+                  <span className="text-3xl font-bold text-white">${price}</span>
+                  <span className="text-sm text-slate-400">/{interval === "monthly" ? "mo" : "yr"}</span>
+                </div>
+                <ul className="space-y-2 mb-5">
+                  {p.features.map((f) => (
+                    <li key={f} className="text-sm text-slate-300 flex items-start gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-400 mt-0.5 flex-shrink-0" /> {f}
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  className={cn(
+                    "w-full",
+                    isCurrent ? "bg-slate-700 cursor-default" : p.popular ? "bg-violet-600 hover:bg-violet-700" : "bg-slate-700 hover:bg-slate-600"
+                  )}
+                  onClick={() => !isCurrent && onSelect(p.id, interval)}
+                  disabled={isCurrent || loading}
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : isCurrent ? "Current Plan" : `Upgrade to ${p.name}`}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="text-xs text-slate-500 text-center mt-4">
+          Powered by Stripe · Cancel from your account anytime
+        </p>
+      </div>
     </div>
   );
 }
