@@ -366,9 +366,11 @@ func (h *CostConfigHandler) UpdatePlatformSetting(c *fiber.Ctx) error {
 		map[string]any{"key": key, "value": logValue})
 
 	// Invalidate any cached settings so the change takes effect on the next
-	// quota check / currency conversion / etc — admins should see edits
-	// reflected within seconds, not on the next 30-second cache refresh.
+	// quota check / AI model lookup / currency conversion / rate-limit check
+	// etc — admins should see edits reflected within seconds, not on the next
+	// cache refresh.
 	billing.InvalidatePlanLimitsCache()
+	billing.InvalidateSettingsCache()
 	if key == "ngn_per_usd" {
 		billing.InvalidateNGNRateCache()
 	}

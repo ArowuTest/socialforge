@@ -227,6 +227,125 @@ func InvalidatePlanLimitsCache() {
 	globalPlanLimitCache.mu.Unlock()
 }
 
+// ─── Generic platform_settings reader ────────────────────────────────────────
+// Used by code outside the billing package (AI service, rate limiters, etc.)
+// that needs to read admin-configurable values without depending on the
+// billing.Service. Caches the entire settings map for 60s.
+
+type settingsCache struct {
+	mu       sync.RWMutex
+	loadedAt time.Time
+	values   map[string]string
+}
+
+var globalSettingsCache = &settingsCache{}
+
+// loadAllSettings reads every platform_settings row into memory. Single query;
+// caller is expected to filter the map. Returns nil map on DB error so callers
+// fall through to their own defaults — never returns an error.
+func loadAllSettings(ctx context.Context, db *gorm.DB) map[string]string {
+	if db == nil {
+		return nil
+	}
+	var rows []struct {
+		Key   string
+		Value string
+	}
+	if err := db.WithContext(ctx).
+		Raw(`SELECT key, value FROM platform_settings`).
+		Scan(&rows).Error; err != nil {
+		return nil
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		out[r.Key] = r.Value
+	}
+	return out
+}
+
+// LoadSettings returns the platform_settings map, caching for 60 seconds. The
+// returned map should be treated as read-only by callers.
+func LoadSettings(ctx context.Context, db *gorm.DB) map[string]string {
+	globalSettingsCache.mu.RLock()
+	if time.Since(globalSettingsCache.loadedAt) < 60*time.Second && globalSettingsCache.values != nil {
+		v := globalSettingsCache.values
+		globalSettingsCache.mu.RUnlock()
+		return v
+	}
+	globalSettingsCache.mu.RUnlock()
+
+	loaded := loadAllSettings(ctx, db)
+	if loaded == nil {
+		// On error, return whatever stale cache we have so callers keep working.
+		globalSettingsCache.mu.RLock()
+		stale := globalSettingsCache.values
+		globalSettingsCache.mu.RUnlock()
+		return stale
+	}
+	globalSettingsCache.mu.Lock()
+	globalSettingsCache.values = loaded
+	globalSettingsCache.loadedAt = time.Now()
+	globalSettingsCache.mu.Unlock()
+	return loaded
+}
+
+// LoadStringSetting returns the value of a platform_setting key with a fallback
+// when the key is missing or the DB is unreachable.
+func LoadStringSetting(ctx context.Context, db *gorm.DB, key, fallback string) string {
+	m := LoadSettings(ctx, db)
+	if v, ok := m[key]; ok && v != "" {
+		return v
+	}
+	return fallback
+}
+
+// LoadIntSetting is the int variant of LoadStringSetting.
+func LoadIntSetting(ctx context.Context, db *gorm.DB, key string, fallback int) int {
+	v := LoadStringSetting(ctx, db, key, "")
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+// LoadFloatSetting is the float64 variant of LoadStringSetting.
+func LoadFloatSetting(ctx context.Context, db *gorm.DB, key string, fallback float64) float64 {
+	v := LoadStringSetting(ctx, db, key, "")
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+// LoadBoolSetting accepts "true"/"1"/"yes" (true) and "false"/"0"/"no" (false).
+func LoadBoolSetting(ctx context.Context, db *gorm.DB, key string, fallback bool) bool {
+	v := LoadStringSetting(ctx, db, key, "")
+	switch v {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	}
+	return fallback
+}
+
+// InvalidateSettingsCache wipes the generic settings cache so the next read
+// pulls fresh values. The admin write handler calls this on every PUT.
+func InvalidateSettingsCache() {
+	globalSettingsCache.mu.Lock()
+	globalSettingsCache.values = nil
+	globalSettingsCache.loadedAt = time.Time{}
+	globalSettingsCache.mu.Unlock()
+}
+
 // GetLimits returns the PlanLimits for the given plan type from the hardcoded
 // fallback table. Prefer Service.LoadPlanLimits for anywhere with a DB
 // context; this exists only for callers without one (e.g. tests).
