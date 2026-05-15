@@ -13,6 +13,7 @@ import (
 
 	"github.com/socialforge/backend/internal/crypto"
 	"github.com/socialforge/backend/internal/models"
+	"github.com/socialforge/backend/internal/services/billing"
 )
 
 // ── DB row types (not GORM models — simple structs for raw queries) ──────────
@@ -363,6 +364,14 @@ func (h *CostConfigHandler) UpdatePlatformSetting(c *fiber.Ctx) error {
 	}
 	writeAudit(c, h.db, h.log, uuid.Nil, "settings.updated", "platform_setting", key,
 		map[string]any{"key": key, "value": logValue})
+
+	// Invalidate any cached settings so the change takes effect on the next
+	// quota check / currency conversion / etc — admins should see edits
+	// reflected within seconds, not on the next 30-second cache refresh.
+	billing.InvalidatePlanLimitsCache()
+	if key == "ngn_per_usd" {
+		billing.InvalidateNGNRateCache()
+	}
 
 	// Return masked value for sensitive keys.
 	displayValue := req.Value

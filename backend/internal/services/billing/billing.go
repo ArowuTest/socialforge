@@ -305,7 +305,9 @@ func (s *Service) GetUsage(ctx context.Context, workspaceID uuid.UUID) (*UsageRe
 		return nil, fmt.Errorf("get posts this month: %w", err)
 	}
 
-	limits := GetLimits(workspace.Plan)
+	// Use the platform_settings-backed loader so admins editing plan limits in
+	// /admin/settings actually affects what users see in their billing panel.
+	limits := s.LoadPlanLimits(ctx, workspace.Plan)
 
 	return &UsageResponse{
 		CreditsUsed:       creditsUsed,
@@ -616,7 +618,9 @@ func (s *Service) CreateCreditTopUpSession(ctx context.Context, userID, workspac
 	// placeholder (the topup's own UUID) and overwrite it once Paystack/Stripe
 	// returns the real reference. This avoids duplicate-empty-string collisions
 	// when multiple users initiate top-ups before the provider call completes.
-	rate := NGNPerUSD
+	// Pull the live FX rate from platform_settings so an admin updating the
+	// rate immediately affects new top-ups (no redeploy).
+	rate := LoadNGNRate(ctx, s.db)
 	tmpRef := "pending_" + uuid.New().String()
 	topup := &models.CreditTopUp{
 		WorkspaceID:      workspaceID,
@@ -631,7 +635,7 @@ func (s *Service) CreateCreditTopUpSession(ctx context.Context, userID, workspac
 
 	if currency == "NGN" {
 		topup.Provider = models.ProviderPaystack
-		topup.AmountInCurrency = pkg.PriceUSD * NGNPerUSD
+		topup.AmountInCurrency = pkg.PriceUSD * rate
 		topup.ExchangeRate = &rate
 	} else {
 		topup.Provider = models.ProviderStripe
@@ -756,7 +760,9 @@ func (s *Service) GetCreditBalance(ctx context.Context, workspaceID uuid.UUID) (
 	}
 
 	// Use plan-based limit (authoritative) rather than the stale DB column default.
-	planLimits := GetLimits(ws.Plan)
+	// LoadPlanLimits reads platform_settings so admins editing plan limits in
+	// /admin/settings affect credit balance reporting too.
+	planLimits := s.LoadPlanLimits(ctx, ws.Plan)
 
 	var monthlyCost float64
 	s.db.WithContext(ctx).Model(&models.AIJob{}).

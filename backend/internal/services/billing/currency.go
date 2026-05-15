@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 )
 
 // CreditPackage describes a purchasable credit bundle.
@@ -34,16 +37,114 @@ var ngnPackages = []CreditPackage{
 	{ID: "credits_5000", Credits: 5000, PriceUSD: 150, DisplayPrice: "₦240,000", Currency: "NGN"},
 }
 
-// NGNPerUSD is the approximate Naira exchange rate used for display.
-// In production this should be fetched from an FX API (e.g. exchangerate-api.com).
+// NGNPerUSD is the FALLBACK Naira exchange rate. The live rate is loaded from
+// platform_settings.ngn_per_usd via LoadNGNRate so admins can update it from
+// the admin portal without a redeploy. Kept as a public const for the rare
+// caller that has no DB context (mostly tests).
 const NGNPerUSD = 1600.0
 
+// ngnRateCache caches the platform_settings.ngn_per_usd value for ~5 minutes.
+// Currency conversion is on the billing critical path so the lookup is hot.
+type ngnRateCache struct {
+	mu       sync.RWMutex
+	rate     float64
+	loadedAt time.Time
+}
+
+var globalNGNRateCache = &ngnRateCache{rate: NGNPerUSD}
+
+// LoadNGNRate returns the current NGN-per-USD rate. Falls back to the
+// NGNPerUSD constant if platform_settings is unreachable or the row is
+// missing/invalid. Cached for 5 minutes.
+func LoadNGNRate(ctx context.Context, db *gorm.DB) float64 {
+	globalNGNRateCache.mu.RLock()
+	if time.Since(globalNGNRateCache.loadedAt) < 5*time.Minute && globalNGNRateCache.rate > 0 {
+		rate := globalNGNRateCache.rate
+		globalNGNRateCache.mu.RUnlock()
+		return rate
+	}
+	globalNGNRateCache.mu.RUnlock()
+
+	rate := NGNPerUSD
+	if db != nil {
+		var val string
+		db.WithContext(ctx).
+			Raw(`SELECT value FROM platform_settings WHERE key = 'ngn_per_usd'`).
+			Scan(&val)
+		if val != "" {
+			if v, err := strconv.ParseFloat(val, 64); err == nil && v > 0 {
+				rate = v
+			}
+		}
+	}
+
+	globalNGNRateCache.mu.Lock()
+	globalNGNRateCache.rate = rate
+	globalNGNRateCache.loadedAt = time.Now()
+	globalNGNRateCache.mu.Unlock()
+	return rate
+}
+
+// InvalidateNGNRateCache forces the next LoadNGNRate call to reread from DB.
+// Called from the admin settings handler when admins update the rate.
+func InvalidateNGNRateCache() {
+	globalNGNRateCache.mu.Lock()
+	globalNGNRateCache.rate = 0
+	globalNGNRateCache.loadedAt = time.Time{}
+	globalNGNRateCache.mu.Unlock()
+}
+
 // CreditPackages returns the available top-up packages in the given currency.
+// Use this only when you don't have a DB context (e.g. tests). New code should
+// prefer CreditPackagesWithRate so the NGN prices reflect the admin-set FX
+// rate from platform_settings.
 func CreditPackages(currency string) []CreditPackage {
 	if currency == "NGN" {
 		return ngnPackages
 	}
 	return usdPackages
+}
+
+// CreditPackagesWithRate returns the credit packages with NGN display prices
+// recomputed from the supplied rate (typically loaded from platform_settings
+// via LoadNGNRate). Falls back to the static ngnPackages table when rate <= 0.
+func CreditPackagesWithRate(currency string, ngnRate float64) []CreditPackage {
+	if currency != "NGN" {
+		return usdPackages
+	}
+	if ngnRate <= 0 {
+		return ngnPackages
+	}
+	out := make([]CreditPackage, len(usdPackages))
+	for i, p := range usdPackages {
+		ngn := p.PriceUSD * ngnRate
+		out[i] = CreditPackage{
+			ID:           p.ID,
+			Credits:      p.Credits,
+			PriceUSD:     p.PriceUSD,
+			DisplayPrice: fmt.Sprintf("₦%s", formatThousands(int64(ngn))),
+			Currency:     "NGN",
+			BestValue:    p.BestValue,
+		}
+	}
+	return out
+}
+
+// formatThousands turns 80000 -> "80,000". Local-only helper, no i18n.
+func formatThousands(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
+	}
+	// Insert commas from the right.
+	out := make([]byte, 0, len(s)+len(s)/3)
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			out = append(out, ',')
+		}
+		out = append(out, byte(c))
+	}
+	return string(out)
 }
 
 // PackageByID looks up a package by ID in the given currency.

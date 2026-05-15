@@ -95,7 +95,9 @@ func (s *Service) InitializePaystackTransaction(
 ) (checkoutURL, reference string, err error) {
 	ref := fmt.Sprintf("sf_topup_%s", topupID.String())
 
-	ngnAmount := int64(pkg.PriceUSD * NGNPerUSD * 100) // kobo
+	// Use the admin-configurable FX rate from platform_settings.
+	rate := LoadNGNRate(ctx, s.db)
+	ngnAmount := int64(pkg.PriceUSD * rate * 100) // kobo
 
 	reqBody := paystackInitRequest{
 		Email:    email,

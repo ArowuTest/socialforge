@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,12 +140,29 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*models.User,
 			return err
 		}
 
+		// Read the admin-configurable free-plan credit limit from
+		// platform_settings instead of relying on the SQL column default of 100.
+		// This lets the platform admin lower the free-tier cap (e.g. to 10 for
+		// abuse prevention) without a redeploy. Falls back to 100 if the row
+		// is missing.
+		freeCredits := 100
+		{
+			var v string
+			tx.Raw(`SELECT value FROM platform_settings WHERE key = 'plan_credits_free'`).Scan(&v)
+			if v != "" {
+				if parsed, err := strconv.Atoi(v); err == nil && parsed >= 0 {
+					freeCredits = parsed
+				}
+			}
+		}
+
 		workspace = models.Workspace{
 			Name:               strings.TrimSpace(in.WorkspaceName),
 			Slug:               slug,
 			OwnerID:            user.ID,
 			Plan:               models.PlanFree,
 			SubscriptionStatus: models.SubscriptionStatusActive,
+			AICreditsLimit:     freeCredits,
 		}
 		if err := tx.Create(&workspace).Error; err != nil {
 			return fmt.Errorf("create workspace: %w", err)
