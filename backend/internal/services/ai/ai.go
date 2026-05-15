@@ -21,7 +21,32 @@ import (
 	"github.com/google/uuid"
 	"github.com/socialforge/backend/internal/crypto"
 	"github.com/socialforge/backend/internal/models"
+	"github.com/socialforge/backend/internal/services/billing"
 )
+
+// ─── Admin-configurable model + temperature lookup ────────────────────────────
+
+// modelFor returns the OpenAI model name to use for a given job type from
+// platform_settings (key: ai_model_<job>). Falls back to the supplied default
+// when the row is missing. Admin can edit /admin/settings → AI Costs to swap
+// from gpt-4o to a newer model without a redeploy.
+func (s *Service) modelFor(ctx context.Context, job, fallback string) string {
+	if s.db == nil {
+		return fallback
+	}
+	return billing.LoadStringSetting(ctx, s.db, "ai_model_"+job, fallback)
+}
+
+// temperatureFor returns the temperature to use for a given job type from
+// platform_settings (key: ai_temperature_<job>). Lets admins tune output
+// creativity per task without a code change.
+func (s *Service) temperatureFor(ctx context.Context, job string, fallback float32) float32 {
+	if s.db == nil {
+		return fallback
+	}
+	v := billing.LoadFloatSetting(ctx, s.db, "ai_temperature_"+job, float64(fallback))
+	return float32(v)
+}
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
@@ -491,13 +516,13 @@ Make the caption feel like it was written by a human who genuinely cares about h
 		return nil, job, fmt.Errorf("GenerateCaption: %w", err)
 	}
 	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: s.modelFor(ctx, "caption", "gpt-4o"),
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: prompt},
 		},
 		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
-		Temperature:    0.75,
+		Temperature:    s.temperatureFor(ctx, "caption", 0.75),
 	})
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "caption",
@@ -565,13 +590,13 @@ Do NOT include the # prefix.`,
 		return nil, job, fmt.Errorf("GenerateHashtags: %w", err)
 	}
 	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: s.modelFor(ctx, "hashtags", "gpt-4o"),
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: content},
 		},
 		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
-		Temperature:    0.6,
+		Temperature:    s.temperatureFor(ctx, "hashtags", 0.6),
 	})
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "hashtags",
@@ -717,12 +742,12 @@ Rules:
 	)
 
 	resp, err := client.CreateChatCompletion(enrichCtx, openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: s.modelFor(enrichCtx, "prompt_enricher", "gpt-4o"),
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: userMsg},
 		},
-		Temperature: 0.4,
+		Temperature: s.temperatureFor(enrichCtx, "prompt_enricher", 0.4),
 		MaxTokens:   400,
 	})
 	if err != nil || len(resp.Choices) == 0 {
@@ -1090,11 +1115,17 @@ func (s *Service) GenerateCarousel(
 	slides int,
 	platform string,
 ) ([]CarouselSlide, *models.AIJob, error) {
-	if slides < 2 {
-		slides = 2
+	minSlides := 2
+	maxSlides := 10
+	if s.db != nil {
+		minSlides = billing.LoadIntSetting(ctx, s.db, "ai_carousel_slides_min", minSlides)
+		maxSlides = billing.LoadIntSetting(ctx, s.db, "ai_carousel_slides_max", maxSlides)
 	}
-	if slides > 10 {
-		slides = 10
+	if slides < minSlides {
+		slides = minSlides
+	}
+	if slides > maxSlides {
+		slides = maxSlides
 	}
 	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("carousel", CreditCostCarousel)); err != nil {
 		return nil, nil, err
@@ -1147,13 +1178,13 @@ Return JSON:
 		return nil, job, fmt.Errorf("GenerateCarousel: %w", err)
 	}
 	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: s.modelFor(ctx, "carousel", "gpt-4o"),
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: topic},
 		},
 		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
-		Temperature:    0.7,
+		Temperature:    s.temperatureFor(ctx, "carousel", 0.7),
 	})
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "carousel",
@@ -1235,13 +1266,13 @@ Be specific — not "improve the hook" but "Replace the opening with a surprisin
 		return nil, job, fmt.Errorf("AnalyseViralPotential: %w", err)
 	}
 	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: s.modelFor(ctx, "analyse", "gpt-4o"),
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: content},
 		},
 		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
-		Temperature:    0.5,
+		Temperature:    s.temperatureFor(ctx, "analyse", 0.5),
 	})
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "analyse",
@@ -1306,6 +1337,17 @@ func (s *Service) GenerateReplies(
 		return nil, nil, err
 	}
 
+	replyCount := 3
+	if s.db != nil {
+		replyCount = billing.LoadIntSetting(ctx, s.db, "ai_reply_suggestions_count", replyCount)
+		if replyCount < 1 {
+			replyCount = 1
+		}
+		if replyCount > 10 {
+			replyCount = 10
+		}
+	}
+
 	// Brand identity section — copied pattern from GenerateCaption.
 	var brandSection strings.Builder
 	if bk != nil {
@@ -1335,11 +1377,11 @@ func (s *Service) GenerateReplies(
 	}
 
 	systemPrompt := fmt.Sprintf(
-		`You are the brand's social media community manager. Generate 3 short, distinct reply options to an inbound %s on %s.%s
+		`You are the brand's social media community manager. Generate %d short, distinct reply options to an inbound %s on %s.%s
 
 Rules:
 1. Each reply must be 1–2 sentences, never more than 280 characters.
-2. The 3 options should be GENUINELY different — vary the angle (e.g. friendly + helpful + concise; or appreciative + apologetic + redirecting).
+2. The %d options should be GENUINELY different — vary the angle (e.g. friendly + helpful + concise; or appreciative + apologetic + redirecting).
 3. Match the platform's tone register: more emoji on Instagram/TikTok, more professional on LinkedIn.
 4. Never make promises the brand can't keep (no "we'll refund you", no "we'll fix it tomorrow") unless the user message clearly entitles them to that.
 5. If the message is hostile or spam, suggest measured, de-escalating replies — never sarcasm.
@@ -1353,7 +1395,7 @@ Return STRICT JSON of this shape:
     {"label": "...", "text": "..."}
   ]
 }`,
-		messageType, platform, brandSection.String(), contextLine+senderLine,
+		replyCount, messageType, platform, brandSection.String(), replyCount, contextLine+senderLine,
 	)
 
 	openaiClient, err := s.requireOpenAIClient()
@@ -1365,13 +1407,13 @@ Return STRICT JSON of this shape:
 	}
 
 	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: "gpt-4o-mini",
+		Model: s.modelFor(ctx, "replies", "gpt-4o-mini"),
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: originalMessage},
 		},
 		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
-		Temperature:    0.8,
+		Temperature:    s.temperatureFor(ctx, "replies", 0.8),
 	})
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "reply_suggestions",
@@ -1471,13 +1513,13 @@ Return STRICT JSON only — no markdown.`,
 	}
 
 	resp, err := openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: "gpt-4o",
+		Model: s.modelFor(ctx, "brand_voice", "gpt-4o"),
 		Messages: []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
 			{Role: openai.ChatMessageRoleUser, Content: examplesBlock.String()},
 		},
 		ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
-		Temperature:    0.5, // tighter than caption gen — we want a stable profile
+		Temperature:    s.temperatureFor(ctx, "brand_voice", 0.5), // tighter than caption gen — we want a stable profile
 	})
 	if err != nil {
 		job, _ := s.saveJob(ctx, workspaceID, userID, "brand_voice_analysis",

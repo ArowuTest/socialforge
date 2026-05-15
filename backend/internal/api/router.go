@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -93,10 +94,13 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	v1 := app.Group("/api/v1")
 
 	// ── Auth ─────────────────────────────────────────────────────────────────
-	// Brute-force protection: 10 attempts per IP per minute on unauthenticated
-	// credential endpoints. Fails open on Redis errors (see RateLimiter impl).
+	// Brute-force protection: configurable attempts per IP per minute on
+	// unauthenticated credential endpoints. Defaults to 10/min. Admins can
+	// tune via platform_settings.auth_rate_limit_per_min. Fails open on Redis
+	// errors (see RateLimiter impl).
+	authMax := billingsvc.LoadIntSetting(context.Background(), deps.DB, "auth_rate_limit_per_min", 10)
 	authLimiter := mw.RateLimiter(middleware.RateLimiterConfig{
-		Max:    10,
+		Max:    authMax,
 		Window: time.Minute,
 	})
 	auth := v1.Group("/auth")
