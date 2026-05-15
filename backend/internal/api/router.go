@@ -96,11 +96,14 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	// ── Auth ─────────────────────────────────────────────────────────────────
 	// Brute-force protection: configurable attempts per IP per minute on
 	// unauthenticated credential endpoints. Defaults to 10/min. Admins can
-	// tune via platform_settings.auth_rate_limit_per_min. Fails open on Redis
-	// errors (see RateLimiter impl).
-	authMax := billingsvc.LoadIntSetting(context.Background(), deps.DB, "auth_rate_limit_per_min", 10)
+	// tune via platform_settings.auth_rate_limit_per_min — MaxFn re-reads on
+	// every request (60s cached in billing.LoadSettings) so changes take
+	// effect without a restart. Fails open on Redis errors.
 	authLimiter := mw.RateLimiter(middleware.RateLimiterConfig{
-		Max:    authMax,
+		Max: 10,
+		MaxFn: func() int {
+			return billingsvc.LoadIntSetting(context.Background(), deps.DB, "auth_rate_limit_per_min", 10)
+		},
 		Window: time.Minute,
 	})
 	auth := v1.Group("/auth")

@@ -255,8 +255,12 @@ func (m *MiddlewareGroup) RequireSuperAdmin() fiber.Handler {
 
 // RateLimiterConfig holds settings for the Redis-backed rate limiter.
 type RateLimiterConfig struct {
-	// Max number of requests allowed within the window.
+	// Max number of requests allowed within the window. Used when MaxFn is nil.
 	Max int
+	// MaxFn, when non-nil, is called on EVERY request to resolve the current
+	// Max — this lets the limit be hot-reloaded from platform_settings without
+	// restarting the server. Returning <=0 falls back to Max.
+	MaxFn func() int
 	// Duration of the sliding window.
 	Window time.Duration
 	// KeyFn returns the limiting key for the current request.
@@ -284,20 +288,28 @@ func (m *MiddlewareGroup) RateLimiter(cfg RateLimiterConfig) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		keys := []string{keyFn(c)}
 
+		// Resolve the current Max — hot-reloadable when MaxFn is set.
+		max := cfg.Max
+		if cfg.MaxFn != nil {
+			if v := cfg.MaxFn(); v > 0 {
+				max = v
+			}
+		}
+
 		// If the user is authenticated, also apply a per-user bucket.
 		if user, ok := c.Locals(LocalsUser).(*models.User); ok && user != nil {
 			keys = append(keys, "rl:user:"+user.ID.String())
 		}
 
 		for _, key := range keys {
-			allowed, remaining, resetAt, err := m.slidingWindowCheck(c.Context(), key, cfg.Max, cfg.Window)
+			allowed, remaining, resetAt, err := m.slidingWindowCheck(c.Context(), key, max, cfg.Window)
 			if err != nil {
 				m.Log.Warn("rate limiter redis error", zap.Error(err), zap.String("key", key))
 				// Fail open on Redis errors.
 				continue
 			}
 
-			c.Set("X-RateLimit-Limit", fmt.Sprintf("%d", cfg.Max))
+			c.Set("X-RateLimit-Limit", fmt.Sprintf("%d", max))
 			c.Set("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
 			c.Set("X-RateLimit-Reset", fmt.Sprintf("%d", resetAt.Unix()))
 
