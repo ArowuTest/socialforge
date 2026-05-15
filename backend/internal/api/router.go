@@ -178,6 +178,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	// Analytics
 	ws.Get("/analytics", analyticsH.GetDashboard)
 	ws.Get("/analytics/top-posts", analyticsH.GetTopPosts)
+	ws.Get("/analytics/hashtags", analyticsH.GetHashtagPerformance)
 
 	// Billing (workspace-scoped usage)
 	ws.Get("/billing/usage", billingH.GetUsage)

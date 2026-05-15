@@ -158,6 +158,24 @@ func (s *Service) GetTopPosts(
 	return s.repo.GetTopPosts(ctx, workspaceID, from, to, limit)
 }
 
+// ─── GetHashtagPerformance ────────────────────────────────────────────────────
+
+// GetHashtagPerformance returns the top hashtags by engagement for a workspace
+// in the given date window. Useful for the Analytics page's "What's working"
+// panel and for the Compose AI assistant to suggest hashtags the user's own
+// audience actually responds to (vs generic platform-best-practice tags).
+func (s *Service) GetHashtagPerformance(
+	ctx context.Context,
+	workspaceID uuid.UUID,
+	from, to time.Time,
+	limit int,
+) ([]repository.HashtagPerformance, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	return s.repo.GetHashtagPerformance(ctx, workspaceID, from, to, limit)
+}
+
 // ─── GetDateRange ─────────────────────────────────────────────────────────────
 
 // GetDateRange converts a named period string ("7d", "30d", "90d") into

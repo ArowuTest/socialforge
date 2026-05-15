@@ -724,6 +724,25 @@ export const analyticsApi = {
 
   getTopPosts: (params?: { startDate?: string; endDate?: string; limit?: number }) =>
     request<ApiResponse<Post[]>>(`${ws()}/analytics/top-posts${qs(params)}`),
+
+  /**
+   * Top hashtags by engagement for the workspace in the period. Returned tags
+   * are normalised (lowercase, leading # re-added by the backend) so multiple
+   * spellings of the same tag merge. Sorted by total engagement desc.
+   */
+  getHashtagPerformance: (params?: { period?: string; limit?: number }) =>
+    request<
+      ApiResponse<
+        Array<{
+          hashtag: string;
+          post_count: number;
+          engagement: number;
+          reach: number;
+          impressions: number;
+          avg_engagement: number;
+        }>
+      >
+    >(`${ws()}/analytics/hashtags${qs(params)}`),
 };
 
 // ============================================================

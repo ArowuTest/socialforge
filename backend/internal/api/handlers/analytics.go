@@ -73,6 +73,46 @@ func (h *AnalyticsHandler) GetDashboard(c *fiber.Ctx) error {
 	})
 }
 
+// GetHashtagPerformance returns the top hashtags by engagement for a workspace.
+// GET /api/v1/workspaces/:workspaceId/analytics/hashtags?period=30d&limit=20
+//
+// Powers the Analytics page's "What's working" panel and feeds the Compose
+// AI hashtag suggestor with tags the user's own audience responds to.
+func (h *AnalyticsHandler) GetHashtagPerformance(c *fiber.Ctx) error {
+	widStr := c.Params("workspaceId")
+	wid, err := uuid.Parse(widStr)
+	if err != nil {
+		return badRequest(c, "invalid workspace id", "INVALID_WORKSPACE_ID")
+	}
+
+	period := c.Query("period", "30d")
+	limit := c.QueryInt("limit", 20)
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	from, to := h.analytics.GetDateRange(period)
+
+	rows, err := h.analytics.GetHashtagPerformance(c.Context(), wid, from, to, limit)
+	if err != nil {
+		h.log.Error("GetHashtagPerformance: analytics.GetHashtagPerformance",
+			zap.String("workspace_id", widStr),
+			zap.String("period", period),
+			zap.Error(err),
+		)
+		return internalError(c, "failed to load hashtag performance")
+	}
+
+	return c.JSON(fiber.Map{
+		"data": rows,
+		"meta": fiber.Map{
+			"period": period,
+			"from":   from,
+			"to":     to,
+			"limit":  limit,
+		},
+	})
+}
+
 // GetTopPosts returns the top-performing posts for a workspace in a date range.
 // GET /api/v1/workspaces/:workspaceId/analytics/top-posts?startDate=...&endDate=...&limit=10
 func (h *AnalyticsHandler) GetTopPosts(c *fiber.Ctx) error {

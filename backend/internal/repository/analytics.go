@@ -38,6 +38,19 @@ type ContentTypeCount struct {
 	Count    int64  `json:"count"`
 }
 
+// HashtagPerformance holds aggregated metrics for a single hashtag across the
+// workspace's published posts in the period. AvgEngagement = Engagement /
+// PostCount, normalised so a tag used once with high reach doesn't
+// over-dominate when sorted by raw totals.
+type HashtagPerformance struct {
+	Hashtag       string  `json:"hashtag"`
+	PostCount     int64   `json:"post_count"`
+	Engagement    int64   `json:"engagement"`
+	Reach         int64   `json:"reach"`
+	Impressions   int64   `json:"impressions"`
+	AvgEngagement float64 `json:"avg_engagement"`
+}
+
 // ─── AnalyticsRepository ─────────────────────────────────────────────────────
 
 // AnalyticsRepository defines the data-access operations needed by the
@@ -63,6 +76,11 @@ type AnalyticsRepository interface {
 	// GetWorkspaceMetricTotals returns aggregate reach and engagement totals
 	// (likes+comments+shares) across all published post_platforms in the period.
 	GetWorkspaceMetricTotals(ctx context.Context, workspaceID uuid.UUID, from, to time.Time) (reach, engagement int64, err error)
+
+	// GetHashtagPerformance returns aggregated metrics per hashtag for posts
+	// published in the period, ordered by total engagement descending. Limit
+	// caps the number of returned rows (defaults to 20).
+	GetHashtagPerformance(ctx context.Context, workspaceID uuid.UUID, from, to time.Time, limit int) ([]HashtagPerformance, error)
 }
 
 // ─── analyticsRepo ───────────────────────────────────────────────────────────
@@ -165,6 +183,84 @@ func (r *analyticsRepo) GetEngagementByPlatform(ctx context.Context, workspaceID
 			Reach:          row.Reach,
 			Engagement:     engagement,
 			EngagementRate: engRate,
+		}
+	}
+	return out, nil
+}
+
+// hashtagRow is the raw scan target for GetHashtagPerformance.
+type hashtagRow struct {
+	Hashtag     string
+	PostCount   int64
+	Engagement  int64
+	Reach       int64
+	Impressions int64
+}
+
+// GetHashtagPerformance unnests each post's hashtags JSON array and aggregates
+// engagement/reach metrics per tag. Joins through post_platforms so we count
+// the per-platform metrics that the metrics-sync job populates ~25h after
+// publish. Drops the # prefix when present so "#travel" and "travel" merge.
+func (r *analyticsRepo) GetHashtagPerformance(
+	ctx context.Context,
+	workspaceID uuid.UUID,
+	from, to time.Time,
+	limit int,
+) ([]HashtagPerformance, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	var rows []hashtagRow
+	// jsonb_array_elements_text safely unnests the JSON text array stored in
+	// posts.hashtags. The CROSS JOIN LATERAL guarantees we get one row per
+	// (post, platform, hashtag) tuple, which is exactly what we want for
+	// per-tag aggregation. We strip the optional leading '#' to dedupe
+	// "#travel" and "travel" into the same bucket.
+	err := r.db.WithContext(ctx).Raw(
+		`SELECT
+		    LOWER(REGEXP_REPLACE(tag.value, '^#', '')) AS hashtag,
+		    COUNT(DISTINCT p.id)                       AS post_count,
+		    COALESCE(SUM(pp.likes), 0)
+		    + COALESCE(SUM(pp.comments), 0)
+		    + COALESCE(SUM(pp.shares), 0)              AS engagement,
+		    COALESCE(SUM(pp.reach), 0)                 AS reach,
+		    COALESCE(SUM(pp.impressions), 0)           AS impressions
+		 FROM posts p
+		 JOIN post_platforms pp ON pp.post_id = p.id
+		 CROSS JOIN LATERAL jsonb_array_elements_text(
+		    NULLIF(p.hashtags, '')::jsonb
+		 ) AS tag(value)
+		 WHERE p.workspace_id = ?
+		   AND p.deleted_at IS NULL
+		   AND p.published_at IS NOT NULL
+		   AND p.published_at >= ?
+		   AND p.published_at <= ?
+		   AND p.hashtags IS NOT NULL
+		   AND p.hashtags NOT IN ('', '[]')
+		   AND tag.value <> ''
+		 GROUP BY LOWER(REGEXP_REPLACE(tag.value, '^#', ''))
+		 ORDER BY engagement DESC, reach DESC
+		 LIMIT ?`,
+		workspaceID, from, to, limit,
+	).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]HashtagPerformance, len(rows))
+	for i, row := range rows {
+		var avg float64
+		if row.PostCount > 0 {
+			avg = float64(row.Engagement) / float64(row.PostCount)
+		}
+		out[i] = HashtagPerformance{
+			Hashtag:       "#" + row.Hashtag, // re-add the # for display consistency
+			PostCount:     row.PostCount,
+			Engagement:    row.Engagement,
+			Reach:         row.Reach,
+			Impressions:   row.Impressions,
+			AvgEngagement: avg,
 		}
 	}
 	return out, nil

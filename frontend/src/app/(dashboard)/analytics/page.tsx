@@ -298,6 +298,11 @@ export default function AnalyticsPage() {
     queryFn: () => analyticsApi.getTopPosts({ startDate, endDate, limit: 10 }),
   });
 
+  const { data: hashtagPerformanceData, isLoading: hashtagsLoading } = useQuery({
+    queryKey: ["analytics-hashtags", dateRange],
+    queryFn: () => analyticsApi.getHashtagPerformance({ period: dateRange, limit: 10 }),
+  });
+
   const postsPerDay = (overviewData?.data?.posts_by_day ?? []).map((d) => ({
     date: format(new Date(d.date), "MMM d"),
     count: d.count,
@@ -565,6 +570,68 @@ export default function AnalyticsPage() {
           </Card>
         </div>
       </div>}
+
+      {/* Hashtag Performance */}
+      {(hashtagsLoading || (hashtagPerformanceData?.data?.length ?? 0) > 0) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-semibold">Hashtag Performance</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Top hashtags by total engagement in the selected period
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {hashtagsLoading ? (
+              <div className="p-5 space-y-3">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-9 w-full" />
+                ))}
+              </div>
+            ) : (hashtagPerformanceData?.data?.length ?? 0) === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No hashtag data yet — publish some posts with hashtags and metrics will populate after platforms sync (~24h post-publish).
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase tracking-wide text-muted-foreground border-b border-gray-100 dark:border-gray-800">
+                    <tr>
+                      <th className="text-left font-medium px-5 py-2">Hashtag</th>
+                      <th className="text-right font-medium px-3 py-2">Posts</th>
+                      <th className="text-right font-medium px-3 py-2">Engagement</th>
+                      <th className="text-right font-medium px-3 py-2">Reach</th>
+                      <th className="text-right font-medium px-5 py-2">Avg / post</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                    {(hashtagPerformanceData?.data ?? []).map((tag) => (
+                      <tr key={tag.hashtag} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                        <td className="px-5 py-2.5">
+                          <span className="font-medium text-violet-600 dark:text-violet-300">{tag.hashtag}</span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-600 dark:text-gray-400">{tag.post_count}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-gray-900 dark:text-white">
+                          {formatNumber(tag.engagement)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-gray-600 dark:text-gray-400">
+                          {formatNumber(tag.reach)}
+                        </td>
+                        <td className="px-5 py-2.5 text-right tabular-nums text-gray-600 dark:text-gray-400">
+                          {formatNumber(Math.round(tag.avg_engagement))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top Posts Table */}
       {(overviewLoading || hasData) && <Card>
