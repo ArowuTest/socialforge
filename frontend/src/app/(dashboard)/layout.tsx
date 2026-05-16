@@ -28,6 +28,7 @@ import {
   Palette,
   Rocket,
   Link2,
+  Hash,
   CheckCheck,
   ExternalLink,
   ClipboardCheck,
@@ -86,6 +87,7 @@ const navSections = [
       { href: "/campaigns", icon: Rocket, label: "Campaigns" },
       { href: "/automations", icon: Zap, label: "Automations" },
       { href: "/bio", icon: Link2, label: "Link in Bio" },
+      { href: "/hashtag-groups", icon: Hash, label: "Hashtag Groups" },
     ],
   },
   {

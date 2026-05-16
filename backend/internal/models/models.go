@@ -1007,6 +1007,33 @@ func (m *InboxMessage) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
+// ── Hashtag Groups (saved reusable hashtag bundles) ──────────────────────────
+
+// HashtagGroup is a named, reusable set of hashtags that workspace members
+// can quickly insert into a post during composition. Saves the agency
+// "re-type the same brand hashtags 30 times per week" pain.
+//
+// Hashtags are stored as a TEXT[] in Postgres (Go: pq.StringArray would also
+// work but we standardise on the lighter StringSlice type that uses JSON
+// encoding for portability with other DBs).
+type HashtagGroup struct {
+	ID          uuid.UUID   `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	WorkspaceID uuid.UUID   `gorm:"type:uuid;not null;index"                       json:"workspace_id"`
+	Name        string      `gorm:"size:50;not null"                               json:"name"`
+	Hashtags    StringSlice `gorm:"type:text"                                      json:"hashtags"`
+	CreatedAt   time.Time   `gorm:"autoCreateTime"                                 json:"created_at"`
+	UpdatedAt   time.Time   `gorm:"autoUpdateTime"                                 json:"updated_at"`
+}
+
+func (HashtagGroup) TableName() string { return "hashtag_groups" }
+
+func (g *HashtagGroup) BeforeCreate(_ *gorm.DB) error {
+	if g.ID == uuid.Nil {
+		g.ID = uuid.New()
+	}
+	return nil
+}
+
 // ── Link-in-bio (microsite builder) ──────────────────────────────────────────
 
 // BioPage is a public microsite that aggregates a workspace's important links

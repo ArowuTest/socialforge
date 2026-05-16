@@ -167,6 +167,16 @@ export interface CopilotResponse {
   tool_calls?: CopilotToolCall[];
 }
 
+/** A saved set of reusable hashtags — pick one in compose to insert all its tags at once. */
+export interface HashtagGroup {
+  id: string;
+  workspace_id: string;
+  name: string;
+  hashtags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
 /** Link-in-bio microsite — one per workspace. */
 export interface BioPage {
   id: string;

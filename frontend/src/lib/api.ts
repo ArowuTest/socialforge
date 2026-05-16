@@ -46,6 +46,7 @@ import {
   BioPage,
   BioLink,
   BioPagePublic,
+  HashtagGroup,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -1149,6 +1150,25 @@ async function adminReq<T>(path: string, options: RequestInit = {}): Promise<T> 
   if (res.status === 204) return undefined as T;
   return res.json();
 }
+
+// ── Hashtag Groups (saved reusable hashtag bundles) ─────────────────────────
+export const hashtagGroupsApi = {
+  list: () => request<ApiResponse<HashtagGroup[]>>(`${ws()}/hashtag-groups`),
+  create: (data: { name: string; hashtags: string[] }) =>
+    request<ApiResponse<HashtagGroup>>(`${ws()}/hashtag-groups`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  update: (id: string, data: { name: string; hashtags: string[] }) =>
+    request<ApiResponse<HashtagGroup>>(`${ws()}/hashtag-groups/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  delete: (id: string) =>
+    request<ApiResponse<{ deleted: true }>>(`${ws()}/hashtag-groups/${id}`, {
+      method: "DELETE",
+    }),
+};
 
 // ── Link-in-bio (workspace-scoped + public) ─────────────────────────────────
 export const bioApi = {

@@ -79,6 +79,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	gdprH := handlers.NewGDPRHandler(deps.DB, deps.Log)
 	inboxH := handlers.NewInboxHandler(deps.DB, deps.InboxRepliers, deps.Log)
 	bioH := handlers.NewBioHandler(deps.DB, deps.Log)
+	hashtagH := handlers.NewHashtagGroupsHandler(deps.DB, deps.Log)
 
 	// ── Health & root probe ──────────────────────────────────────────────────
 	// GET /health — structured health check used by Render, k8s, etc.
@@ -275,6 +276,12 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/bio/links", mw.RequireRole(models.WorkspaceRoleEditor), bioH.AddBioLink)
 	ws.Patch("/bio/links/:linkId", mw.RequireRole(models.WorkspaceRoleEditor), bioH.UpdateBioLink)
 	ws.Delete("/bio/links/:linkId", mw.RequireRole(models.WorkspaceRoleEditor), bioH.DeleteBioLink)
+
+	// Hashtag groups — saved reusable hashtag bundles
+	ws.Get("/hashtag-groups", hashtagH.ListHashtagGroups)
+	ws.Post("/hashtag-groups", mw.RequireRole(models.WorkspaceRoleEditor), hashtagH.CreateHashtagGroup)
+	ws.Patch("/hashtag-groups/:groupId", mw.RequireRole(models.WorkspaceRoleEditor), hashtagH.UpdateHashtagGroup)
+	ws.Delete("/hashtag-groups/:groupId", mw.RequireRole(models.WorkspaceRoleEditor), hashtagH.DeleteHashtagGroup)
 
 	// Whitelabel (member-readable, admin-writable)
 	ws.Get("/whitelabel", whitelabelH.GetWhitelabelConfig)
