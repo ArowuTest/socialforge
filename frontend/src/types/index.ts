@@ -167,6 +167,46 @@ export interface CopilotResponse {
   tool_calls?: CopilotToolCall[];
 }
 
+/** Link-in-bio microsite — one per workspace. */
+export interface BioPage {
+  id: string;
+  workspace_id: string;
+  slug: string;
+  title: string;
+  description?: string;
+  avatar_url?: string;
+  theme: "default" | "dark" | "minimal";
+  is_disabled: boolean;
+  disabled_reason?: string;
+  created_at: string;
+  updated_at: string;
+  links?: BioLink[];
+}
+
+/** A single link on a bio page. */
+export interface BioLink {
+  id: string;
+  page_id: string;
+  title: string;
+  url: string;
+  icon?: string;
+  sort_order: number;
+  click_count: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Public view of a bio page returned by GET /bio/:slug (no workspace_id, no disabled_reason). */
+export interface BioPagePublic {
+  slug: string;
+  title: string;
+  description?: string;
+  avatar_url?: string;
+  theme: "default" | "dark" | "minimal";
+  links: BioLink[];
+}
+
 /** A comment in a post's review/approval thread. */
 export interface PostComment {
   id: string;

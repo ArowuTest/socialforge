@@ -27,6 +27,7 @@ import {
   CreditCard,
   Palette,
   Rocket,
+  Link2,
   CheckCheck,
   ExternalLink,
   ClipboardCheck,
@@ -84,6 +85,7 @@ const navSections = [
       { href: "/brand-kit", icon: Palette, label: "Brand Kit" },
       { href: "/campaigns", icon: Rocket, label: "Campaigns" },
       { href: "/automations", icon: Zap, label: "Automations" },
+      { href: "/bio", icon: Link2, label: "Link in Bio" },
     ],
   },
   {

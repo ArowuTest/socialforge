@@ -43,6 +43,9 @@ import {
   PostComment,
   CopilotMessage,
   CopilotResponse,
+  BioPage,
+  BioLink,
+  BioPagePublic,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -1146,6 +1149,58 @@ async function adminReq<T>(path: string, options: RequestInit = {}): Promise<T> 
   if (res.status === 204) return undefined as T;
   return res.json();
 }
+
+// ── Link-in-bio (workspace-scoped + public) ─────────────────────────────────
+export const bioApi = {
+  /** Get the current workspace's bio page (or 404 with code=NO_PAGE if not created yet). */
+  getMine: () => request<ApiResponse<BioPage>>(`${ws()}/bio`),
+
+  /** Create or update the workspace's bio page (1:1). */
+  upsert: (data: {
+    slug: string;
+    title: string;
+    description?: string;
+    avatar_url?: string;
+    theme?: "default" | "dark" | "minimal";
+  }) =>
+    request<ApiResponse<BioPage>>(`${ws()}/bio`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /** Delete the workspace's bio page (cascade deletes links). */
+  deletePage: () =>
+    request<ApiResponse<{ deleted: true }>>(`${ws()}/bio`, { method: "DELETE" }),
+
+  /** Add a link to the page. sort_order defaults to "append". */
+  addLink: (data: { title: string; url: string; icon?: string; sort_order?: number }) =>
+    request<ApiResponse<BioLink>>(`${ws()}/bio/links`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /** Update an existing link (partial — only send the fields you want changed). */
+  updateLink: (linkId: string, data: Partial<{ title: string; url: string; icon: string; sort_order: number; is_active: boolean }>) =>
+    request<ApiResponse<BioLink>>(`${ws()}/bio/links/${linkId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  /** Delete a link. */
+  deleteLink: (linkId: string) =>
+    request<ApiResponse<{ deleted: true }>>(`${ws()}/bio/links/${linkId}`, { method: "DELETE" }),
+
+  /** Public lookup by slug — no auth, used by the /bio/[slug] page. */
+  getPublic: (slug: string) =>
+    request<ApiResponse<BioPagePublic>>(`/bio/${encodeURIComponent(slug)}`),
+
+  /** Fire a click-tracking pixel — fire-and-forget from the public page. */
+  trackClick: (slug: string, linkId: string) =>
+    request<ApiResponse<{ tracked: boolean; url?: string }>>(
+      `/bio/${encodeURIComponent(slug)}/links/${linkId}/click`,
+      { method: "POST" },
+    ),
+};
 
 export const adminApi = {
   getStats: () =>

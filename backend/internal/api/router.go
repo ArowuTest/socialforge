@@ -78,6 +78,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	workspaceH := handlers.NewWorkspaceHandler(repos.Workspaces, deps.Log)
 	gdprH := handlers.NewGDPRHandler(deps.DB, deps.Log)
 	inboxH := handlers.NewInboxHandler(deps.DB, deps.InboxRepliers, deps.Log)
+	bioH := handlers.NewBioHandler(deps.DB, deps.Log)
 
 	// ── Health & root probe ──────────────────────────────────────────────────
 	// GET /health — structured health check used by Render, k8s, etc.
@@ -130,6 +131,12 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	// Generic OAuth routes for all standard OAuth platforms.
 	oauth.Get("/:platform/connect", mw.JWTAuth(), accountsH.InitiateOAuth)
 	oauth.Get("/:platform/callback", accountsH.OAuthCallback)
+
+	// ── Public bio pages (no auth) ────────────────────────────────────────────
+	// Anyone can hit /bio/:slug — that's the whole point. Click tracking
+	// is honoured behind the bio_click_tracking_enabled platform setting.
+	v1.Get("/bio/:slug", bioH.GetPublicBioPage)
+	v1.Post("/bio/:slug/links/:linkId/click", bioH.TrackBioLinkClick)
 
 	// ── Workspace-scoped routes ───────────────────────────────────────────────
 	ws := v1.Group("/workspaces/:workspaceId", mw.JWTAuth(), mw.WorkspaceAuth())
@@ -261,6 +268,14 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/campaigns/:id/clone", campaignsH.CloneCampaign)
 	ws.Post("/campaigns/:id/posts/:pid/regenerate", campaignsH.RegenerateCampaignPost)
 
+	// Link-in-bio (any workspace member with edit perm can manage)
+	ws.Get("/bio", bioH.GetMyBioPage)
+	ws.Post("/bio", mw.RequireRole(models.WorkspaceRoleEditor), bioH.UpsertBioPage)
+	ws.Delete("/bio", mw.RequireRole(models.WorkspaceRoleEditor), bioH.DeleteBioPage)
+	ws.Post("/bio/links", mw.RequireRole(models.WorkspaceRoleEditor), bioH.AddBioLink)
+	ws.Patch("/bio/links/:linkId", mw.RequireRole(models.WorkspaceRoleEditor), bioH.UpdateBioLink)
+	ws.Delete("/bio/links/:linkId", mw.RequireRole(models.WorkspaceRoleEditor), bioH.DeleteBioLink)
+
 	// Whitelabel (member-readable, admin-writable)
 	ws.Get("/whitelabel", whitelabelH.GetWhitelabelConfig)
 	ws.Patch("/whitelabel", mw.RequireRole(models.WorkspaceRoleAdmin), whitelabelH.UpdateWhitelabelConfig)
@@ -304,6 +319,10 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	admin.Get("/cost-config/settings",        costConfigH.GetPlatformSettings)
 	admin.Put("/cost-config/settings/:key",   costConfigH.UpdatePlatformSetting)
 	admin.Get("/cost-config/integrations",    costConfigH.GetIntegrationStatus)
+
+	// Bio-page platform moderation (super-admin only)
+	admin.Get("/bio/pages", bioH.AdminListBioPages)
+	admin.Patch("/bio/pages/:id/disable", bioH.AdminTogglePageDisabled)
 
 	// ── Billing ───────────────────────────────────────────────────────────────
 	billing := v1.Group("/billing")

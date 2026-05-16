@@ -1007,6 +1007,90 @@ func (m *InboxMessage) BeforeCreate(_ *gorm.DB) error {
 	return nil
 }
 
+// ── Link-in-bio (microsite builder) ──────────────────────────────────────────
+
+// BioPage is a public microsite that aggregates a workspace's important links
+// — the standard "link in bio" feature popularised by Linktree. One page per
+// workspace (1:1) for the MVP. Reachable at https://<host>/bio/<slug>.
+//
+// Pages can be disabled by a platform super-admin for ToS violations
+// (separate from the workspace's own publish lifecycle), which is why
+// IsDisabled lives on the page rather than being conflated with workspace
+// suspension.
+type BioPage struct {
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	WorkspaceID     uuid.UUID `gorm:"type:uuid;not null;uniqueIndex"                 json:"workspace_id"`
+	Slug            string    `gorm:"size:30;not null;uniqueIndex"                   json:"slug"`
+	Title           string    `gorm:"size:120;not null"                              json:"title"`
+	Description     string    `gorm:"size:500"                                       json:"description,omitempty"`
+	AvatarURL       string    `gorm:"size:2048"                                      json:"avatar_url,omitempty"`
+	Theme           string    `gorm:"size:30;not null;default:'default'"             json:"theme"` // default | dark | minimal
+	IsDisabled      bool      `gorm:"not null;default:false"                         json:"is_disabled"`
+	DisabledReason  string    `gorm:"size:500"                                       json:"disabled_reason,omitempty"`
+	CreatedAt       time.Time `gorm:"autoCreateTime"                                 json:"created_at"`
+	UpdatedAt       time.Time `gorm:"autoUpdateTime"                                 json:"updated_at"`
+
+	Links []BioLink `gorm:"foreignKey:PageID;constraint:OnDelete:CASCADE" json:"links,omitempty"`
+}
+
+func (BioPage) TableName() string { return "bio_pages" }
+
+func (p *BioPage) BeforeCreate(_ *gorm.DB) error {
+	if p.ID == uuid.Nil {
+		p.ID = uuid.New()
+	}
+	return nil
+}
+
+// BioLink is a single link displayed on a BioPage. Order field controls
+// display order (ascending). ClickCount is denormalised onto the row for
+// fast page render — the bio_link_clicks table holds per-click rows for
+// detailed analytics.
+type BioLink struct {
+	ID         uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	PageID     uuid.UUID `gorm:"type:uuid;not null;index"                       json:"page_id"`
+	Title      string    `gorm:"size:200;not null"                              json:"title"`
+	URL        string    `gorm:"size:2048;not null"                             json:"url"`
+	Icon       string    `gorm:"size:50"                                        json:"icon,omitempty"` // optional emoji or icon name
+	SortOrder  int       `gorm:"not null;default:0;index"                       json:"sort_order"`
+	ClickCount int       `gorm:"not null;default:0"                             json:"click_count"`
+	IsActive   bool      `gorm:"not null;default:true"                          json:"is_active"`
+	CreatedAt  time.Time `gorm:"autoCreateTime"                                 json:"created_at"`
+	UpdatedAt  time.Time `gorm:"autoUpdateTime"                                 json:"updated_at"`
+}
+
+func (BioLink) TableName() string { return "bio_links" }
+
+func (l *BioLink) BeforeCreate(_ *gorm.DB) error {
+	if l.ID == uuid.Nil {
+		l.ID = uuid.New()
+	}
+	return nil
+}
+
+// BioLinkClick records a single anonymous click on a bio link. Useful for
+// per-day analytics, per-referrer breakdowns, etc. The denormalised
+// BioLink.ClickCount is incremented in the same transaction so the public
+// page render doesn't need to hit this table.
+type BioLinkClick struct {
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	LinkID    uuid.UUID `gorm:"type:uuid;not null;index"                       json:"link_id"`
+	PageID    uuid.UUID `gorm:"type:uuid;not null;index"                       json:"page_id"`
+	Referer   string    `gorm:"size:2048"                                      json:"referer,omitempty"`
+	UserAgent string    `gorm:"size:512"                                       json:"user_agent,omitempty"`
+	IPHash    string    `gorm:"size:64"                                        json:"-"` // SHA-256 of IP, never raw IP (privacy)
+	CreatedAt time.Time `gorm:"autoCreateTime;index"                           json:"created_at"`
+}
+
+func (BioLinkClick) TableName() string { return "bio_link_clicks" }
+
+func (c *BioLinkClick) BeforeCreate(_ *gorm.DB) error {
+	if c.ID == uuid.Nil {
+		c.ID = uuid.New()
+	}
+	return nil
+}
+
 // ── Post Review Comments ─────────────────────────────────────────────────────
 
 // PostComment is a discussion comment on a post — used during the
