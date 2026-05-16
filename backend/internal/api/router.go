@@ -277,6 +277,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	admin.Get("/stats", adminH.GetAdminStats)
 	admin.Get("/users", adminH.ListAllUsers)
 	admin.Get("/users/:id", adminH.GetUser)
+	admin.Get("/users/:id/activity", adminH.GetUserActivity)
 	admin.Post("/users/:id/suspend", adminH.SuspendUser)
 	admin.Post("/users/:id/reset-password", adminH.ResetUserPassword)
 	admin.Get("/workspaces", adminH.ListAllWorkspaces)

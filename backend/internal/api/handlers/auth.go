@@ -231,6 +231,20 @@ func (h *AuthHandler) RefreshToken(c *fiber.Ctx) error {
 	pair, err := h.auth.RefreshToken(c.Context(), rawToken)
 	if err != nil {
 		if errors.Is(err, authsvc.ErrTokenNotFound) || errors.Is(err, authsvc.ErrInvalidToken) {
+			// Audit only on rejected refreshes — these are the security signal
+			// (token theft, replayed token, family rotation breach). Successful
+			// refreshes are too high-volume to audit each one; user.login covers
+			// the "session started" event.
+			tokenPrefix := rawToken
+			if len(tokenPrefix) > 8 {
+				tokenPrefix = tokenPrefix[:8]
+			}
+			writeAuditAs(c, h.db, h.log, uuid.Nil, uuid.Nil,
+				"user.refresh_failed", "refresh_token", "",
+				map[string]any{
+					"reason":       err.Error(),
+					"token_prefix": tokenPrefix,
+				})
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error": "refresh token is invalid or expired",
 				"code":  "INVALID_REFRESH_TOKEN",
@@ -268,6 +282,18 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 			h.log.Warn("Logout: auth.Logout", zap.Error(err))
 		}
 	}
+
+	// Audit the logout event. Completes the session lifecycle picture in
+	// audit_logs (login → activity → logout), so anomalies like "user logged
+	// out at 14:00 then somehow created posts at 14:30" become detectable.
+	// User may not be in c.Locals (logout doesn't require auth middleware
+	// strictly), so use writeAuditAs with uuid.Nil if absent.
+	var actorID uuid.UUID
+	if u, ok := c.Locals(middleware.LocalsUser).(*models.User); ok && u != nil {
+		actorID = u.ID
+	}
+	writeAuditAs(c, h.db, h.log, actorID, uuid.Nil,
+		"user.logout", "user", actorID.String(), nil)
 
 	// Clear the cookie regardless.
 	c.Cookie(&fiber.Cookie{

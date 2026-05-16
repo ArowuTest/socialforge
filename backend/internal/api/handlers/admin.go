@@ -130,6 +130,19 @@ func (h *AdminHandler) ListAllUsers(c *fiber.Ctx) error {
 		return internalError(c, "failed to list users")
 	}
 
+	// Audit admin views of the user list. Captures search/filter so we know
+	// what data was being looked at, not just that it was looked at. Only
+	// audit when search/filter is non-empty to keep noise down for routine
+	// dashboard pagination.
+	if search != "" || plan != "" {
+		writeAudit(c, h.db, h.log, uuid.Nil, "admin.searched_users", "user", "",
+			map[string]any{
+				"search":      search,
+				"plan_filter": plan,
+				"result_count": len(users),
+			})
+	}
+
 	return c.JSON(fiber.Map{
 		"users": users,
 		"total": total,
@@ -166,6 +179,14 @@ func (h *AdminHandler) GetUser(c *fiber.Ctx) error {
 		Joins("JOIN workspaces ON workspaces.id = social_accounts.workspace_id").
 		Where("workspaces.owner_id = ?", id).
 		Count(&socialAccountCount)
+
+	// SOC 2 / GDPR Article 30: log when a super-admin reads customer PII so
+	// "who accessed this user's data and when" is answerable. Mutations
+	// already log themselves; this closes the read-access gap.
+	writeAudit(c, h.db, h.log, uuid.Nil, "admin.viewed_user", "user", id.String(),
+		map[string]any{
+			"target_email": user.Email,
+		})
 
 	return c.JSON(fiber.Map{
 		"user":                 user,
@@ -264,6 +285,14 @@ func (h *AdminHandler) ListAllWorkspaces(c *fiber.Ctx) error {
 		h.db.WithContext(c.Context()).Model(&models.WorkspaceMember{}).Where("workspace_id = ?", ws.ID).Count(&row.MemberCount)
 		h.db.WithContext(c.Context()).Model(&models.SocialAccount{}).Where("workspace_id = ?", ws.ID).Count(&row.SocialAccountCount)
 		rows = append(rows, row)
+	}
+
+	if search != "" {
+		writeAudit(c, h.db, h.log, uuid.Nil, "admin.searched_workspaces", "workspace", "",
+			map[string]any{
+				"search":       search,
+				"result_count": len(rows),
+			})
 	}
 
 	return c.JSON(fiber.Map{
@@ -833,6 +862,163 @@ func (h *AdminHandler) ResetUserPassword(c *fiber.Ctx) error {
 	h.log.Info("admin reset user password", zap.String("user_id", id.String()))
 	writeAudit(c, h.db, h.log, uuid.Nil, "user.password_reset", "user", id.String(), nil)
 	return c.JSON(fiber.Map{"message": "password reset successfully"})
+}
+
+// ── GetUserActivity ───────────────────────────────────────────────────────────
+//
+// Unified chronological timeline of everything a user has done across the
+// audit_logs and ai_jobs tables. Previously an operator investigating a user
+// had to query both tables and stitch them together mentally — now they get
+// one ordered feed.
+//
+// GET /api/v1/admin/users/:id/activity?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=50
+//
+// Returns:
+//   {
+//     "user": {...},
+//     "activity": [
+//       {"source": "audit", "at": "...", "type": "post.approved", "details": {...}},
+//       {"source": "ai",    "at": "...", "type": "caption",        "details": {...}},
+//       ...
+//     ],
+//     "audit_count": int,
+//     "ai_job_count": int
+//   }
+func (h *AdminHandler) GetUserActivity(c *fiber.Ctx) error {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
+	}
+	limit := clamp(c.QueryInt("limit", 50), 1, 500)
+
+	// Optional date window (inclusive). Defaults to last 30 days.
+	to := time.Now().UTC()
+	from := to.AddDate(0, 0, -30)
+	if v := c.Query("from"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			from = t
+		}
+	}
+	if v := c.Query("to"); v != "" {
+		if t, err := time.Parse("2006-01-02", v); err == nil {
+			to = t.Add(24 * time.Hour) // inclusive end-of-day
+		}
+	}
+
+	// Confirm the user exists (also gives us the email for the response).
+	user, err := h.repos.Users.GetByID(c.Context(), id)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "user not found", "NOT_FOUND")
+		}
+		h.log.Error("GetUserActivity: Users.GetByID", zap.Error(err))
+		return internalError(c, "failed to fetch user")
+	}
+
+	// Audit the read itself — same SOC 2 reason as GetUser.
+	writeAudit(c, h.db, h.log, uuid.Nil, "admin.viewed_user_activity", "user", id.String(),
+		map[string]any{
+			"target_email": user.Email,
+			"from":         from.Format(time.RFC3339),
+			"to":           to.Format(time.RFC3339),
+		})
+
+	// --- Pull from audit_logs ---
+	type auditRow struct {
+		CreatedAt    time.Time `json:"created_at"`
+		Action       string    `json:"action"`
+		ResourceType string    `json:"resource_type"`
+		ResourceID   string    `json:"resource_id"`
+		Metadata     models.JSONMap `json:"metadata"`
+		IPAddress    string    `json:"ip_address"`
+	}
+	var audits []auditRow
+	if err := h.db.WithContext(c.Context()).
+		Table("audit_logs").
+		Select("created_at, action, resource_type, resource_id, metadata, ip_address").
+		Where("user_id = ? AND created_at BETWEEN ? AND ?", id, from, to).
+		Order("created_at DESC").
+		Limit(limit).
+		Scan(&audits).Error; err != nil {
+		h.log.Error("GetUserActivity: audit_logs query", zap.Error(err))
+		return internalError(c, "failed to load activity")
+	}
+
+	// --- Pull from ai_jobs ---
+	type aiRow struct {
+		CreatedAt time.Time      `json:"created_at"`
+		JobType   string         `json:"job_type"`
+		Status    string         `json:"status"`
+		Cost      int            `json:"cost"`
+		Error     string         `json:"error,omitempty"`
+		Input     models.JSONMap `json:"input,omitempty"`
+	}
+	var aiJobs []aiRow
+	if err := h.db.WithContext(c.Context()).
+		Table("ai_jobs").
+		Select("created_at, job_type, status, credits AS cost, error_message AS error, input_data AS input").
+		Where("user_id = ? AND created_at BETWEEN ? AND ?", id, from, to).
+		Order("created_at DESC").
+		Limit(limit).
+		Scan(&aiJobs).Error; err != nil {
+		h.log.Warn("GetUserActivity: ai_jobs query failed (continuing)", zap.Error(err))
+	}
+
+	// --- Merge + sort ---
+	type item struct {
+		Source    string         `json:"source"` // "audit" | "ai"
+		At        time.Time      `json:"at"`
+		Type      string         `json:"type"`
+		Details   models.JSONMap `json:"details,omitempty"`
+	}
+	merged := make([]item, 0, len(audits)+len(aiJobs))
+	for _, a := range audits {
+		details := a.Metadata
+		if details == nil {
+			details = models.JSONMap{}
+		}
+		details["resource_type"] = a.ResourceType
+		details["resource_id"] = a.ResourceID
+		if a.IPAddress != "" {
+			details["ip_address"] = a.IPAddress
+		}
+		merged = append(merged, item{Source: "audit", At: a.CreatedAt, Type: a.Action, Details: details})
+	}
+	for _, j := range aiJobs {
+		details := models.JSONMap{
+			"status": j.Status,
+			"cost":   j.Cost,
+		}
+		if j.Error != "" {
+			details["error"] = j.Error
+		}
+		if j.Input != nil {
+			details["input"] = j.Input
+		}
+		merged = append(merged, item{Source: "ai", At: j.CreatedAt, Type: j.JobType, Details: details})
+	}
+	// Descending by timestamp.
+	for i := 0; i < len(merged); i++ {
+		for k := i + 1; k < len(merged); k++ {
+			if merged[k].At.After(merged[i].At) {
+				merged[i], merged[k] = merged[k], merged[i]
+			}
+		}
+	}
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+
+	return c.JSON(fiber.Map{
+		"user":         user,
+		"activity":     merged,
+		"audit_count":  len(audits),
+		"ai_job_count": len(aiJobs),
+		"window": fiber.Map{
+			"from": from.Format(time.RFC3339),
+			"to":   to.Format(time.RFC3339),
+		},
+	})
 }
 
 func clamp(v, lo, hi int) int {
