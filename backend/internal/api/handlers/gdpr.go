@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 
@@ -44,6 +45,21 @@ func (h *GDPRHandler) DeleteAccount(c *fiber.Ctx) error {
 		zap.String("user_id", user.ID.String()),
 		zap.String("email", user.Email),
 	)
+
+	// Write the audit row BEFORE the cascade starts. Two reasons:
+	// (1) the user row itself is deleted in step 10, so capture the actor's
+	//     identifying info while we still have it; (2) GDPR Article 30 (records
+	//     of processing activities) and Article 17(2) require us to keep a
+	//     record of the erasure request — the audit_logs table is the right
+	//     place. workspace_id is nil so the row isn't itself deleted by
+	//     step 8's workspace-scoped audit_logs sweep.
+	writeAuditAs(c, h.db, h.log, user.ID, uuid.Nil,
+		"account.deleted", "user", user.ID.String(),
+		map[string]any{
+			"email":            user.Email,
+			"name":             user.Name,
+			"deletion_request": "gdpr_article_17",
+		})
 
 	// Run the cascade deletion in a transaction.
 	err := h.db.Transaction(func(tx *gorm.DB) error {
@@ -163,6 +179,16 @@ func (h *GDPRHandler) ExportData(c *fiber.Ctx) error {
 		"posts":           posts,
 		"exported_at":     time.Now().UTC().Format(time.RFC3339),
 	}
+
+	// GDPR Article 20 (right to data portability) — record the export request
+	// so we can prove the access was honoured if the user later disputes it.
+	writeAudit(c, h.db, h.log, uuid.Nil, "account.exported", "user", user.ID.String(),
+		map[string]any{
+			"workspace_count":      len(workspaces),
+			"post_count":           len(posts),
+			"social_account_count": len(accounts),
+			"export_request":       "gdpr_article_20",
+		})
 
 	c.Set("Content-Disposition", "attachment; filename=socialforge-data-export.json")
 	return c.JSON(export)

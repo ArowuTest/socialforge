@@ -322,6 +322,16 @@ func (h *AuthHandler) RequestPasswordReset(c *fiber.Ctx) error {
 		}(user.Email, user.Name, resetURL)
 	}
 
+	// Always audit the request (whether or not a user existed) so we have a
+	// trail of email-enumeration attempts. user_id is nil when no match.
+	var userID uuid.UUID
+	if user != nil {
+		userID = user.ID
+	}
+	writeAuditAs(c, h.db, h.log, userID, uuid.Nil,
+		"user.password_reset_requested", "user", req.Email,
+		map[string]any{"matched": user != nil})
+
 	return c.JSON(fiber.Map{
 		"data": fiber.Map{
 			"message": "if the email exists, a reset link has been sent",
@@ -358,6 +368,18 @@ func (h *AuthHandler) ConfirmPasswordReset(c *fiber.Ctx) error {
 		h.log.Error("ConfirmPasswordReset", zap.Error(err))
 		return internalError(c, "failed to reset password")
 	}
+
+	// Audit the successful password reset. We don't have the user_id readily
+	// available here (the service consumed the token internally), so just
+	// record the token prefix for correlation against the prior
+	// password_reset_requested entry.
+	tokenPrefix := req.Token
+	if len(tokenPrefix) > 8 {
+		tokenPrefix = tokenPrefix[:8]
+	}
+	writeAuditAs(c, h.db, h.log, uuid.Nil, uuid.Nil,
+		"user.password_reset_confirmed", "user", "",
+		map[string]any{"token_prefix": tokenPrefix})
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"message": "password updated"}})
 }
@@ -435,6 +457,9 @@ func (h *AuthHandler) UpdateProfile(c *fiber.Ctx) error {
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to update profile"})
 	}
 
+	writeAudit(c, h.db, h.log, uuid.Nil, "user.profile_updated", "user", user.ID.String(),
+		map[string]any{"new_name": user.Name})
+
 	return c.JSON(fiber.Map{"data": user})
 }
 
@@ -469,6 +494,8 @@ func (h *AuthHandler) ChangePassword(c *fiber.Ctx) error {
 		h.log.Error("ChangePassword", zap.Error(err))
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
 	}
+
+	writeAudit(c, h.db, h.log, uuid.Nil, "user.password_changed", "user", user.ID.String(), nil)
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"message": "Password changed successfully"}})
 }
@@ -520,6 +547,12 @@ func (h *AuthHandler) CreateAPIKey(c *fiber.Ctx) error {
 		h.log.Error("CreateAPIKey: auth.GenerateAPIKey", zap.Error(err))
 		return internalError(c, "failed to create API key")
 	}
+
+	writeAudit(c, h.db, h.log, workspaceID, "api_key.created", "api_key", record.ID.String(),
+		map[string]any{
+			"name":       record.Name,
+			"key_prefix": record.KeyPrefix,
+		})
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"data": fiber.Map{
@@ -605,6 +638,12 @@ func (h *AuthHandler) DeleteAPIKey(c *fiber.Ctx) error {
 		h.log.Error("DeleteAPIKey: apiKeys.Delete", zap.Error(err))
 		return internalError(c, "failed to delete API key")
 	}
+
+	writeAudit(c, h.db, h.log, key.WorkspaceID, "api_key.deleted", "api_key", keyID.String(),
+		map[string]any{
+			"name":       key.Name,
+			"key_prefix": key.KeyPrefix,
+		})
 
 	return c.JSON(fiber.Map{"data": fiber.Map{"message": "API key deleted"}})
 }
