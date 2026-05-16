@@ -1190,14 +1190,16 @@ export const bioApi = {
   deleteLink: (linkId: string) =>
     request<ApiResponse<{ deleted: true }>>(`${ws()}/bio/links/${linkId}`, { method: "DELETE" }),
 
-  /** Public lookup by slug — no auth, used by the /bio/[slug] page. */
+  /** Public lookup by slug — no auth, used by the /bio/[slug] page.
+   *  Note: hard-coded /api/v1 prefix because this isn't workspace-scoped
+   *  so the ws() helper doesn't apply. */
   getPublic: (slug: string) =>
-    request<ApiResponse<BioPagePublic>>(`/bio/${encodeURIComponent(slug)}`),
+    request<ApiResponse<BioPagePublic>>(`/api/v1/bio/${encodeURIComponent(slug)}`),
 
   /** Fire a click-tracking pixel — fire-and-forget from the public page. */
   trackClick: (slug: string, linkId: string) =>
     request<ApiResponse<{ tracked: boolean; url?: string }>>(
-      `/bio/${encodeURIComponent(slug)}/links/${linkId}/click`,
+      `/api/v1/bio/${encodeURIComponent(slug)}/links/${linkId}/click`,
       { method: "POST" },
     ),
 };
