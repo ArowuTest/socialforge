@@ -171,7 +171,7 @@ func copilotTools() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "get_top_posts",
-				Description: "Return the workspace's top-performing published posts ranked by engagement. Use this for 'best post', 'top posts', 'what worked', etc. ALWAYS pass since_days when the user asks about a time window — 'this month' → 30, 'last week' → 7, 'this year' → 365. Omit since_days only when the user clearly wants all-time tops.",
+				Description: "Return the workspace's top-performing published posts ranked by engagement. Default window is the last 30 days. ALWAYS pass since_days to match the user's intent: 'this month' or 'recent' → 30, 'last week' → 7, 'this quarter' → 90, 'this year' → 365, 'all-time' / 'ever' / 'overall' → pass since_days=0 explicitly.",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -181,7 +181,7 @@ func copilotTools() []openai.Tool {
 						},
 						"since_days": map[string]any{
 							"type":        "integer",
-							"description": "Only consider posts published in the last N days. Omit or pass 0 for all-time.",
+							"description": "Only consider posts published in the last N days. Pass 0 ONLY for all-time. Defaults to 30 if omitted.",
 						},
 					},
 				},
@@ -275,8 +275,8 @@ func toolJSON(v any) string {
 
 func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, argsJSON string) string {
 	var args struct {
-		Limit     int `json:"limit"`
-		SinceDays int `json:"since_days"`
+		Limit     int  `json:"limit"`
+		SinceDays *int `json:"since_days"` // pointer to distinguish "missing" from explicit 0 (all-time)
 	}
 	_ = json.Unmarshal([]byte(argsJSON), &args)
 	if args.Limit <= 0 {
@@ -285,11 +285,18 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 	if args.Limit > 20 {
 		args.Limit = 20
 	}
-	if args.SinceDays < 0 {
-		args.SinceDays = 0
-	}
-	if args.SinceDays > 365 {
-		args.SinceDays = 365
+	// Default window: 30 days. Explicit 0 = all-time. Anything else clamped to [1, 365].
+	effectiveSinceDays := 30
+	if args.SinceDays != nil {
+		if *args.SinceDays == 0 {
+			effectiveSinceDays = 0
+		} else if *args.SinceDays < 0 {
+			effectiveSinceDays = 30
+		} else if *args.SinceDays > 365 {
+			effectiveSinceDays = 365
+		} else {
+			effectiveSinceDays = *args.SinceDays
+		}
 	}
 
 	type row struct {
@@ -318,10 +325,10 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 		WHERE p.workspace_id = ? AND p.status = 'published' AND p.deleted_at IS NULL`
 	params := []any{workspaceID}
 	windowNote := "all-time"
-	if args.SinceDays > 0 {
+	if effectiveSinceDays > 0 {
 		sql += ` AND p.published_at >= ?`
-		params = append(params, time.Now().UTC().AddDate(0, 0, -args.SinceDays))
-		windowNote = fmt.Sprintf("last %d days", args.SinceDays)
+		params = append(params, time.Now().UTC().AddDate(0, 0, -effectiveSinceDays))
+		windowNote = fmt.Sprintf("last %d days", effectiveSinceDays)
 	}
 	sql += `
 		GROUP BY p.id
