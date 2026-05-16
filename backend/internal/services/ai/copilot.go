@@ -36,10 +36,19 @@ type CopilotMessage struct {
 	Content string `json:"content"`
 }
 
+// CopilotToolCall echoes a single tool invocation so callers can see which
+// tools the model used and with what arguments. Useful for debugging "why did
+// it return all-time when I asked for this month".
+type CopilotToolCall struct {
+	Name string `json:"name"`
+	Args string `json:"args,omitempty"`
+}
+
 // CopilotResponse is what Copilot returns to the caller.
 type CopilotResponse struct {
-	Reply     string   `json:"reply"`
-	ToolsUsed []string `json:"tools_used,omitempty"`
+	Reply     string            `json:"reply"`
+	ToolsUsed []string          `json:"tools_used,omitempty"`
+	ToolCalls []CopilotToolCall `json:"tool_calls,omitempty"`
 }
 
 // Copilot answers a user message using workspace context. Tool calls are
@@ -104,6 +113,7 @@ Today's date: ` + time.Now().UTC().Format("2006-01-02")
 
 	tools := copilotTools()
 	toolsUsed := []string{}
+	toolCalls := []CopilotToolCall{}
 
 	// Tool-call loop. Each iteration is one OpenAI call; the model either
 	// emits tool calls (which we resolve and feed back) or returns a final
@@ -143,6 +153,7 @@ Today's date: ` + time.Now().UTC().Format("2006-01-02")
 		for _, tc := range choice.ToolCalls {
 			result := s.runCopilotTool(ctx, workspaceID, tc.Function.Name, tc.Function.Arguments)
 			toolsUsed = append(toolsUsed, tc.Function.Name)
+			toolCalls = append(toolCalls, CopilotToolCall{Name: tc.Function.Name, Args: tc.Function.Arguments})
 			messages = append(messages, openai.ChatCompletionMessage{
 				Role:       openai.ChatMessageRoleTool,
 				ToolCallID: tc.ID,
@@ -160,7 +171,7 @@ Today's date: ` + time.Now().UTC().Format("2006-01-02")
 		models.JSONMap{"reply": finalReply, "tools_used": toolsUsed},
 		cost, "")
 
-	return &CopilotResponse{Reply: finalReply, ToolsUsed: toolsUsed}, job, nil
+	return &CopilotResponse{Reply: finalReply, ToolsUsed: toolsUsed, ToolCalls: toolCalls}, job, nil
 }
 
 // ── Tool registry ────────────────────────────────────────────────────────────
