@@ -171,13 +171,17 @@ func copilotTools() []openai.Tool {
 			Type: openai.ToolTypeFunction,
 			Function: &openai.FunctionDefinition{
 				Name:        "get_top_posts",
-				Description: "Return the workspace's top-performing published posts ranked by engagement. Use this for questions about 'best post', 'top posts', 'what worked', etc.",
+				Description: "Return the workspace's top-performing published posts ranked by engagement. Use this for 'best post', 'top posts', 'what worked', etc. ALWAYS pass since_days when the user asks about a time window — 'this month' → 30, 'last week' → 7, 'this year' → 365. Omit since_days only when the user clearly wants all-time tops.",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
 						"limit": map[string]any{
 							"type":        "integer",
 							"description": "How many top posts to return. Default 5, max 20.",
+						},
+						"since_days": map[string]any{
+							"type":        "integer",
+							"description": "Only consider posts published in the last N days. Omit or pass 0 for all-time.",
 						},
 					},
 				},
@@ -270,13 +274,22 @@ func toolJSON(v any) string {
 // columns that waste tokens.
 
 func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, argsJSON string) string {
-	var args struct{ Limit int `json:"limit"` }
+	var args struct {
+		Limit     int `json:"limit"`
+		SinceDays int `json:"since_days"`
+	}
 	_ = json.Unmarshal([]byte(argsJSON), &args)
 	if args.Limit <= 0 {
 		args.Limit = 5
 	}
 	if args.Limit > 20 {
 		args.Limit = 20
+	}
+	if args.SinceDays < 0 {
+		args.SinceDays = 0
+	}
+	if args.SinceDays > 365 {
+		args.SinceDays = 365
 	}
 
 	type row struct {
@@ -290,8 +303,10 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 		Impressions int       `json:"impressions"`
 		Engagement  int       `json:"engagement_total"`
 	}
-	var rows []row
-	err := s.db.WithContext(ctx).Raw(`
+
+	// Build the query — since_days adds a published_at >= cutoff filter so the
+	// model can honour "this month" / "last week" requests.
+	sql := `
 		SELECT p.id, p.content, p.platforms::text AS platforms, p.published_at,
 		       COALESCE(SUM(pa.likes), 0)        AS likes,
 		       COALESCE(SUM(pa.comments), 0)     AS comments,
@@ -300,10 +315,22 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 		       COALESCE(SUM(pa.likes + pa.comments + pa.shares), 0) AS engagement
 		FROM posts p
 		LEFT JOIN post_analytics pa ON pa.post_id = p.id
-		WHERE p.workspace_id = ? AND p.status = 'published' AND p.deleted_at IS NULL
+		WHERE p.workspace_id = ? AND p.status = 'published' AND p.deleted_at IS NULL`
+	params := []any{workspaceID}
+	windowNote := "all-time"
+	if args.SinceDays > 0 {
+		sql += ` AND p.published_at >= ?`
+		params = append(params, time.Now().UTC().AddDate(0, 0, -args.SinceDays))
+		windowNote = fmt.Sprintf("last %d days", args.SinceDays)
+	}
+	sql += `
 		GROUP BY p.id
 		ORDER BY engagement DESC, p.published_at DESC
-		LIMIT ?`, workspaceID, args.Limit).Scan(&rows).Error
+		LIMIT ?`
+	params = append(params, args.Limit)
+
+	var rows []row
+	err := s.db.WithContext(ctx).Raw(sql, params...).Scan(&rows).Error
 	if err != nil {
 		// Fallback for envs without post_analytics rows yet: just return recent published posts.
 		if isMissingTable(err) {
@@ -312,7 +339,11 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 		return toolErr(err.Error())
 	}
 	if len(rows) == 0 {
-		return toolJSON(map[string]any{"posts": []any{}, "note": "No published posts with analytics yet."})
+		return toolJSON(map[string]any{
+			"posts":  []any{},
+			"window": windowNote,
+			"note":   "No published posts found in this window.",
+		})
 	}
 	// Trim content to 200 chars so the model doesn't gorge on long posts.
 	for i := range rows {
@@ -320,7 +351,7 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 			rows[i].Content = rows[i].Content[:200] + "…"
 		}
 	}
-	return toolJSON(map[string]any{"posts": rows})
+	return toolJSON(map[string]any{"posts": rows, "window": windowNote})
 }
 
 func (s *Service) toolGetRecentPosts(ctx context.Context, workspaceID uuid.UUID, argsJSON string) string {
