@@ -809,3 +809,51 @@ func (h *AIHandler) GetJobCreditCosts(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": rows, "cost_map": costMap})
 }
 
+// ── Copilot ───────────────────────────────────────────────────────────────────
+
+type copilotRequest struct {
+	Message string                `json:"message"`
+	History []ai.CopilotMessage   `json:"history,omitempty"`
+}
+
+// Copilot is the workspace-aware chat assistant. It can answer questions about
+// the user's actual posts/analytics/brand kit via server-side tool calls.
+//
+// POST /api/v1/workspaces/:wid/ai/copilot
+// Body: { message: string, history?: [{role, content}, ...] }
+// Charges CreditCostCopilot (default 2) credits per turn.
+func (h *AIHandler) Copilot(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	user, ok := c.Locals(middleware.LocalsUser).(*models.User)
+	if !ok || user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req copilotRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+	if req.Message == "" {
+		return badRequest(c, "message is required", "VALIDATION_ERROR")
+	}
+	if len(req.Message) > 4000 {
+		return badRequest(c, "message too long (max 4000 chars)", "VALIDATION_ERROR")
+	}
+
+	resp, _, err := h.ai.Copilot(c.Context(), wid, user.ID, req.Message, req.History)
+	if err != nil {
+		if errors.Is(err, ai.ErrInsufficientCredits) {
+			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{
+				"error": "insufficient AI credits",
+				"code":  "INSUFFICIENT_CREDITS",
+			})
+		}
+		h.log.Error("Copilot: ai.Copilot", zap.Error(err))
+		return internalError(c, "copilot failed")
+	}
+	return c.JSON(fiber.Map{"data": resp})
+}
+

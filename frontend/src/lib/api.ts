@@ -692,6 +692,13 @@ export const aiApi = {
     request<{ data: { job_type: string; label: string; credits: number }[]; cost_map: Record<string, number> }>(
       `${ws()}/ai/costs`,
     ),
+
+  /** Workspace-aware Copilot chat. Each turn costs ~2 credits. */
+  copilot: (data: { message: string; history?: { role: "user" | "assistant"; content: string }[] }) =>
+    request<ApiResponse<{ reply: string; tools_used?: string[] }>>(`${ws()}/ai/copilot`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };
 
 // ============================================================

@@ -66,6 +66,7 @@ const (
 	CreditCostImage         = 10
 	CreditCostImagePremium  = 25
 	CreditCostVideo         = 30
+	CreditCostCopilot       = 2
 )
 
 // ─── Platform prompt hints ────────────────────────────────────────────────────

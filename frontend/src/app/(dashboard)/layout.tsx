@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/lib/stores/auth";
 import { useUIStore } from "@/lib/stores/ui";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { CopilotDrawer } from "@/components/copilot-drawer";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -521,6 +522,9 @@ export default function DashboardLayout({
           </ErrorBoundary>
         </main>
       </div>
+
+      {/* Floating AI Copilot — workspace-aware chat assistant */}
+      <CopilotDrawer />
     </div>
   );
 }
