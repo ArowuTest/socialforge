@@ -34,6 +34,7 @@ import { cn, getInitials } from "@/lib/utils";
 import { postsApi, workspaceApi } from "@/lib/api";
 import { useAuthStore } from "@/lib/stores/auth";
 import { Post, PostStatus, Platform } from "@/types";
+import { PostCommentsPanel } from "@/components/post-comments-panel";
 
 // ─── Platform icon map ────────────────────────────────────────────────────────
 
@@ -191,6 +192,9 @@ function PostCard({
           </div>
         </div>
       )}
+
+      {/* Review discussion thread */}
+      <PostCommentsPanel postId={post.id} />
 
       {/* Actions */}
       {canModerate && (

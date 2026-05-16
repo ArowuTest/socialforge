@@ -40,6 +40,7 @@ import {
   Template,
   CreateTemplateRequest,
   InboxListResponse,
+  PostComment,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -467,6 +468,22 @@ export const postsApi = {
       method: "PATCH",
       body: JSON.stringify({ note }),
     }),
+
+  /** Review comment threads — anyone in the workspace can read & write. */
+  listComments: (postId: string) =>
+    request<ApiResponse<PostComment[]>>(`${ws()}/posts/${postId}/comments`),
+
+  addComment: (postId: string, body: string) =>
+    request<ApiResponse<PostComment>>(`${ws()}/posts/${postId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+
+  deleteComment: (postId: string, commentId: string) =>
+    request<ApiResponse<{ deleted: true }>>(
+      `${ws()}/posts/${postId}/comments/${commentId}`,
+      { method: "DELETE" },
+    ),
 
   /**
    * Fetch calendar entries for a given month (YYYY-MM). Convenience wrapper

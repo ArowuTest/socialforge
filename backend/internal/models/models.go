@@ -1006,3 +1006,33 @@ func (m *InboxMessage) BeforeCreate(_ *gorm.DB) error {
 	}
 	return nil
 }
+
+// ── Post Review Comments ─────────────────────────────────────────────────────
+
+// PostComment is a discussion comment on a post — used during the
+// approval/review workflow so editors and reviewers can ask questions,
+// suggest tweaks, and discuss before approving or rejecting. Flat thread
+// (no nested replies) for the MVP — we can add parent_comment_id later if
+// users ask for it.
+type PostComment struct {
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	PostID      uuid.UUID `gorm:"type:uuid;not null;index"                       json:"post_id"`
+	WorkspaceID uuid.UUID `gorm:"type:uuid;not null;index"                       json:"workspace_id"`
+	AuthorID    uuid.UUID `gorm:"type:uuid;not null;index"                       json:"author_id"`
+	Body        string    `gorm:"type:text;not null"                             json:"body"`
+	CreatedAt   time.Time `gorm:"autoCreateTime"                                 json:"created_at"`
+	UpdatedAt   time.Time `gorm:"autoUpdateTime"                                 json:"updated_at"`
+
+	// Associations — exposed on response so the frontend can render avatars/
+	// names without a separate user lookup.
+	Author User `gorm:"foreignKey:AuthorID" json:"author,omitempty"`
+}
+
+func (PostComment) TableName() string { return "post_comments" }
+
+func (c *PostComment) BeforeCreate(_ *gorm.DB) error {
+	if c.ID == uuid.Nil {
+		c.ID = uuid.New()
+	}
+	return nil
+}

@@ -161,6 +161,10 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Patch("/posts/:id/submit", postsH.SubmitPostForReview)
 	ws.Patch("/posts/:id/approve", mw.RequireRole(models.WorkspaceRoleAdmin), postsH.ApprovePost)
 	ws.Patch("/posts/:id/reject", mw.RequireRole(models.WorkspaceRoleAdmin), postsH.RejectPost)
+	// Review comment threads — anyone with workspace access can read & write.
+	ws.Get("/posts/:id/comments", postsH.ListPostComments)
+	ws.Post("/posts/:id/comments", postsH.CreatePostComment)
+	ws.Delete("/posts/:id/comments/:cid", postsH.DeletePostComment)
 
 	// Schedule
 	ws.Get("/schedule/slots", scheduleH.ListSlots)

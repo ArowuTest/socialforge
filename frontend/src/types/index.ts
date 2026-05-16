@@ -147,6 +147,23 @@ export interface PostPlatform {
   metrics_fetched_at?: string;
 }
 
+/** A comment in a post's review/approval thread. */
+export interface PostComment {
+  id: string;
+  post_id: string;
+  workspace_id: string;
+  author_id: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+  author?: {
+    id: string;
+    name: string;
+    email?: string;
+    avatar?: string;
+  };
+}
+
 export interface Post {
   id: string;
   workspaceId: string;

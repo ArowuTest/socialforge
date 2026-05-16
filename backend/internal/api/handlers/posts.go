@@ -785,3 +785,213 @@ func (h *PostsHandler) RejectPost(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{"data": post})
 }
+
+// ── Post Comments (review threads) ────────────────────────────────────────────
+//
+// Used during the approval workflow so editors and reviewers can discuss a
+// post before it's approved / rejected. Anyone with workspace access can read
+// & post comments. The author is notified when someone else comments; everyone
+// else who has previously commented on the post is also notified, so threads
+// stay live without manual @-mentions.
+
+type createCommentRequest struct {
+	Body string `json:"body"`
+}
+
+// ListPostComments returns every comment on a post in chronological order,
+// joined with the author so the UI can render name+avatar without a second
+// round-trip.
+//
+// GET /api/v1/workspaces/:wid/posts/:id/comments
+func (h *PostsHandler) ListPostComments(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	postID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
+	}
+
+	// Confirm the post belongs to this workspace.
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "post not found", "NOT_FOUND")
+		}
+		return internalError(c, "failed to fetch post")
+	}
+	if post.WorkspaceID != wid {
+		return notFound(c, "post not found", "NOT_FOUND")
+	}
+
+	var comments []models.PostComment
+	if err := h.db.WithContext(c.Context()).
+		Preload("Author").
+		Where("post_id = ?", postID).
+		Order("created_at ASC").
+		Find(&comments).Error; err != nil {
+		h.log.Error("ListPostComments: db", zap.Error(err))
+		return internalError(c, "failed to load comments")
+	}
+
+	return c.JSON(fiber.Map{"data": comments})
+}
+
+// CreatePostComment adds a comment to the thread. Notifies the post author
+// plus every prior commenter (minus the current commenter) so a back-and-forth
+// keeps both sides pinging each other without manual @-mentions.
+//
+// POST /api/v1/workspaces/:wid/posts/:id/comments
+func (h *PostsHandler) CreatePostComment(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	postID, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		return badRequest(c, "id must be a valid UUID", "INVALID_ID")
+	}
+	user := currentUser(c)
+	if user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var req createCommentRequest
+	if err := c.BodyParser(&req); err != nil {
+		return badRequest(c, "invalid body", "INVALID_BODY")
+	}
+	body := strings.TrimSpace(req.Body)
+	if body == "" {
+		return badRequest(c, "body is required", "VALIDATION_ERROR")
+	}
+	if len(body) > 4000 {
+		return badRequest(c, "body too long (max 4000 chars)", "VALIDATION_ERROR")
+	}
+
+	post, err := h.repo.GetByID(c.Context(), postID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return notFound(c, "post not found", "NOT_FOUND")
+		}
+		return internalError(c, "failed to fetch post")
+	}
+	if post.WorkspaceID != wid {
+		return notFound(c, "post not found", "NOT_FOUND")
+	}
+
+	comment := &models.PostComment{
+		PostID:      postID,
+		WorkspaceID: wid,
+		AuthorID:    user.ID,
+		Body:        body,
+	}
+	if err := h.db.WithContext(c.Context()).Create(comment).Error; err != nil {
+		h.log.Error("CreatePostComment: db.Create", zap.Error(err))
+		return internalError(c, "failed to create comment")
+	}
+
+	// Re-fetch with Author preloaded so the response carries name/avatar.
+	if err := h.db.WithContext(c.Context()).
+		Preload("Author").
+		First(comment, "id = ?", comment.ID).Error; err != nil {
+		h.log.Warn("CreatePostComment: failed to preload author", zap.Error(err))
+	}
+
+	// Notify the post author + every prior commenter, async, best-effort.
+	go h.notifyCommentSubscribers(wid, postID, user.ID, post.AuthorID, body)
+
+	h.log.Info("CreatePostComment",
+		zap.String("post_id", postID.String()),
+		zap.String("author_id", user.ID.String()),
+	)
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": comment})
+}
+
+// DeletePostComment lets the author of a comment remove it. Other callers get
+// 403. (Admin/owner moderation can be added on a separate route later.)
+//
+// DELETE /api/v1/workspaces/:wid/posts/:id/comments/:cid
+func (h *PostsHandler) DeletePostComment(c *fiber.Ctx) error {
+	wid, err := resolveWorkspaceID(c)
+	if err != nil {
+		return badRequest(c, "wid must be a valid UUID", "INVALID_ID")
+	}
+	cid, err := uuid.Parse(c.Params("cid"))
+	if err != nil {
+		return badRequest(c, "cid must be a valid UUID", "INVALID_ID")
+	}
+	user := currentUser(c)
+	if user == nil {
+		return unauthorised(c, "not authenticated")
+	}
+
+	var comment models.PostComment
+	if err := h.db.WithContext(c.Context()).
+		Where("id = ? AND workspace_id = ?", cid, wid).
+		First(&comment).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return notFound(c, "comment not found", "NOT_FOUND")
+		}
+		return internalError(c, "failed to fetch comment")
+	}
+
+	if comment.AuthorID != user.ID {
+		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+			"error": "you can only delete your own comments",
+			"code":  "FORBIDDEN",
+		})
+	}
+
+	if err := h.db.WithContext(c.Context()).Delete(&comment).Error; err != nil {
+		h.log.Error("DeletePostComment: db.Delete", zap.Error(err))
+		return internalError(c, "failed to delete comment")
+	}
+	return c.JSON(fiber.Map{"data": fiber.Map{"deleted": true}})
+}
+
+// notifyCommentSubscribers fans out notifications to the post author plus all
+// prior commenters, minus the current commenter. Best-effort.
+func (h *PostsHandler) notifyCommentSubscribers(
+	workspaceID, postID, commenterID, authorID uuid.UUID,
+	body string,
+) {
+	recipients := map[uuid.UUID]struct{}{}
+	if authorID != commenterID {
+		recipients[authorID] = struct{}{}
+	}
+
+	var priorCommenters []uuid.UUID
+	if err := h.db.Model(&models.PostComment{}).
+		Where("post_id = ? AND author_id <> ?", postID, commenterID).
+		Distinct("author_id").
+		Pluck("author_id", &priorCommenters).Error; err != nil {
+		h.log.Warn("notifyCommentSubscribers: failed to load prior commenters", zap.Error(err))
+	}
+	for _, uid := range priorCommenters {
+		recipients[uid] = struct{}{}
+	}
+
+	if len(recipients) == 0 {
+		return
+	}
+
+	preview := body
+	if len(preview) > 140 {
+		preview = preview[:140] + "…"
+	}
+
+	for uid := range recipients {
+		n := &models.Notification{
+			WorkspaceID: workspaceID,
+			UserID:      uid,
+			Title:       "New comment on a post you're following",
+			Body:        preview,
+			ActionURL:   fmt.Sprintf("/review?post=%s", postID.String()),
+		}
+		if err := h.db.Create(n).Error; err != nil {
+			h.log.Warn("notifyCommentSubscribers: failed to create notification",
+				zap.String("user_id", uid.String()), zap.Error(err))
+		}
+	}
+}
