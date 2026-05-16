@@ -16,6 +16,7 @@ import (
 	"github.com/socialforge/backend/internal/models"
 	"github.com/socialforge/backend/internal/queue"
 	"github.com/socialforge/backend/internal/repository"
+	"github.com/socialforge/backend/internal/services/billing"
 	scheduling "github.com/socialforge/backend/internal/services/scheduling"
 )
 
@@ -865,8 +866,16 @@ func (h *PostsHandler) CreatePostComment(c *fiber.Ctx) error {
 	if body == "" {
 		return badRequest(c, "body is required", "VALIDATION_ERROR")
 	}
-	if len(body) > 4000 {
-		return badRequest(c, "body too long (max 4000 chars)", "VALIDATION_ERROR")
+	// Length cap is admin-configurable via platform_settings.comment_max_length
+	// (default 4000). The DB CHECK still enforces a 4000 hard ceiling — admins
+	// can lower the limit at runtime but not raise it past what the schema
+	// accepts. To raise above 4000 they'd need a schema migration first.
+	maxLen := billing.LoadIntSetting(c.Context(), h.db, "comment_max_length", 4000)
+	if maxLen <= 0 || maxLen > 4000 {
+		maxLen = 4000
+	}
+	if len(body) > maxLen {
+		return badRequest(c, fmt.Sprintf("body too long (max %d chars)", maxLen), "VALIDATION_ERROR")
 	}
 
 	post, err := h.repo.GetByID(c.Context(), postID)
