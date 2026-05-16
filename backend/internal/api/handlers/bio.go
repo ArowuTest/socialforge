@@ -482,25 +482,39 @@ func (h *BioHandler) TrackBioLinkClick(c *fiber.Ctx) error {
 		return internalError(c, "failed to track click")
 	}
 
-	// Async: insert detailed row + increment denormalised counter.
+	// Capture every value from the request context BEFORE the goroutine —
+	// *fiber.Ctx is pooled and recycled the moment this handler returns, so
+	// accessing c.IP() / c.Get() asynchronously is a use-after-free and will
+	// panic the worker (502 to subsequent requests). Same for *link if it
+	// gets reassigned elsewhere — we copy the IDs out.
+	ipRaw := c.IP()
+	referer := c.Get("Referer")
+	if len(referer) > 2048 {
+		referer = referer[:2048]
+	}
+	ua := c.Get("User-Agent")
+	if len(ua) > 512 {
+		ua = ua[:512]
+	}
+	linkID2 := link.ID
+	pageID2 := link.PageID
+
+	// IP hashing: SHA-256 of the IP + static salt — gives us returning-visitor
+	// analytics without persisting any PII.
+	hash := sha256.Sum256([]byte(ipRaw + ":bio-link-salt"))
+	ipHash := hex.EncodeToString(hash[:])
+
+	// Async: insert detailed row + increment the denormalised counter.
+	// db handle is process-scoped so it's safe to use from a goroutine.
 	go func() {
-		// IP hashing: SHA-256 of the IP — gives us "is this a returning visitor
-		// from the same IP" without persisting PII.
-		hash := sha256.Sum256([]byte(c.IP() + ":bio-link-salt"))
-		ipHash := hex.EncodeToString(hash[:])
-
-		referer := c.Get("Referer")
-		if len(referer) > 2048 {
-			referer = referer[:2048]
-		}
-		ua := c.Get("User-Agent")
-		if len(ua) > 512 {
-			ua = ua[:512]
-		}
-
+		defer func() {
+			if r := recover(); r != nil {
+				h.log.Error("TrackBioLinkClick: panic in async tracker", zap.Any("panic", r))
+			}
+		}()
 		click := &models.BioLinkClick{
-			LinkID:    link.ID,
-			PageID:    link.PageID,
+			LinkID:    linkID2,
+			PageID:    pageID2,
 			Referer:   referer,
 			UserAgent: ua,
 			IPHash:    ipHash,
@@ -510,7 +524,7 @@ func (h *BioHandler) TrackBioLinkClick(c *fiber.Ctx) error {
 			h.log.Warn("TrackBioLinkClick: insert", zap.Error(err))
 		}
 		if err := h.db.Model(&models.BioLink{}).
-			Where("id = ?", link.ID).
+			Where("id = ?", linkID2).
 			Update("click_count", gorm.Expr("click_count + 1")).Error; err != nil {
 			h.log.Warn("TrackBioLinkClick: increment", zap.Error(err))
 		}
