@@ -147,6 +147,26 @@ export interface PostPlatform {
   metrics_fetched_at?: string;
 }
 
+/** One turn in an AI Copilot chat conversation. */
+export interface CopilotMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** Echoed tool invocation, useful for debugging "what did Copilot fetch?". */
+export interface CopilotToolCall {
+  name: string;
+  /** Raw JSON string of the arguments OpenAI passed to the function. */
+  args?: string;
+}
+
+/** Server response from POST /workspaces/:wid/ai/copilot. */
+export interface CopilotResponse {
+  reply: string;
+  tools_used?: string[];
+  tool_calls?: CopilotToolCall[];
+}
+
 /** A comment in a post's review/approval thread. */
 export interface PostComment {
   id: string;

@@ -41,6 +41,8 @@ import {
   CreateTemplateRequest,
   InboxListResponse,
   PostComment,
+  CopilotMessage,
+  CopilotResponse,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -711,8 +713,8 @@ export const aiApi = {
     ),
 
   /** Workspace-aware Copilot chat. Each turn costs ~2 credits. */
-  copilot: (data: { message: string; history?: { role: "user" | "assistant"; content: string }[] }) =>
-    request<ApiResponse<{ reply: string; tools_used?: string[] }>>(`${ws()}/ai/copilot`, {
+  copilot: (data: { message: string; history?: CopilotMessage[] }) =>
+    request<ApiResponse<CopilotResponse>>(`${ws()}/ai/copilot`, {
       method: "POST",
       body: JSON.stringify(data),
     }),
