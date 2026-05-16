@@ -323,16 +323,18 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 	}
 
 	// Build the query — since_days adds a published_at >= cutoff filter so the
-	// model can honour "this month" / "last week" requests.
+	// model can honour "this month" / "last week" requests. Engagement metrics
+	// live on post_platforms (one row per platform per post) — summed here so
+	// posts cross-published to multiple platforms aggregate correctly.
 	sql := `
 		SELECT p.id, p.content, p.platforms::text AS platforms, p.published_at,
-		       COALESCE(SUM(pa.likes), 0)        AS likes,
-		       COALESCE(SUM(pa.comments), 0)     AS comments,
-		       COALESCE(SUM(pa.shares), 0)       AS shares,
-		       COALESCE(SUM(pa.impressions), 0)  AS impressions,
-		       COALESCE(SUM(pa.likes + pa.comments + pa.shares), 0) AS engagement
+		       COALESCE(SUM(pp.likes), 0)        AS likes,
+		       COALESCE(SUM(pp.comments), 0)     AS comments,
+		       COALESCE(SUM(pp.shares), 0)       AS shares,
+		       COALESCE(SUM(pp.impressions), 0)  AS impressions,
+		       COALESCE(SUM(pp.likes + pp.comments + pp.shares), 0) AS engagement
 		FROM posts p
-		LEFT JOIN post_analytics pa ON pa.post_id = p.id
+		LEFT JOIN post_platforms pp ON pp.post_id = p.id
 		WHERE p.workspace_id = ? AND p.status = 'published' AND p.deleted_at IS NULL`
 	params := []any{workspaceID}
 	windowNote := "all-time"
@@ -347,29 +349,16 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 		LIMIT ?`
 	params = append(params, args.Limit)
 
-	// Compute cutoff explicitly so we can echo it in debug.
-	now := time.Now().UTC()
-	var cutoff time.Time
-	if effectiveSinceDays > 0 {
-		cutoff = now.AddDate(0, 0, -effectiveSinceDays)
-	}
-
 	var rows []row
-	err := s.db.WithContext(ctx).Raw(sql, params...).Scan(&rows).Error
-	if err != nil {
-		// Fallback for envs without post_analytics rows yet: just return recent published posts.
-		if isMissingTable(err) {
-			return toolJSON(map[string]any{
-				"posts":             []any{},
-				"window":            windowNote,
-				"note":              "Analytics table missing — fallback engaged. Filter NOT applied.",
-				"_debug_now":        now.Format(time.RFC3339),
-				"_debug_since_days": effectiveSinceDays,
-				"_debug_cutoff":     cutoffStr(cutoff),
-				"_debug_err":        err.Error(),
-			})
-		}
+	if err := s.db.WithContext(ctx).Raw(sql, params...).Scan(&rows).Error; err != nil {
 		return toolErr(err.Error())
+	}
+	if len(rows) == 0 {
+		return toolJSON(map[string]any{
+			"posts":  []any{},
+			"window": windowNote,
+			"note":   "No published posts in this window. Note: engagement metrics are populated ~25h after publish, so very recent posts may not yet have data.",
+		})
 	}
 	// Trim content to 200 chars so the model doesn't gorge on long posts.
 	for i := range rows {
@@ -377,22 +366,7 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 			rows[i].Content = rows[i].Content[:200] + "…"
 		}
 	}
-	return toolJSON(map[string]any{
-		"posts":             rows,
-		"window":            windowNote,
-		"_debug_now":        now.Format(time.RFC3339),
-		"_debug_since_days": effectiveSinceDays,
-		"_debug_cutoff":     cutoffStr(cutoff),
-		"_debug_row_count":  len(rows),
-		"_debug_sql":        sql,
-	})
-}
-
-func cutoffStr(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.Format(time.RFC3339)
+	return toolJSON(map[string]any{"posts": rows, "window": windowNote})
 }
 
 func (s *Service) toolGetRecentPosts(ctx context.Context, workspaceID uuid.UUID, argsJSON string) string {
@@ -476,27 +450,17 @@ func (s *Service) toolGetAnalyticsSummary(ctx context.Context, workspaceID uuid.
 		Engagements    int `json:"engagements"`
 		Reach          int `json:"reach"`
 	}
+	// Engagement metrics live on post_platforms (one row per platform per post)
+	// — totals are summed across platforms.
 	err := s.db.WithContext(ctx).Raw(`
 		SELECT
 		  (SELECT COUNT(*) FROM posts WHERE workspace_id = ? AND status='published' AND published_at >= ? AND deleted_at IS NULL) AS posts_published,
-		  COALESCE((SELECT SUM(impressions) FROM post_analytics pa JOIN posts p ON p.id = pa.post_id WHERE p.workspace_id = ? AND p.published_at >= ?), 0) AS impressions,
-		  COALESCE((SELECT SUM(likes + comments + shares) FROM post_analytics pa JOIN posts p ON p.id = pa.post_id WHERE p.workspace_id = ? AND p.published_at >= ?), 0) AS engagements,
-		  COALESCE((SELECT SUM(reach) FROM post_analytics pa JOIN posts p ON p.id = pa.post_id WHERE p.workspace_id = ? AND p.published_at >= ?), 0) AS reach`,
+		  COALESCE((SELECT SUM(impressions) FROM post_platforms pp JOIN posts p ON p.id = pp.post_id WHERE p.workspace_id = ? AND p.published_at >= ?), 0) AS impressions,
+		  COALESCE((SELECT SUM(likes + comments + shares) FROM post_platforms pp JOIN posts p ON p.id = pp.post_id WHERE p.workspace_id = ? AND p.published_at >= ?), 0) AS engagements,
+		  COALESCE((SELECT SUM(reach) FROM post_platforms pp JOIN posts p ON p.id = pp.post_id WHERE p.workspace_id = ? AND p.published_at >= ?), 0) AS reach`,
 		workspaceID, since, workspaceID, since, workspaceID, since, workspaceID, since).
 		Scan(&summary).Error
 	if err != nil {
-		if isMissingTable(err) {
-			// Older envs may not have post_analytics yet — just give post count.
-			var count int64
-			s.db.WithContext(ctx).Table("posts").
-				Where("workspace_id = ? AND status='published' AND published_at >= ? AND deleted_at IS NULL", workspaceID, since).
-				Count(&count)
-			return toolJSON(map[string]any{
-				"posts_published": count,
-				"window_days":     args.Days,
-				"note":            "Analytics data not yet populated for this workspace.",
-			})
-		}
 		return toolErr(err.Error())
 	}
 	return toolJSON(map[string]any{
@@ -508,14 +472,3 @@ func (s *Service) toolGetAnalyticsSummary(ctx context.Context, workspaceID uuid.
 	})
 }
 
-func isMissingTable(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "does not exist") || strings.Contains(msg, "no such table")
-}
-
-func itoa(n int) string {
-	return fmt.Sprintf("%d", n)
-}
