@@ -347,21 +347,29 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 		LIMIT ?`
 	params = append(params, args.Limit)
 
+	// Compute cutoff explicitly so we can echo it in debug.
+	now := time.Now().UTC()
+	var cutoff time.Time
+	if effectiveSinceDays > 0 {
+		cutoff = now.AddDate(0, 0, -effectiveSinceDays)
+	}
+
 	var rows []row
 	err := s.db.WithContext(ctx).Raw(sql, params...).Scan(&rows).Error
 	if err != nil {
 		// Fallback for envs without post_analytics rows yet: just return recent published posts.
 		if isMissingTable(err) {
-			return s.toolGetRecentPosts(ctx, workspaceID, `{"limit":`+itoa(args.Limit)+`,"status":"published"}`)
+			return toolJSON(map[string]any{
+				"posts":             []any{},
+				"window":            windowNote,
+				"note":              "Analytics table missing — fallback engaged. Filter NOT applied.",
+				"_debug_now":        now.Format(time.RFC3339),
+				"_debug_since_days": effectiveSinceDays,
+				"_debug_cutoff":     cutoffStr(cutoff),
+				"_debug_err":        err.Error(),
+			})
 		}
 		return toolErr(err.Error())
-	}
-	if len(rows) == 0 {
-		return toolJSON(map[string]any{
-			"posts":  []any{},
-			"window": windowNote,
-			"note":   "No published posts found in this window.",
-		})
 	}
 	// Trim content to 200 chars so the model doesn't gorge on long posts.
 	for i := range rows {
@@ -369,7 +377,22 @@ func (s *Service) toolGetTopPosts(ctx context.Context, workspaceID uuid.UUID, ar
 			rows[i].Content = rows[i].Content[:200] + "…"
 		}
 	}
-	return toolJSON(map[string]any{"posts": rows, "window": windowNote})
+	return toolJSON(map[string]any{
+		"posts":             rows,
+		"window":            windowNote,
+		"_debug_now":        now.Format(time.RFC3339),
+		"_debug_since_days": effectiveSinceDays,
+		"_debug_cutoff":     cutoffStr(cutoff),
+		"_debug_row_count":  len(rows),
+		"_debug_sql":        sql,
+	})
+}
+
+func cutoffStr(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }
 
 func (s *Service) toolGetRecentPosts(ctx context.Context, workspaceID uuid.UUID, argsJSON string) string {
