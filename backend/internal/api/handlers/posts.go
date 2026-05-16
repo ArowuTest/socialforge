@@ -908,8 +908,13 @@ func (h *PostsHandler) CreatePostComment(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"data": comment})
 }
 
-// DeletePostComment lets the author of a comment remove it. Other callers get
-// 403. (Admin/owner moderation can be added on a separate route later.)
+// DeletePostComment removes a comment. Allowed by:
+//   - The comment author (self-delete), or
+//   - A workspace admin/owner (moderation — for removing inappropriate content).
+//
+// Editors and viewers cannot delete other people's comments. The handler
+// emits an audit-log entry on every successful delete so admins have a
+// moderation trail.
 //
 // DELETE /api/v1/workspaces/:wid/posts/:id/comments/:cid
 func (h *PostsHandler) DeletePostComment(c *fiber.Ctx) error {
@@ -936,9 +941,23 @@ func (h *PostsHandler) DeletePostComment(c *fiber.Ctx) error {
 		return internalError(c, "failed to fetch comment")
 	}
 
-	if comment.AuthorID != user.ID {
+	// Author can always delete their own comment; otherwise the caller must
+	// hold admin or owner role on the workspace.
+	asAuthor := comment.AuthorID == user.ID
+	asModerator := false
+	if !asAuthor {
+		var member models.WorkspaceMember
+		if err := h.db.WithContext(c.Context()).
+			Where("workspace_id = ? AND user_id = ?", wid, user.ID).
+			First(&member).Error; err == nil {
+			if member.Role == models.WorkspaceRoleAdmin || member.Role == models.WorkspaceRoleOwner {
+				asModerator = true
+			}
+		}
+	}
+	if !asAuthor && !asModerator {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
-			"error": "you can only delete your own comments",
+			"error": "you can only delete your own comments (workspace admins can moderate)",
 			"code":  "FORBIDDEN",
 		})
 	}
@@ -947,7 +966,41 @@ func (h *PostsHandler) DeletePostComment(c *fiber.Ctx) error {
 		h.log.Error("DeletePostComment: db.Delete", zap.Error(err))
 		return internalError(c, "failed to delete comment")
 	}
-	return c.JSON(fiber.Map{"data": fiber.Map{"deleted": true}})
+
+	// Audit log — only when a moderator removed someone else's comment, so the
+	// trail captures the cases that matter for accountability. Self-deletes
+	// are routine and would just add noise.
+	if asModerator {
+		go func() {
+			entry := &models.AuditLog{
+				WorkspaceID:  wid,
+				UserID:       user.ID,
+				Action:       "comment.moderated_delete",
+				ResourceType: "post_comment",
+				ResourceID:   comment.ID.String(),
+				Metadata: models.JSONMap{
+					"post_id":         comment.PostID.String(),
+					"original_author": comment.AuthorID.String(),
+					"body_preview":    truncate(comment.Body, 200),
+				},
+			}
+			if err := h.db.Create(entry).Error; err != nil {
+				h.log.Warn("DeletePostComment: audit-log write failed", zap.Error(err))
+			}
+		}()
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{
+		"deleted":        true,
+		"as_moderator":   asModerator,
+	}})
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // notifyCommentSubscribers fans out notifications to the post author plus all
