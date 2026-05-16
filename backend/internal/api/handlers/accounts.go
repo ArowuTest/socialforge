@@ -131,6 +131,12 @@ func (h *AccountsHandler) DisconnectAccount(c *fiber.Ctx) error {
 		return internalError(c, "failed to disconnect account")
 	}
 
+	writeAudit(c, h.db, h.log, wid, "social_account.disconnected", "social_account", accountID.String(),
+		map[string]any{
+			"platform": string(account.Platform),
+			"handle":   account.AccountName,
+		})
+
 	return c.JSON(fiber.Map{"data": fiber.Map{"message": "account disconnected"}})
 }
 
@@ -297,6 +303,20 @@ func (h *AccountsHandler) OAuthCallback(c *fiber.Ctx) error {
 		return c.Redirect(redirectURL, fiber.StatusFound)
 	}
 
+	// Audit the connect — security-relevant because the workspace now has a
+	// publish token for an external platform. Uses writeAuditAs because the
+	// OAuth callback runs without c.Locals(user) set (the user-context cookie
+	// might not be available cross-redirect).
+	var actorID uuid.UUID
+	if u, ok := c.Locals("user").(*models.User); ok && u != nil {
+		actorID = u.ID
+	}
+	writeAuditAs(c, h.db, h.log, actorID, wid, "social_account.connected", "social_account", account.ID.String(),
+		map[string]any{
+			"platform": platform,
+			"handle":   account.AccountName,
+		})
+
 	h.log.Info("OAuthCallback: account connected",
 		zap.String("platform", platform),
 		zap.String("account_id", account.ID.String()),
@@ -373,6 +393,12 @@ func (h *AccountsHandler) ConnectBluesky(c *fiber.Ctx) error {
 			"code":  "BLUESKY_AUTH_FAILED",
 		})
 	}
+
+	writeAudit(c, h.db, h.log, wid, "social_account.connected", "social_account", account.ID.String(),
+		map[string]any{
+			"platform": "bluesky",
+			"handle":   req.Handle,
+		})
 
 	h.log.Info("Bluesky account connected",
 		zap.String("handle", req.Handle),

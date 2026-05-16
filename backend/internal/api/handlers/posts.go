@@ -546,6 +546,19 @@ func (h *PostsHandler) BulkCreatePosts(c *fiber.Ctx) error {
 		return internalError(c, "failed to create posts")
 	}
 
+	// Audit-log the mass action so anomalies ("50 posts appeared overnight")
+	// are traceable to the import that produced them. Resource ID is omitted
+	// since the action covers many posts; ids are captured in metadata.
+	postIDs := make([]string, 0, len(created))
+	for _, p := range created {
+		postIDs = append(postIDs, p.ID.String())
+	}
+	writeAudit(c, h.db, h.log, wid, "post.bulk_created", "post", "",
+		map[string]any{
+			"count":    len(created),
+			"post_ids": postIDs,
+		})
+
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"data": created,
 		"meta": fiber.Map{"created": len(created)},
@@ -625,6 +638,9 @@ func (h *PostsHandler) SubmitPostForReview(c *fiber.Ctx) error {
 		}
 	}()
 
+	writeAudit(c, h.db, h.log, wid, "post.submitted_for_review", "post", postID.String(),
+		map[string]any{"author_id": user.ID.String()})
+
 	h.log.Info("SubmitPostForReview",
 		zap.String("post_id", postID.String()),
 		zap.String("author_id", user.ID.String()),
@@ -698,6 +714,13 @@ func (h *PostsHandler) ApprovePost(c *fiber.Ctx) error {
 			h.log.Warn("ApprovePost: failed to create notification", zap.Error(err))
 		}
 	}()
+
+	writeAudit(c, h.db, h.log, wid, "post.approved", "post", postID.String(),
+		map[string]any{
+			"approver_id": approver.ID.String(),
+			"author_id":   post.AuthorID.String(),
+			"new_status":  string(post.Status),
+		})
 
 	h.log.Info("ApprovePost",
 		zap.String("post_id", postID.String()),
@@ -778,6 +801,13 @@ func (h *PostsHandler) RejectPost(c *fiber.Ctx) error {
 			h.log.Warn("RejectPost: failed to create notification", zap.Error(err))
 		}
 	}()
+
+	writeAudit(c, h.db, h.log, wid, "post.rejected", "post", postID.String(),
+		map[string]any{
+			"rejector_id": rejector.ID.String(),
+			"author_id":   post.AuthorID.String(),
+			"note":        truncate(req.Note, 500),
+		})
 
 	h.log.Info("RejectPost",
 		zap.String("post_id", postID.String()),
