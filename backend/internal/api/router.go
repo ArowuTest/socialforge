@@ -80,6 +80,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	inboxH := handlers.NewInboxHandler(deps.DB, deps.InboxRepliers, deps.Log)
 	bioH := handlers.NewBioHandler(deps.DB, deps.Log)
 	hashtagH := handlers.NewHashtagGroupsHandler(deps.DB, deps.Log)
+	insightsH := handlers.NewInsightsHandler(deps.DB, deps.Log)
 
 	// ── Health & root probe ──────────────────────────────────────────────────
 	// GET /health — structured health check used by Render, k8s, etc.
@@ -282,6 +283,9 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	ws.Post("/hashtag-groups", mw.RequireRole(models.WorkspaceRoleEditor), hashtagH.CreateHashtagGroup)
 	ws.Patch("/hashtag-groups/:groupId", mw.RequireRole(models.WorkspaceRoleEditor), hashtagH.UpdateHashtagGroup)
 	ws.Delete("/hashtag-groups/:groupId", mw.RequireRole(models.WorkspaceRoleEditor), hashtagH.DeleteHashtagGroup)
+
+	// Insights — data-driven scheduling recommendations
+	ws.Get("/insights/best-times", insightsH.GetBestTimes)
 
 	// Whitelabel (member-readable, admin-writable)
 	ws.Get("/whitelabel", whitelabelH.GetWhitelabelConfig)

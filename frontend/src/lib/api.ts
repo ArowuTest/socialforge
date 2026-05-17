@@ -47,6 +47,7 @@ import {
   BioLink,
   BioPagePublic,
   HashtagGroup,
+  BestTimesInsight,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -1150,6 +1151,20 @@ async function adminReq<T>(path: string, options: RequestInit = {}): Promise<T> 
   if (res.status === 204) return undefined as T;
   return res.json();
 }
+
+// ── Workspace insights (best-time-to-post recommendations) ──────────────────
+export const insightsApi = {
+  /** Best posting slots for the workspace. Optional platform filter (e.g. "instagram"). */
+  bestTimes: (params?: { platform?: string; days?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.platform) qs.set("platform", params.platform);
+    if (params?.days) qs.set("days", String(params.days));
+    const tail = qs.toString();
+    return request<ApiResponse<BestTimesInsight>>(
+      `${ws()}/insights/best-times${tail ? `?${tail}` : ""}`,
+    );
+  },
+};
 
 // ── Hashtag Groups (saved reusable hashtag bundles) ─────────────────────────
 export const hashtagGroupsApi = {

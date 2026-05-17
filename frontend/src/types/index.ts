@@ -167,6 +167,24 @@ export interface CopilotResponse {
   tool_calls?: CopilotToolCall[];
 }
 
+/** One recommended posting slot from the workspace's engagement history. */
+export interface BestTimeSlot {
+  day_of_week: number; // 0=Sun..6=Sat (UTC)
+  hour_of_day: number; // 0..23 (UTC)
+  avg_engagement: number;
+  sample_size: number;
+  multiplier: number; // vs workspace-wide avg
+}
+
+/** Workspace insight: top engagement-time slots for the selected window. */
+export interface BestTimesInsight {
+  slots: BestTimeSlot[];
+  window_days: number;
+  platform: string; // empty = all
+  overall_avg_engagement: number;
+  note?: string;
+}
+
 /** A saved set of reusable hashtags — pick one in compose to insert all its tags at once. */
 export interface HashtagGroup {
   id: string;

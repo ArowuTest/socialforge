@@ -353,7 +353,9 @@ function LinksList({ page, onChanged }: { page: BioPage; onChanged: () => void }
                 </div>
                 <p className="truncate text-xs text-muted-foreground">{l.url}</p>
               </div>
-              <span className="shrink-0 text-xs text-muted-foreground">{l.click_count} clicks</span>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {l.click_count.toLocaleString()} {l.click_count === 1 ? "click" : "clicks"}
+              </span>
               <Button
                 size="icon"
                 variant="ghost"

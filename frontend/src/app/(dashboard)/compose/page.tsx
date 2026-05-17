@@ -48,6 +48,7 @@ import { cn, getPlatformDisplayName, getCharacterLimit } from "@/lib/utils";
 import { useComposeStore } from "@/lib/stores/compose";
 import { postsApi, aiApi, mediaApi, repurposeApi } from "@/lib/api";
 import { Platform, PostType } from "@/types";
+import { SmartComposePanel } from "@/components/smart-compose-panel";
 
 // Platform config
 const platforms = [
@@ -1041,8 +1042,22 @@ export default function ComposePage() {
           </div>
         </div>
 
-        {/* Right Panel: Preview */}
+        {/* Right Panel: Smart Assistant + Preview */}
         <div className="w-80 xl:w-96 flex-shrink-0 flex flex-col overflow-y-auto bg-gray-50 dark:bg-gray-950">
+          {/* SmartComposePanel — hashtag groups, best times, char limits, quality bar */}
+          <div className="p-4 border-b border-gray-200 dark:border-gray-800">
+            <SmartComposePanel
+              caption={caption}
+              selectedPlatforms={selectedPlatforms}
+              onAppendHashtags={(tags) => {
+                // Append to caption with a blank line + the group's hashtags.
+                // Trim trailing whitespace first so we don't accumulate blank lines.
+                const trimmed = caption.trimEnd();
+                const sep = trimmed ? "\n\n" : "";
+                setCaption(trimmed + sep + tags.join(" "));
+              }}
+            />
+          </div>
           <div className="p-4 border-b border-gray-200 dark:border-gray-800">
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Preview</h3>
           </div>
