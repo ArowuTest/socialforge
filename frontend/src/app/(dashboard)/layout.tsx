@@ -39,6 +39,7 @@ import { useUIStore } from "@/lib/stores/ui";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { CopilotDrawer } from "@/components/copilot-drawer";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
+import { WhitelabelProvider, useBranding } from "@/components/providers/whitelabel-provider";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -331,16 +332,9 @@ function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top: Logo + workspace */}
+      {/* Top: Logo + workspace — branded per workspace.is_whitelabel */}
       <div className="p-4 pb-2">
-        <Link href="/calendar" className="flex items-center gap-2 group mb-4" onClick={onNavClick}>
-          <div className="h-8 w-8 rounded-lg bg-violet-600 flex items-center justify-center shadow flex-shrink-0">
-            <Zap className="h-4 w-4 text-white fill-white" />
-          </div>
-          <span className="font-bold text-base text-gray-900 dark:text-white">
-            ChiselPost
-          </span>
-        </Link>
+        <BrandedHeaderLogo onNavClick={onNavClick} />
 
         {workspace && (
           <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/50">
@@ -479,6 +473,7 @@ export default function DashboardLayout({
   const pageTitle = pageTitles[pathname] ?? "Dashboard";
 
   return (
+    <WhitelabelProvider source="workspace">
     <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-950">
       {/* Desktop sidebar */}
       <aside className="hidden md:flex md:w-64 md:flex-col md:flex-shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
@@ -539,5 +534,35 @@ export default function DashboardLayout({
       {/* Global keyboard shortcuts (? to open) */}
       <KeyboardShortcutsModal />
     </div>
+    </WhitelabelProvider>
+  );
+}
+
+// ── BrandedHeaderLogo ────────────────────────────────────────────────────────
+// Shows ChiselPost branding by default; swaps to the agency's logo + name
+// when their workspace has is_whitelabel=true. Lives at the top of the sidebar.
+function BrandedHeaderLogo({ onNavClick }: { onNavClick?: () => void }) {
+  const branding = useBranding();
+  return (
+    <Link href="/calendar" className="flex items-center gap-2 group mb-4" onClick={onNavClick}>
+      {branding.is_whitelabel && branding.logo_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={branding.logo_url}
+          alt={branding.brand_name}
+          className="h-8 w-8 rounded-lg object-contain flex-shrink-0 bg-white border border-gray-200 dark:border-gray-700"
+        />
+      ) : (
+        <div
+          className="h-8 w-8 rounded-lg flex items-center justify-center shadow flex-shrink-0"
+          style={{ backgroundColor: branding.primary_color || "#7C3AED" }}
+        >
+          <Zap className="h-4 w-4 text-white fill-white" />
+        </div>
+      )}
+      <span className="font-bold text-base text-gray-900 dark:text-white truncate">
+        {branding.brand_name || "ChiselPost"}
+      </span>
+    </Link>
   );
 }

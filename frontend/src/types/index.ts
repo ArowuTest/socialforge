@@ -87,6 +87,13 @@ export interface Workspace {
   // AI credit tracking — present on backend responses
   ai_credits_limit?: number;
   ai_credits_used?: number;
+  // Whitelabel branding (Agency plan only) — populated when is_whitelabel=true
+  is_whitelabel?: boolean;
+  brand_name?: string;
+  logo_url?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  custom_domain?: string;
 }
 
 export interface SocialAccount {
@@ -174,6 +181,17 @@ export interface BestTimeSlot {
   avg_engagement: number;
   sample_size: number;
   multiplier: number; // vs workspace-wide avg
+}
+
+/** Public-facing whitelabel branding for a workspace. Returned by GET /branding. */
+export interface PublicBranding {
+  is_whitelabel: boolean;
+  brand_name: string;
+  logo_url: string;
+  primary_color: string;
+  secondary_color: string;
+  slug: string;
+  custom_domain: string;
 }
 
 /** AI viral-potential analysis returned by /ai/analyse. Score is 0-100; grade is human label. */

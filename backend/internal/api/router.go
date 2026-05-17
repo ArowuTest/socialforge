@@ -140,6 +140,10 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	v1.Get("/bio/:slug", bioH.GetPublicBioPage)
 	v1.Post("/bio/:slug/links/:linkId/click", bioH.TrackBioLinkClick)
 
+	// Public whitelabel branding lookup — drives the agency-branded login,
+	// signup, and dashboard chrome. No auth: returns only public-safe fields.
+	v1.Get("/branding", whitelabelH.GetPublicBranding)
+
 	// ── Workspace-scoped routes ───────────────────────────────────────────────
 	ws := v1.Group("/workspaces/:workspaceId", mw.JWTAuth(), mw.WorkspaceAuth())
 

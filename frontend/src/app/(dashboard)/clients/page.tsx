@@ -143,7 +143,7 @@ function AddClientDialog({ open, onOpenChange, onSuccess }: AddClientDialogProps
     if (!name.trim() || !email.trim()) return;
     setIsSubmitting(true);
     try {
-      await whitelabelApi.createClient({ name: name.trim(), email: email.trim(), plan });
+      await whitelabelApi.createClient({ name: name.trim(), owner_email: email.trim(), plan });
       toast.success("Invite sent!", { description: `An email has been sent to ${email}.` });
       reset();
       onOpenChange(false);

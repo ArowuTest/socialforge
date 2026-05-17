@@ -365,3 +365,80 @@ func generateTempPassword() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
+
+// ── PublicBranding ────────────────────────────────────────────────────────────
+//
+// GetPublicBranding returns the public-facing whitelabel config for a host or
+// slug — used by the frontend's signup/login/dashboard chrome to render the
+// agency's brand instead of ChiselPost's. No authentication required: the
+// data returned here (logo URL, brand name, colours) is intentionally public.
+//
+// Resolution order:
+//   1. ?host=<value>          — match workspaces.custom_domain
+//   2. ?slug=<value>          — match workspaces.slug
+//   3. Host header (fallback) — strip <slug>.chiselpost.com and try slug
+//
+// Returns a tiny shape — never leaks workspace IDs, member counts, or any
+// other internal state.
+//
+// GET /api/v1/branding?host=clients.acme.com
+// GET /api/v1/branding?slug=acme
+func (h *WhitelabelHandler) GetPublicBranding(c *fiber.Ctx) error {
+	host := strings.ToLower(strings.TrimSpace(c.Query("host")))
+	slug := strings.ToLower(strings.TrimSpace(c.Query("slug")))
+
+	// Fallback: parse the Host header. We strip any base domain (chiselpost.com
+	// or the configured app domain) and treat the prefix as a slug.
+	if host == "" && slug == "" {
+		raw := strings.ToLower(c.Hostname())
+		// "acme.chiselpost.com" → slug "acme"; "clients.acme.com" stays as host.
+		if strings.HasSuffix(raw, ".chiselpost.com") {
+			slug = strings.TrimSuffix(raw, ".chiselpost.com")
+		} else if strings.HasSuffix(raw, ".chiselpost.io") {
+			slug = strings.TrimSuffix(raw, ".chiselpost.io")
+		} else {
+			host = raw
+		}
+	}
+
+	// Empty resolution → return the default ChiselPost branding shape.
+	if host == "" && slug == "" {
+		return c.JSON(fiber.Map{"data": defaultBranding()})
+	}
+
+	var ws models.Workspace
+	q := h.db.WithContext(c.Context()).Where("is_whitelabel = TRUE")
+	if host != "" {
+		q = q.Where("custom_domain = ?", host)
+	} else {
+		q = q.Where("slug = ?", slug)
+	}
+	if err := q.First(&ws).Error; err != nil {
+		// No match (or workspace not whitelabel-enabled) → fall back to default.
+		return c.JSON(fiber.Map{"data": defaultBranding()})
+	}
+
+	return c.JSON(fiber.Map{"data": fiber.Map{
+		"is_whitelabel":   true,
+		"brand_name":      ws.BrandName,
+		"logo_url":        ws.LogoURL,
+		"primary_color":   ws.PrimaryColor,
+		"secondary_color": ws.SecondaryColor,
+		"slug":            ws.Slug,
+		"custom_domain":   ws.CustomDomain,
+	}})
+}
+
+// defaultBranding is the platform's own branding, returned when no workspace
+// matches the resolved host/slug.
+func defaultBranding() fiber.Map {
+	return fiber.Map{
+		"is_whitelabel":   false,
+		"brand_name":      "ChiselPost",
+		"logo_url":        "",
+		"primary_color":   "#7C3AED",
+		"secondary_color": "",
+		"slug":            "",
+		"custom_domain":   "",
+	}
+}

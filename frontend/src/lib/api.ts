@@ -49,6 +49,7 @@ import {
   HashtagGroup,
   BestTimesInsight,
   ViralAnalysis,
+  PublicBranding,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -870,14 +871,29 @@ export const whitelabelApi = {
   listClients: (params?: { page?: number; pageSize?: number }) =>
     request<PaginatedResponse<Client>>(`${ws()}/clients${qs(params)}`),
 
-  createClient: (data: { name: string; email: string; plan: string }) =>
-    request<ApiResponse<Client>>(`${ws()}/clients`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+  // NB: backend field is "owner_email" not "email" — the existing API client
+  // used the wrong key (this was a real bug — POST returned 400 from
+  // VALIDATION_ERROR). Fixed in the quality pass.
+  createClient: (data: { name: string; owner_email: string; plan: string }) =>
+    request<ApiResponse<{ user: User; workspace: Workspace; is_new_user: boolean }>>(
+      `${ws()}/clients`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
 
   removeClient: (clientId: string) =>
     request<void>(`${ws()}/clients/${clientId}`, { method: "DELETE" }),
+
+  /** Public branding lookup — used by signup/login/dashboard chrome.
+   *  No auth, no workspace prefix. Returns ChiselPost defaults if no match. */
+  getPublicBranding: (params?: { host?: string; slug?: string }) => {
+    const qsParts = new URLSearchParams();
+    if (params?.host) qsParts.set("host", params.host);
+    if (params?.slug) qsParts.set("slug", params.slug);
+    const tail = qsParts.toString();
+    return request<ApiResponse<PublicBranding>>(
+      `/api/v1/branding${tail ? `?${tail}` : ""}`,
+    );
+  },
 };
 
 // ============================================================
