@@ -26,7 +26,10 @@ import {
   Facebook,
 } from "lucide-react";
 
-type InputTab = "url" | "youtube" | "tiktok" | "text" | "pdf";
+// "pdf" removed in the quality-pass: the tab implied client-side extraction
+// that doesn't exist. When we add real PDF extraction (pdf.js or a server
+// endpoint) we'll reinstate this option.
+type InputTab = "url" | "youtube" | "tiktok" | "text";
 type PlatformTab =
   | "instagram"
   | "tiktok"
@@ -43,7 +46,6 @@ const inputTabs: { id: InputTab; label: string; icon: React.ElementType }[] = [
   { id: "youtube", label: "YouTube", icon: Youtube },
   { id: "tiktok", label: "TikTok", icon: Music },
   { id: "text", label: "Text", icon: FileText },
-  { id: "pdf", label: "PDF Upload", icon: Upload },
 ];
 
 const platformTabs: { id: PlatformTab; label: string; color: string; charLimit: number }[] = [
@@ -85,7 +87,6 @@ function PlatformIcon({ platform }: { platform: PlatformTab }) {
 
 export default function RepurposePage() {
   const router = useRouter();
-  const pdfFileRef = React.useRef<HTMLInputElement>(null);
   const [activeInputTab, setActiveInputTab] = React.useState<InputTab>("url");
   const [activePlatformTab, setActivePlatformTab] = React.useState<PlatformTab>("instagram");
   const [urlInput, setUrlInput] = React.useState("");
@@ -127,7 +128,6 @@ export default function RepurposePage() {
         sourceUrl = tiktokInput.trim();
         break;
       case "text":
-      case "pdf":
       default:
         if (!textInput.trim()) return;
         sourceType = "text";
@@ -195,18 +195,6 @@ export default function RepurposePage() {
     toast.success("Template saved to your library.");
   };
 
-  const handlePdfFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      // PDF text extraction is server-side; pass the filename as placeholder text
-      setTextInput(`[PDF: ${file.name}]\n\nUpload your PDF to the server and paste the extracted text here, or use the Text tab to paste content directly.`);
-      setActiveInputTab("text");
-      toast.info("PDF text extraction requires server processing. Paste the document text in the text field to repurpose it.");
-    };
-    reader.readAsDataURL(file);
-  };
 
   const currentPlatform = platformTabs.find((p) => p.id === activePlatformTab)!;
   const charCount = platformContent[activePlatformTab].length;
@@ -343,31 +331,6 @@ export default function RepurposePage() {
                 />
               )}
 
-              {activeInputTab === "pdf" && (
-                <div className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
-                  <input
-                    ref={pdfFileRef}
-                    type="file"
-                    accept=".pdf"
-                    className="hidden"
-                    onChange={handlePdfFile}
-                  />
-                  <Upload className="h-10 w-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                    Drag & drop your PDF here
-                  </p>
-                  <p className="text-xs text-gray-400 mb-3">or click to browse</p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-xs"
-                    onClick={() => pdfFileRef.current?.click()}
-                  >
-                    Browse Files
-                  </Button>
-                  <p className="text-xs text-gray-400 mt-3">Supports PDF, max 50MB</p>
-                </div>
-              )}
             </div>
 
             {/* AI Settings Collapsible */}

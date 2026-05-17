@@ -257,13 +257,23 @@ export default function AccountsPage() {
     onError: () => toast.error("Failed to disconnect account"),
   });
 
+  // "Reconnect" returns an OAuth URL the user must visit to re-authorize.
+  // We redirect them immediately so the flow feels seamless — they land back
+  // on /accounts after the callback with a fresh token. No silent refresh
+  // because most platforms require explicit user consent on re-auth.
   const refreshMutation = useMutation({
     mutationFn: (id: string) => accountsApi.refresh(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      toast.success("Account refreshed");
+    onSuccess: (res) => {
+      const url = res?.data?.url;
+      if (url) {
+        toast.info("Re-authorizing — you'll come back here once done");
+        window.location.href = url;
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["accounts"] });
+        toast.success("Account refreshed");
+      }
     },
-    onError: () => toast.error("Failed to refresh account"),
+    onError: () => toast.error("Failed to start reconnect — try disconnecting and re-adding the account"),
   });
 
   const handleConnect = async (platform: Platform) => {

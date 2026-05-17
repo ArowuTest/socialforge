@@ -691,20 +691,18 @@ function GenerateVideoTab() {
   const [style, setStyle] = React.useState("cinematic");
   const [jobId, setJobId] = React.useState<string | null>(null);
   const [isGenerating, setIsGenerating] = React.useState(false);
-  const [progress, setProgress] = React.useState(0);
-  const [queuePosition, setQueuePosition] = React.useState(3);
+  // Elapsed seconds since generation started — used for honest "this is
+  // taking ~Ns" messaging instead of a fake progress bar that decrements a
+  // made-up queue position.
+  const [elapsed, setElapsed] = React.useState(0);
   const [result, setResult] = React.useState<AIJob | null>(null);
 
   React.useEffect(() => {
-    if (!isGenerating) { setProgress(0); return; }
-    setProgress(2);
+    if (!isGenerating) { setElapsed(0); return; }
+    const start = Date.now();
     const interval = setInterval(() => {
-      setProgress((p) => {
-        if (p >= 85) { clearInterval(interval); return p; }
-        return p + Math.random() * 4;
-      });
-      setQueuePosition((q) => Math.max(0, q - 1));
-    }, 1500);
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
     return () => clearInterval(interval);
   }, [isGenerating]);
 
@@ -712,12 +710,10 @@ function GenerateVideoTab() {
     setResult(job);
     setJobId(null);
     setIsGenerating(false);
-    setProgress(100);
     queryClient.invalidateQueries({ queryKey: ["ai-credits"] });
   }, () => {
     setJobId(null);
     setIsGenerating(false);
-    setProgress(0);
   });
 
   const handleGenerate = async () => {
@@ -806,21 +802,20 @@ function GenerateVideoTab() {
               <Video className="h-10 w-10 animate-pulse text-violet-600 mx-auto" />
               <div>
                 <p className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
-                  Generating your video...
+                  Generating your video
                 </p>
-                {queuePosition > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Queue position: {queuePosition}
-                  </p>
-                )}
-              </div>
-              <div>
-                <Progress value={progress} className="h-2 mb-1" />
-                <p className="text-xs text-muted-foreground">{Math.round(progress)}%</p>
+                <p className="text-xs text-muted-foreground">
+                  Elapsed: {Math.floor(elapsed / 60)}m {elapsed % 60}s · this usually takes 2–5 min
+                </p>
               </div>
               <p className="text-xs text-muted-foreground">
-                Video generation usually takes 5–15 minutes
+                You can navigate away — we'll notify you in the bell when it's ready.
               </p>
+              {jobId && (
+                <a href="/ai/jobs" className="text-xs text-violet-600 hover:underline">
+                  View job status →
+                </a>
+              )}
             </CardContent>
           </Card>
         )}

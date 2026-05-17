@@ -166,10 +166,11 @@ func (h *AIHandler) GenerateCaption(c *fiber.Ctx) error {
 // ── GenerateHashtags ──────────────────────────────────────────────────────────
 
 type generateHashtagsRequest struct {
-	Content  string `json:"content"`
-	Platform string `json:"platform"`
-	Niche    string `json:"niche"`
-	Count    int    `json:"count"`
+	Content    string `json:"content"`
+	Platform   string `json:"platform"`
+	Niche      string `json:"niche"`
+	Count      int    `json:"count"`
+	BrandKitID string `json:"brand_kit_id"` // optional — falls back to workspace default
 }
 
 // GenerateHashtags returns a list of relevant hashtags for the given content.
@@ -196,7 +197,12 @@ func (h *AIHandler) GenerateHashtags(c *fiber.Ctx) error {
 		return badRequest(c, "platform is required", "VALIDATION_ERROR")
 	}
 
-	hashtags, _, err := h.ai.GenerateHashtags(c.Context(), wid, user.ID, req.Content, req.Platform, req.Niche)
+	// Load BrandKit so the hashtag prompt can derive niche/voice/pillars from
+	// the workspace's actual identity instead of relying on the (often vague)
+	// niche string the user typed. Falls back to workspace default.
+	bk := loadBrandKit(c.Context(), h.db, wid, req.BrandKitID)
+
+	hashtags, _, err := h.ai.GenerateHashtags(c.Context(), wid, user.ID, req.Content, req.Platform, req.Niche, bk)
 	if err != nil {
 		if errors.Is(err, ai.ErrInsufficientCredits) {
 			return c.Status(fiber.StatusPaymentRequired).JSON(fiber.Map{

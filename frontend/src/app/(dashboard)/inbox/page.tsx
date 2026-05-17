@@ -390,9 +390,14 @@ export default function InboxPage() {
             {/* Reply box */}
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800">
               {selectedMsg.message_type === "dm" ? (
-                <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-2">
-                  Direct message replies are not yet supported via API.
-                </p>
+                <div className="space-y-2 py-2 text-center">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    DM replies aren't routable through the {selectedMsg.platform} API yet — the platform requires their messaging app review for outbound DMs.
+                  </p>
+                  <p className="text-[10px] text-gray-400">
+                    Reply directly in the {selectedMsg.platform} app meanwhile.
+                  </p>
+                </div>
               ) : (
                 <div className="space-y-2">
                   {/* AI suggestions — show above the textarea so users can pick one to load */}

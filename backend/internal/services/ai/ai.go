@@ -550,20 +550,61 @@ Make the caption feel like it was written by a human who genuinely cares about h
 // ─── GenerateHashtags ─────────────────────────────────────────────────────────
 
 // GenerateHashtags returns a list of relevant hashtags for the given content.
+// When bk is non-nil the prompt grounds the tag set in the workspace's actual
+// brand identity (voice, target audience, content pillars, existing brand
+// hashtags) — substantially better than relying on the user's free-text niche.
 func (s *Service) GenerateHashtags(
 	ctx context.Context,
 	workspaceID, userID uuid.UUID,
 	content, platform, niche string,
+	bk *models.BrandKit,
 ) ([]string, *models.AIJob, error) {
 	if err := s.DeductCredits(ctx, workspaceID, s.getCreditCost("hashtags", CreditCostHashtags)); err != nil {
 		return nil, nil, err
+	}
+
+	// Resolve niche from BrandKit when the user didn't supply one — content
+	// pillars are the most concrete signal of what the account actually posts
+	// about, so they make a far better niche descriptor than a guessed string.
+	if niche == "" && bk != nil {
+		if len(bk.ContentPillars) > 0 {
+			niche = strings.Join(bk.ContentPillars, ", ")
+		} else if bk.TargetAudience != "" {
+			niche = bk.TargetAudience
+		}
+	}
+	if niche == "" {
+		niche = "general"
+	}
+
+	// Brand identity block (only when bk is provided). The example-posts &
+	// brand-hashtag list pin the model to actual house style.
+	var brandSection strings.Builder
+	if bk != nil {
+		brandSection.WriteString("\n\n── BRAND IDENTITY (use this to shape hashtag selection) ──")
+		if bk.BrandVoice != "" {
+			brandSection.WriteString(fmt.Sprintf("\nBrand voice: %s", bk.BrandVoice))
+		}
+		if bk.TargetAudience != "" {
+			brandSection.WriteString(fmt.Sprintf("\nTarget audience: %s", bk.TargetAudience))
+		}
+		if len(bk.ContentPillars) > 0 {
+			brandSection.WriteString(fmt.Sprintf("\nContent pillars: %s", strings.Join(bk.ContentPillars, ", ")))
+		}
+		if len(bk.BrandHashtags) > 0 {
+			brandSection.WriteString(fmt.Sprintf("\nBrand hashtags to PRIORITISE (must appear in result if relevant): %s", strings.Join(bk.BrandHashtags, " ")))
+		}
+		if len(bk.Donts) > 0 {
+			brandSection.WriteString(fmt.Sprintf("\nNEVER suggest tags adjacent to: %s", strings.Join(bk.Donts, "; ")))
+		}
+		brandSection.WriteString("\n── END BRAND IDENTITY ──")
 	}
 
 	systemPrompt := fmt.Sprintf(
 		`You are a social media growth specialist who understands hashtag strategy deeply.
 
 PLATFORM: %s
-NICHE: %s
+NICHE: %s%s
 
 Generate a strategic hashtag set following the 3-tier strategy:
 - 5 HIGH-VOLUME tags (500K+ posts) — for discovery
@@ -571,16 +612,17 @@ Generate a strategic hashtag set following the 3-tier strategy:
 - 5 NICHE-SPECIFIC tags (under 50K posts) — for ranking potential
 
 RULES:
-1. Every hashtag must be directly relevant to the content
+1. Every hashtag must be directly relevant to BOTH the content AND the brand identity above
 2. Mix broad appeal with laser-targeted niche tags
-3. Include 2-3 trending/seasonal tags if applicable
-4. Avoid banned or shadow-banned hashtags
-5. Order from most to least popular
-6. Each hashtag should be a single word or short phrase (no spaces)
+3. If brand hashtags were listed above, include them where relevant (they don't count toward the 15)
+4. Include 2-3 trending/seasonal tags if applicable
+5. Avoid banned or shadow-banned hashtags
+6. Order from most to least popular within each tier
+7. Each hashtag should be a single word or short phrase (no spaces)
 
 Return JSON: {"hashtags": ["tag1", "tag2", ...]}
 Do NOT include the # prefix.`,
-		platform, niche,
+		platform, niche, brandSection.String(),
 	)
 
 	openaiClient, err := s.requireOpenAIClient()
@@ -1596,8 +1638,17 @@ func (s *Service) ProcessJob(ctx context.Context, p interface{}) (map[string]int
 		return map[string]interface{}{"caption": result.Caption, "hashtags": result.Hashtags}, nil
 
 	case "hashtags":
+		// Async jobs don't carry the BrandKit pointer — load the workspace's
+		// default kit so the prompt stays brand-grounded.
+		var bk *models.BrandKit
+		if s.db != nil {
+			var found models.BrandKit
+			if err := s.db.WithContext(ctx).Where("workspace_id = ? AND is_default = TRUE", payload.WorkspaceID).First(&found).Error; err == nil {
+				bk = &found
+			}
+		}
 		tags, _, err := s.GenerateHashtags(ctx, payload.WorkspaceID, payload.UserID,
-			payload.Content, payload.Platform, payload.Niche)
+			payload.Content, payload.Platform, payload.Niche, bk)
 		if err != nil {
 			return nil, err
 		}

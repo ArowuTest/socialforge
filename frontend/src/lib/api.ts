@@ -368,8 +368,11 @@ export const accountsApi = {
   disconnect: (id: string) =>
     request<void>(`${ws()}/accounts/${id}`, { method: "DELETE" }),
 
+  /** Returns an OAuth re-authorization URL the user must visit to refresh
+   *  the account's access token. NOT a silent token refresh — the caller
+   *  should redirect to data.url to complete the flow. */
   refresh: (id: string) =>
-    request<ApiResponse<SocialAccount>>(`${ws()}/accounts/${id}/refresh`, {
+    request<ApiResponse<{ url: string; message: string }>>(`${ws()}/accounts/${id}/refresh`, {
       method: "POST",
     }),
 

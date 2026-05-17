@@ -1006,6 +1006,12 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* ── Per-task AI models ─────────────────────────────────────────
+              Lets admin swap between gpt-4o (creative, expensive) and
+              gpt-4o-mini (analytical, ~10x cheaper) on a per-task basis.
+              Same hot-reload mechanism as Premium Image Model. */}
+          <PerTaskModelCard />
+
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
@@ -1451,6 +1457,100 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Per-task AI Models card ─────────────────────────────────────────────────
+// Surfaces the ai_model_<task> platform_settings so admins can tune which
+// model powers each AI task without redeploys. Changes are hot-reloaded on
+// the backend (60s settings cache).
+//
+// Pattern: a row per task with a dropdown of allowed models. Saves on change.
+function PerTaskModelCard() {
+  const TASKS = [
+    { key: "ai_model_caption",         label: "Caption generation",  hint: "Creative — keep on gpt-4o for best results" },
+    { key: "ai_model_hashtags",        label: "Hashtag generation",  hint: "Classification — gpt-4o-mini is ~10× cheaper, equivalent quality" },
+    { key: "ai_model_carousel",        label: "Carousel slides",     hint: "Creative — keep on gpt-4o" },
+    { key: "ai_model_analyse",         label: "Viral analysis",      hint: "Scoring task — gpt-4o-mini handles this well" },
+    { key: "ai_model_replies",         label: "Inbox AI replies",    hint: "Already on mini by default" },
+    { key: "ai_model_brand_voice",     label: "Brand voice extract", hint: "Structured extraction — gpt-4o-mini fine" },
+    { key: "ai_model_repurpose",       label: "Cross-platform repurpose", hint: "Creative + platform-specific — keep on gpt-4o" },
+    { key: "ai_model_copilot",         label: "AI Copilot chat",     hint: "Reasoning + tool use — gpt-4o recommended" },
+    { key: "ai_model_prompt_enricher", label: "Image prompt enricher", hint: "Translation task — gpt-4o-mini suffices" },
+  ];
+  const MODELS = [
+    { value: "gpt-4o",      label: "gpt-4o",      bg: "bg-violet-900/40 text-violet-300 border-violet-800" },
+    { value: "gpt-4o-mini", label: "gpt-4o-mini", bg: "bg-emerald-900/40 text-emerald-300 border-emerald-800" },
+  ];
+
+  const [values, setValues] = React.useState<Record<string, string>>({});
+  const [savingKey, setSavingKey] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    adminApi.getPlatformSettings().then((res) => {
+      const all = res.data ?? {};
+      const map: Record<string, string> = {};
+      for (const [k, v] of Object.entries(all)) {
+        if (k.startsWith("ai_model_")) map[k] = v;
+      }
+      setValues(map);
+    });
+  }, []);
+
+  async function setModel(key: string, value: string) {
+    setSavingKey(key);
+    try {
+      await adminApi.updatePlatformSetting(key, value);
+      setValues((v) => ({ ...v, [key]: value }));
+      toast.success(`${key.replace("ai_model_", "")} → ${value}`);
+    } catch {
+      toast.error(`Failed to update ${key}`);
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
+  return (
+    <div className="bg-slate-900 border border-violet-900/40 rounded-xl p-5 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Zap className="h-4 w-4 text-violet-400" /> Per-task AI Models
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Each AI feature can run on a different OpenAI model. Use <span className="text-emerald-300">gpt-4o-mini</span> on analytical tasks to save ~90% on those calls; keep <span className="text-violet-300">gpt-4o</span> for creative ones. Hot-reload, no redeploy.
+          </p>
+        </div>
+      </div>
+      <ul className="space-y-2">
+        {TASKS.map((t) => (
+          <li key={t.key} className="flex items-center justify-between gap-3 rounded-lg bg-slate-800/40 px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-white">{t.label}</p>
+              <p className="text-[10px] text-slate-500">{t.hint}</p>
+            </div>
+            <div className="flex shrink-0 gap-1.5">
+              {MODELS.map((m) => {
+                const active = values[t.key] === m.value;
+                return (
+                  <button
+                    key={m.value}
+                    onClick={() => !active && setModel(t.key, m.value)}
+                    disabled={savingKey === t.key}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-[10px] font-mono transition-colors",
+                      active ? m.bg : "border-slate-700 bg-slate-900 text-slate-500 hover:border-slate-500 hover:text-slate-300",
+                    )}
+                  >
+                    {savingKey === t.key && active ? "…" : m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
