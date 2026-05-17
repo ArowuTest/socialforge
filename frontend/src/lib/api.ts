@@ -48,6 +48,7 @@ import {
   BioPagePublic,
   HashtagGroup,
   BestTimesInsight,
+  ViralAnalysis,
 } from "@/types";
 
 // AdminCampaign extends Campaign with workspace_name from the JOIN query.
@@ -720,6 +721,13 @@ export const aiApi = {
   /** Workspace-aware Copilot chat. Each turn costs ~2 credits. */
   copilot: (data: { message: string; history?: CopilotMessage[] }) =>
     request<ApiResponse<CopilotResponse>>(`${ws()}/ai/copilot`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  /** Score a draft for predicted viral potential. ~2 credits per call. */
+  analyseViral: (data: { content: string; platform: string }) =>
+    request<ApiResponse<ViralAnalysis>>(`${ws()}/ai/analyse`, {
       method: "POST",
       body: JSON.stringify(data),
     }),

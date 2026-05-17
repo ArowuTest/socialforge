@@ -176,6 +176,16 @@ export interface BestTimeSlot {
   multiplier: number; // vs workspace-wide avg
 }
 
+/** AI viral-potential analysis returned by /ai/analyse. Score is 0-100; grade is human label. */
+export interface ViralAnalysis {
+  score: number;
+  grade: string;
+  strengths: string[];
+  improvements: string[];
+  optimal_post_time?: string;
+  estimated_reach?: string;
+}
+
 /** Workspace insight: top engagement-time slots for the selected window. */
 export interface BestTimesInsight {
   slots: BestTimeSlot[];

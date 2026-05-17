@@ -16,11 +16,13 @@
  */
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Clock, Hash, AlertCircle, CheckCircle2, Loader2, Sparkles } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Clock, Hash, AlertCircle, CheckCircle2, Loader2, Sparkles, Target, TrendingUp } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { hashtagGroupsApi, insightsApi } from "@/lib/api";
-import type { HashtagGroup } from "@/types";
+import { hashtagGroupsApi, insightsApi, aiApi } from "@/lib/api";
+import type { HashtagGroup, ViralAnalysis } from "@/types";
 
 // Hard character limits enforced by each platform's API. Soft limits (where
 // captions get truncated in feed preview) are looser but the hard limit is
@@ -212,6 +214,12 @@ export function SmartComposePanel({
         )}
       </Card>
 
+      {/* AI predicted engagement — manual trigger, ~2 credits per analysis */}
+      <PredictedEngagementCard
+        caption={caption}
+        primaryPlatform={primaryPlatform}
+      />
+
       {/* Quality bar — quick at-a-glance signals */}
       <Card className="p-4">
         <h3 className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -221,6 +229,189 @@ export function SmartComposePanel({
         <QualityChecks caption={caption} />
       </Card>
     </div>
+  );
+}
+
+// ── Predicted engagement (AI-scored) ─────────────────────────────────────────
+
+function PredictedEngagementCard({
+  caption,
+  primaryPlatform,
+}: {
+  caption: string;
+  primaryPlatform: string | undefined;
+}) {
+  // Track which caption snapshot the current score was computed for so we
+  // can tell the user "out of date — re-score" when they edit after scoring.
+  const [scoredCaption, setScoredCaption] = React.useState<string | null>(null);
+  const [analysis, setAnalysis] = React.useState<ViralAnalysis | null>(null);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      aiApi.analyseViral({
+        content: caption.trim(),
+        platform: primaryPlatform ?? "instagram",
+      }),
+    onSuccess: (res) => {
+      if (res?.data) {
+        setAnalysis(res.data);
+        setScoredCaption(caption);
+      }
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof Error ? e.message : "Analysis failed";
+      toast.error(
+        msg.includes("INSUFFICIENT_CREDITS")
+          ? "Out of AI credits"
+          : msg.includes("VALIDATION_ERROR")
+          ? "Write a caption first"
+          : msg,
+      );
+    },
+  });
+
+  const canScore =
+    caption.trim().length >= 10 && !!primaryPlatform && !mut.isPending;
+  const stale = analysis !== null && caption !== scoredCaption;
+
+  // Map 0-100 score to a colour bucket so the badge reads at a glance.
+  const scoreColour = (s: number) =>
+    s >= 80
+      ? "text-emerald-600 dark:text-emerald-400"
+      : s >= 60
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-red-600 dark:text-red-400";
+
+  const bgColour = (s: number) =>
+    s >= 80
+      ? "bg-emerald-500"
+      : s >= 60
+      ? "bg-amber-500"
+      : "bg-red-500";
+
+  return (
+    <Card className="p-4">
+      <h3 className="mb-3 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <Target className="h-3.5 w-3.5" />
+          Predicted engagement
+        </span>
+        <span className="text-[10px] font-normal normal-case opacity-60">~2 cr</span>
+      </h3>
+
+      {!analysis ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            AI-scored prediction with strengths & improvement suggestions for this platform.
+          </p>
+          <Button
+            size="sm"
+            onClick={() => mut.mutate()}
+            disabled={!canScore}
+            className="w-full"
+            title={
+              !primaryPlatform
+                ? "Select a platform first"
+                : caption.trim().length < 10
+                ? "Write at least 10 characters"
+                : undefined
+            }
+          >
+            {mut.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                Scoring…
+              </>
+            ) : (
+              <>
+                <Sparkles className="mr-2 h-3.5 w-3.5" />
+                Score this draft
+              </>
+            )}
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {/* Score + grade */}
+          <div className="flex items-center gap-3">
+            <div className={`text-3xl font-bold leading-none ${scoreColour(analysis.score)}`}>
+              {analysis.score}
+              <span className="ml-1 text-base font-medium text-muted-foreground">/100</span>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{analysis.grade}</p>
+              {analysis.estimated_reach && (
+                <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <TrendingUp className="h-2.5 w-2.5" />
+                  {analysis.estimated_reach}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full transition-all ${bgColour(analysis.score)}`}
+              style={{ width: `${Math.min(100, analysis.score)}%` }}
+            />
+          </div>
+
+          {/* Strengths */}
+          {analysis.strengths?.length > 0 && (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                Strengths
+              </p>
+              <ul className="space-y-0.5 text-xs">
+                {analysis.strengths.slice(0, 3).map((s, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <span className="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Improvements */}
+          {analysis.improvements?.length > 0 && (
+            <div>
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                Improvements
+              </p>
+              <ul className="space-y-0.5 text-xs">
+                {analysis.improvements.slice(0, 3).map((s, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <span className="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                    <span>{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Stale notice + rescore */}
+          {stale && (
+            <p className="rounded-md bg-amber-50 px-2 py-1 text-[10px] text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+              Caption changed since this score — re-run to refresh.
+            </p>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => mut.mutate()}
+            disabled={!canScore}
+            className="w-full"
+          >
+            {mut.isPending ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-3.5 w-3.5" />
+            )}
+            {stale ? "Re-score" : "Score again"}
+          </Button>
+        </div>
+      )}
+    </Card>
   );
 }
 
