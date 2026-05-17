@@ -54,12 +54,57 @@ interface SmartComposePanelProps {
   selectedPlatforms: string[];
   /** Called when the user clicks a hashtag-group chip — parent appends to caption. */
   onAppendHashtags: (hashtags: string[]) => void;
+  /** Called when the user clicks "Use this slot" on a Best Time — parent fills scheduled_at. */
+  onUseBestTime?: (datetimeLocal: string) => void;
+}
+
+/**
+ * nextOccurrenceLocalDatetime — given a (UTC day-of-week, UTC hour-of-day)
+ * from the Best Times insight, returns the next future occurrence formatted
+ * as a datetime-local input value ("YYYY-MM-DDTHH:mm" in the user's local
+ * timezone).
+ *
+ * The Best Times API returns UTC slots because that's how the DB stores
+ * published_at. We honour the slot's UTC moment, then format in local for
+ * the input. If "Tue 14:00 UTC" lands at 09:00 EST, that's what the user
+ * sees — exactly the same wall-clock moment, just labelled in their tz.
+ */
+function nextOccurrenceLocalDatetime(dowUTC: number, hourUTC: number): string {
+  const now = new Date();
+  // Build today-at-target-hour in UTC.
+  const target = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    hourUTC,
+    0,
+    0,
+    0,
+  ));
+  // Advance day-by-day until we land on the target dow AND the time is in the
+  // future (handles "Tue 2pm" when today is Tue 5pm — needs next week's Tue).
+  for (let i = 0; i < 8; i++) {
+    if (target.getUTCDay() === dowUTC && target.getTime() > now.getTime() + 60 * 1000) {
+      break;
+    }
+    target.setUTCDate(target.getUTCDate() + 1);
+  }
+  // Format as local-tz datetime-local input value: "YYYY-MM-DDTHH:mm".
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    target.getFullYear() + "-" +
+    pad(target.getMonth() + 1) + "-" +
+    pad(target.getDate()) + "T" +
+    pad(target.getHours()) + ":" +
+    pad(target.getMinutes())
+  );
 }
 
 export function SmartComposePanel({
   caption,
   selectedPlatforms,
   onAppendHashtags,
+  onUseBestTime,
 }: SmartComposePanelProps) {
   // Use the first selected platform as the basis for best-time query — most
   // users post to one primary platform anyway.
@@ -179,27 +224,42 @@ export function SmartComposePanel({
             Loading…
           </div>
         ) : times && times.slots.length > 0 ? (
-          <ul className="space-y-1.5">
-            {times.slots.slice(0, 3).map((s, i) => (
-              <li
-                key={`${s.day_of_week}-${s.hour_of_day}`}
-                className="flex items-center justify-between text-xs"
-              >
-                <span className="font-medium">
-                  {i === 0 && (
-                    <Sparkles className="mr-1 inline h-3 w-3 text-amber-500" />
-                  )}
-                  {DAYS_OF_WEEK[s.day_of_week]} {formatHour(s.hour_of_day)}
-                </span>
-                <span className="text-muted-foreground">
-                  {s.multiplier > 0 && `${s.multiplier.toFixed(1)}× avg`}
-                  <span className="ml-2 text-[10px] opacity-60">
-                    n={s.sample_size}
-                  </span>
-                </span>
-              </li>
-            ))}
-            <li className="pt-1 text-[10px] text-muted-foreground">
+          <ul className="space-y-1">
+            {times.slots.slice(0, 3).map((s, i) => {
+              const canApply = !!onUseBestTime;
+              return (
+                <li key={`${s.day_of_week}-${s.hour_of_day}`}>
+                  <button
+                    type="button"
+                    disabled={!canApply}
+                    onClick={() => {
+                      if (!canApply) return;
+                      const local = nextOccurrenceLocalDatetime(s.day_of_week, s.hour_of_day);
+                      onUseBestTime!(local);
+                    }}
+                    className={`group flex w-full items-center justify-between rounded-md px-2 py-1 text-xs transition ${
+                      canApply ? "hover:bg-violet-50 dark:hover:bg-violet-900/20 cursor-pointer" : "cursor-default"
+                    }`}
+                    title={canApply ? "Apply this slot to the scheduler" : undefined}
+                  >
+                    <span className="font-medium">
+                      {i === 0 && <Sparkles className="mr-1 inline h-3 w-3 text-amber-500" />}
+                      {DAYS_OF_WEEK[s.day_of_week]} {formatHour(s.hour_of_day)}
+                    </span>
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      {s.multiplier > 0 && <span>{s.multiplier.toFixed(1)}× avg</span>}
+                      <span className="text-[10px] opacity-60">n={s.sample_size}</span>
+                      {canApply && (
+                        <span className="text-[10px] font-medium text-violet-600 opacity-0 transition group-hover:opacity-100">
+                          Use →
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+            <li className="px-2 pt-1 text-[10px] text-muted-foreground">
               Based on last {times.window_days} days, UTC. Top {Math.min(3, times.slots.length)} of {times.slots.length} slots.
             </li>
           </ul>

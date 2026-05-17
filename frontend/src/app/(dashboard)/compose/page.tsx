@@ -1056,6 +1056,14 @@ export default function ComposePage() {
                 const sep = trimmed ? "\n\n" : "";
                 setCaption(trimmed + sep + tags.join(" "));
               }}
+              onUseBestTime={(datetimeLocal) => {
+                // Fill the scheduled_at field with the slot's next occurrence
+                // and disable "auto-pick next free slot" so the user's
+                // explicit choice wins. Toast for confirmation.
+                setScheduledAt(datetimeLocal);
+                setUseNextSlot(false);
+                toast.success("Scheduled time updated to best slot");
+              }}
             />
           </div>
           <div className="p-4 border-b border-gray-200 dark:border-gray-800">
