@@ -875,6 +875,9 @@ export default function ComposePage() {
               </div>
             )}
 
+            {/* First-time tips banner — dismissable, shown once per browser. */}
+            <FirstPostTipsBanner />
+
             {/* Caption editor */}
             <div>
               <Label className="mb-2 block text-sm font-medium">Caption</Label>
@@ -1279,6 +1282,42 @@ export default function ComposePage() {
           toast.success("Image added to your post!");
         }}
       />
+    </div>
+  );
+}
+
+// ── First-time tips banner ──────────────────────────────────────────────────
+// Helps a novice know the fast path. Dismissable per browser (localStorage)
+// so it doesn't nag returning users.
+function FirstPostTipsBanner() {
+  const [dismissed, setDismissed] = React.useState(true);
+  React.useEffect(() => {
+    setDismissed(localStorage.getItem("compose_tips_dismissed") === "1");
+  }, []);
+  if (dismissed) return null;
+  return (
+    <div className="mb-4 flex items-start gap-3 rounded-xl border border-violet-200 bg-violet-50/40 px-4 py-3 text-sm dark:border-violet-800 dark:bg-violet-900/10">
+      <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" />
+      <div className="flex-1">
+        <p className="font-medium text-gray-900 dark:text-white">First time? Here's the fast path</p>
+        <ol className="mt-1 list-decimal pl-4 text-xs text-muted-foreground">
+          <li>Pick a platform above (or two)</li>
+          <li>Write a strong first line — that's your hook</li>
+          <li>Use <em>Generate Caption</em> or <em>Hashtags</em> if you're stuck — costs a few credits</li>
+          <li>Click <em>Save Draft</em> to keep it, or <em>Schedule</em> to set a time</li>
+        </ol>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          localStorage.setItem("compose_tips_dismissed", "1");
+          setDismissed(true);
+        }}
+        aria-label="Dismiss tips"
+        className="rounded-md p-1 text-muted-foreground transition hover:bg-violet-100 hover:text-foreground dark:hover:bg-violet-900/30"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }

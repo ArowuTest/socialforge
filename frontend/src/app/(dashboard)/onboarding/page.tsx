@@ -68,7 +68,18 @@ export default function OnboardingPage() {
   const workspace = useAuthStore((s) => s.workspace);
   const [step, setStep] = React.useState<Step>(0);
   const [mode, setMode] = React.useState<Mode>(null);
-  const [workspaceName, setWorkspaceName] = React.useState("");
+  // Pre-fill from the workspace name the user already typed at signup so
+  // they don't retype it here. Polish-pass fix.
+  const [workspaceName, setWorkspaceName] = React.useState(workspace?.name ?? "");
+
+  // If the workspace loads after the initial render (auth-store hydration),
+  // sync the field once.
+  React.useEffect(() => {
+    if (workspace?.name && !workspaceName) {
+      setWorkspaceName(workspace.name);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace?.name]);
   const [timezone, setTimezone] = React.useState("UTC+00:00 London");
   const [connectingPlatform, setConnectingPlatform] = React.useState<string | null>(null);
   const [connectedPlatforms, setConnectedPlatforms] = React.useState<string[]>([]);

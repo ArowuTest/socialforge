@@ -38,6 +38,7 @@ import { useAuthStore } from "@/lib/stores/auth";
 import { useUIStore } from "@/lib/stores/ui";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { CopilotDrawer } from "@/components/copilot-drawer";
+import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -72,22 +73,27 @@ const navSections = [
     autopilot: false,
     items: [
       { href: "/compose", icon: PenSquare, label: "Compose Post" },
-      { href: "/review", icon: ClipboardCheck, label: "Review Queue" },
       { href: "/ai", icon: Sparkles, label: "AI Studio" },
+      // Brand Kit promoted into CREATE — it powers caption/hashtag generation,
+      // so novices benefit from finding it above the fold rather than scrolling
+      // to discover it under AI AUTOPILOT.
+      { href: "/brand-kit", icon: Palette, label: "Brand Kit" },
+      { href: "/review", icon: ClipboardCheck, label: "Review Queue" },
       { href: "/repurpose", icon: RefreshCw, label: "Repurpose" },
       { href: "/media", icon: Image, label: "Media Library" },
       { href: "/templates", icon: BookTemplate, label: "Templates" },
+      { href: "/hashtag-groups", icon: Hash, label: "Hashtag Groups" },
     ],
   },
   {
     label: "AI AUTOPILOT",
     autopilot: true,
     items: [
-      { href: "/brand-kit", icon: Palette, label: "Brand Kit" },
+      // Campaigns + Automations stay here — they're the orchestrator features
+      // that build on top of the Create primitives above.
       { href: "/campaigns", icon: Rocket, label: "Campaigns" },
       { href: "/automations", icon: Zap, label: "Automations" },
       { href: "/bio", icon: Link2, label: "Link in Bio" },
-      { href: "/hashtag-groups", icon: Hash, label: "Hashtag Groups" },
     ],
   },
   {
@@ -529,6 +535,9 @@ export default function DashboardLayout({
 
       {/* Floating AI Copilot — workspace-aware chat assistant */}
       <CopilotDrawer />
+
+      {/* Global keyboard shortcuts (? to open) */}
+      <KeyboardShortcutsModal />
     </div>
   );
 }

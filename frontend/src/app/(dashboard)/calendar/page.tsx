@@ -370,6 +370,34 @@ export default function CalendarPage() {
           </span>
         </div>
 
+        {/* Empty-state CTA — shown when there are zero posts anywhere in the
+            visible window. Friendly first-run prompt rather than an
+            unexplained empty grid. */}
+        {!isLoading && viewMode === "month" && days.every((d) => getPostsForDate(d).length === 0) && (
+          <div className="mb-4 flex flex-col items-center gap-3 rounded-xl border border-dashed border-violet-200 bg-violet-50/30 px-6 py-8 text-center dark:border-violet-800 dark:bg-violet-900/10 md:flex-row md:items-center md:justify-between md:text-left">
+            <div className="flex items-center gap-3">
+              <div className="rounded-full bg-violet-100 p-2 dark:bg-violet-900/40">
+                <CalendarDays className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Your calendar is empty
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Draft your first post — schedule it and watch it appear here.
+                </p>
+              </div>
+            </div>
+            <a
+              href="/compose"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700"
+            >
+              <Plus className="h-4 w-4" />
+              Compose a post
+            </a>
+          </div>
+        )}
+
         {/* Calendar grid */}
         {isLoading ? (
           <CalendarSkeleton />
