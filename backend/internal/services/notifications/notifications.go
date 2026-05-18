@@ -13,9 +13,12 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"github.com/socialforge/backend/internal/config"
+	"github.com/socialforge/backend/internal/crypto"
 	"github.com/socialforge/backend/internal/models"
+	"github.com/socialforge/backend/internal/services/billing"
 )
 
 const resendEndpoint = "https://api.resend.com/emails"
@@ -40,6 +43,15 @@ type Service struct {
 	appURL    string
 	client    *http.Client
 	log       *zap.Logger
+
+	// db is optional; when set, resolveAPIKey/resolveFromEmail fall back to
+	// platform_settings (admin-tunable) when the env-config values are empty.
+	// This lets an operator paste their Resend key in /admin/cost-config →
+	// Integrations without a redeploy.
+	db *gorm.DB
+	// encryptSecret is the symmetric key for decrypting resend_api_key from
+	// platform_settings (which stores sensitive values encrypted at rest).
+	encryptSecret string
 }
 
 // NewService constructs a notification Service from the supplied config.
@@ -54,12 +66,70 @@ func NewService(cfg *config.Config, log *zap.Logger) *Service {
 	}
 }
 
+// WithRuntimeFallback wires the DB + encryption secret so the service can
+// read the Resend key from platform_settings as a runtime fallback. Called
+// after construction once the DB is available. Returns the same *Service so
+// it can be used in a chained init.
+func (s *Service) WithRuntimeFallback(db *gorm.DB, encryptSecret string) *Service {
+	s.db = db
+	s.encryptSecret = encryptSecret
+	return s
+}
+
+// resolveAPIKey returns the Resend API key, preferring the env-config value
+// (set at boot) but falling back to platform_settings.resend_api_key (admin-
+// editable at runtime). Cached for 60s via the billing settings cache.
+func (s *Service) resolveAPIKey(ctx context.Context) string {
+	if s.apiKey != "" {
+		return s.apiKey
+	}
+	if s.db == nil {
+		return ""
+	}
+	encrypted := billing.LoadStringSetting(ctx, s.db, "resend_api_key", "")
+	if encrypted == "" {
+		return ""
+	}
+	plain, err := crypto.Decrypt(encrypted, s.encryptSecret)
+	if err != nil {
+		s.log.Warn("notifications: failed to decrypt resend_api_key from platform_settings", zap.Error(err))
+		return ""
+	}
+	return plain
+}
+
+// resolveFromEmail same pattern but for the from-address.
+func (s *Service) resolveFromEmail(ctx context.Context) string {
+	if s.fromEmail != "" {
+		return s.fromEmail
+	}
+	if s.db == nil {
+		return "noreply@chiselpost.com"
+	}
+	v := billing.LoadStringSetting(ctx, s.db, "resend_from_email", "")
+	if v == "" {
+		return "noreply@chiselpost.com"
+	}
+	return v
+}
+
 // ─── send ─────────────────────────────────────────────────────────────────────
 
 // send POSTs a single email via the Resend API.
 func (s *Service) send(ctx context.Context, to, subject, htmlBody string) error {
+	apiKey := s.resolveAPIKey(ctx)
+	if apiKey == "" {
+		// No Resend key configured anywhere — log clearly so the operator
+		// knows email delivery is offline, and return an error so callers
+		// can audit-log delivered:false (as client.invite_sent already does).
+		s.log.Warn("notifications.send skipped — resend_api_key not configured (set RESEND_API_KEY env or platform_settings.resend_api_key)",
+			zap.String("to", to), zap.String("subject", subject))
+		return fmt.Errorf("resend api key not configured")
+	}
+	fromEmail := s.resolveFromEmail(ctx)
+
 	payload := EmailPayload{
-		From:    fmt.Sprintf("%s <%s>", s.appName, s.fromEmail),
+		From:    fmt.Sprintf("%s <%s>", s.appName, fromEmail),
 		To:      []string{to},
 		Subject: subject,
 		Html:    htmlBody,
@@ -74,7 +144,7 @@ func (s *Service) send(ctx context.Context, to, subject, htmlBody string) error 
 	if err != nil {
 		return fmt.Errorf("build resend request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)

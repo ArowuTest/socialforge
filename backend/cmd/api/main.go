@@ -134,7 +134,9 @@ func main() {
 	scheduleService := scheduling.New(db, log)
 	analyticsService := analyticssvc.NewService(repos.Analytics, log)
 	billingService := billingsvc.NewService(cfg, repos, db, log, rdb)
-	notificationsService := notifications.NewService(cfg, log)
+	// Notifications: env-config first, then platform_settings fallback so
+	// the operator can paste a Resend key at runtime via /admin/cost-config.
+	notificationsService := notifications.NewService(cfg, log).WithRuntimeFallback(db, encryptionSecret)
 
 	// ── Platform clients ──────────────────────────────────────────────────────
 	bsClient := bluesky.New(encryptionSecret, db, log) // AT Protocol (app-password, not OAuth)

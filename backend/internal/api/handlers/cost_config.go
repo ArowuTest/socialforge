@@ -58,8 +58,10 @@ func (PlatformSettingRow) TableName() string { return "platform_settings" }
 // sensitiveSettingKeys lists platform_settings keys whose values must be
 // encrypted at rest and masked when returned to the client.
 var sensitiveSettingKeys = map[string]bool{
-	"openai_api_key": true,
-	"fal_api_key":    true,
+	"openai_api_key":    true,
+	"fal_api_key":       true,
+	"resend_api_key":    true, // Transactional email (welcome / invite / password-reset)
+	"resend_from_email": false, // Plain config but kept here so admin UI surfaces it next to the key
 }
 
 // CostConfigHandler manages runtime AI cost and pricing configuration.
@@ -404,6 +406,7 @@ func (h *CostConfigHandler) GetIntegrationStatus(c *fiber.Ctx) error {
 	labels := map[string]string{
 		"openai_api_key": "OpenAI (GPT-4o)",
 		"fal_api_key":    "Fal.ai (Images & Video)",
+		"resend_api_key": "Resend (Transactional Email)",
 	}
 
 	for k, label := range labels {
