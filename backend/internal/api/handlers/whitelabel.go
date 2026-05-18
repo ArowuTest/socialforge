@@ -388,9 +388,23 @@ func (h *WhitelabelHandler) sendClientInviteEmail(email, name string, isNewUser 
 		// Use the existing SendPasswordReset transport — the only difference
 		// from a regular password reset is the ?welcome=1 hint the frontend
 		// can use to render "Welcome to <Agency>" copy on the reset page.
-		if err := h.notifications.SendPasswordReset(ctx, user.Email, user.Name, resetURL); err != nil {
+		sendErr := h.notifications.SendPasswordReset(ctx, user.Email, user.Name, resetURL)
+		// Audit either way — operators need to know whether an invite was
+		// actually delivered. The auth handler's reset-request audit fires
+		// only for HTTP requests, not for this server-side invocation, so we
+		// write a dedicated client.invite_sent action here.
+		// IP/UA empty — this is a server-side fanout, not a direct HTTP action.
+		insertAuditRow(h.db, h.log, agencyWID, user.ID,
+			"client.invite_sent", "user", user.ID.String(), "", "",
+			map[string]any{
+				"email":       email,
+				"agency":      agencyName,
+				"is_new_user": true,
+				"delivered":   sendErr == nil,
+			})
+		if sendErr != nil {
 			h.log.Warn("sendClientInviteEmail: SendPasswordReset failed",
-				zap.String("email", email), zap.Error(err))
+				zap.String("email", email), zap.Error(sendErr))
 			return
 		}
 		h.log.Info("client invite email sent (new user)",
