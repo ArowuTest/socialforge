@@ -76,41 +76,44 @@ func (s *Service) WithRuntimeFallback(db *gorm.DB, encryptSecret string) *Servic
 	return s
 }
 
-// resolveAPIKey returns the Resend API key, preferring the env-config value
-// (set at boot) but falling back to platform_settings.resend_api_key (admin-
-// editable at runtime). Cached for 60s via the billing settings cache.
+// resolveAPIKey returns the Resend API key. Precedence:
+//   1. platform_settings.resend_api_key — set by the operator via the admin UI
+//      and intended to be the source of truth at runtime.
+//   2. cfg.Notifications.Resend.APIKey (env var) — fallback for bootstrap
+//      before any admin has logged in.
+// PREVIOUSLY this was reversed, which meant a stale env var would silently
+// override the admin's runtime change. The admin would set a fresh key,
+// the masked integration status would show the new key, but the actual
+// sends would use the env var. That's how the 401 "invalid API key" arose
+// after two key rotations.
 func (s *Service) resolveAPIKey(ctx context.Context) string {
-	if s.apiKey != "" {
-		return s.apiKey
+	if s.db != nil {
+		encrypted := billing.LoadStringSetting(ctx, s.db, "resend_api_key", "")
+		if encrypted != "" {
+			plain, err := crypto.Decrypt(encrypted, s.encryptSecret)
+			if err == nil && plain != "" {
+				return plain
+			}
+			if err != nil {
+				s.log.Warn("notifications: failed to decrypt resend_api_key from platform_settings (falling back to env)", zap.Error(err))
+			}
+		}
 	}
-	if s.db == nil {
-		return ""
-	}
-	encrypted := billing.LoadStringSetting(ctx, s.db, "resend_api_key", "")
-	if encrypted == "" {
-		return ""
-	}
-	plain, err := crypto.Decrypt(encrypted, s.encryptSecret)
-	if err != nil {
-		s.log.Warn("notifications: failed to decrypt resend_api_key from platform_settings", zap.Error(err))
-		return ""
-	}
-	return plain
+	return s.apiKey
 }
 
-// resolveFromEmail same pattern but for the from-address.
+// resolveFromEmail: same precedence (admin UI wins, env is bootstrap fallback).
 func (s *Service) resolveFromEmail(ctx context.Context) string {
+	if s.db != nil {
+		v := billing.LoadStringSetting(ctx, s.db, "resend_from_email", "")
+		if v != "" {
+			return v
+		}
+	}
 	if s.fromEmail != "" {
 		return s.fromEmail
 	}
-	if s.db == nil {
-		return "noreply@chiselpost.com"
-	}
-	v := billing.LoadStringSetting(ctx, s.db, "resend_from_email", "")
-	if v == "" {
-		return "noreply@chiselpost.com"
-	}
-	return v
+	return "noreply@chiselpost.com"
 }
 
 // ─── send ─────────────────────────────────────────────────────────────────────
