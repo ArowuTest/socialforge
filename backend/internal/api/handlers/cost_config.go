@@ -318,12 +318,15 @@ func (h *CostConfigHandler) UpdatePlatformSetting(c *fiber.Ctx) error {
 		Value string `json:"value"`
 	}
 	var req body
-	if err := c.BodyParser(&req); err != nil || req.Value == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "value required")
+	if err := c.BodyParser(&req); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid body")
 	}
+	// Empty value is a legitimate "clear this setting" (e.g. revoke an API key
+	// or remove an opt-in flag). Only encrypted/sensitive values must be
+	// re-encrypted when non-empty.
 
 	storeValue := req.Value
-	if sensitiveSettingKeys[key] {
+	if sensitiveSettingKeys[key] && req.Value != "" {
 		encrypted, err := crypto.Encrypt(req.Value, h.encryptSecret)
 		if err != nil {
 			h.log.Error("encrypt platform setting", zap.String("key", key), zap.Error(err))
