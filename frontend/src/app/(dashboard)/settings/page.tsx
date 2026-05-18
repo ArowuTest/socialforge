@@ -658,7 +658,12 @@ function BillingTab() {
   const handleUpgrade = async (planType: PlanType) => {
     try {
       const res = await billingApi.createSubscription({ planType, interval: "monthly" });
-      window.location.href = res.data.checkoutUrl;
+      const url = res.data.checkout_url ?? res.data.checkoutUrl;
+      if (!url) {
+        toast.error("Checkout URL not returned. Please try again.");
+        return;
+      }
+      window.location.href = url;
     } catch {
       toast.error("Failed to initiate checkout.");
     }
