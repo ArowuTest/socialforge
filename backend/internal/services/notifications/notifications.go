@@ -166,7 +166,14 @@ func (s *Service) send(ctx context.Context, to, subject, htmlBody string) error 
 			zap.String("to", to),
 			zap.String("subject", subject),
 		)
-		return fmt.Errorf("resend api returned status %d", resp.StatusCode)
+		// Include the Resend body in the returned error so callers (e.g. the
+		// client.invite_sent audit row) can record WHY delivery failed —
+		// missing domain verification, sandbox restriction, etc.
+		bodyStr := strings.TrimSpace(string(body))
+		if len(bodyStr) > 300 {
+			bodyStr = bodyStr[:300]
+		}
+		return fmt.Errorf("resend status %d: %s", resp.StatusCode, bodyStr)
 	}
 
 	s.log.Info("email sent",

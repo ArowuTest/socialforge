@@ -394,6 +394,13 @@ func (h *WhitelabelHandler) sendClientInviteEmail(email, name string, isNewUser 
 		// only for HTTP requests, not for this server-side invocation, so we
 		// write a dedicated client.invite_sent action here.
 		// IP/UA empty — this is a server-side fanout, not a direct HTTP action.
+		errMsg := ""
+		if sendErr != nil {
+			errMsg = sendErr.Error()
+			if len(errMsg) > 500 {
+				errMsg = errMsg[:500]
+			}
+		}
 		insertAuditRow(h.db, h.log, agencyWID, user.ID,
 			"client.invite_sent", "user", user.ID.String(), "", "",
 			map[string]any{
@@ -401,6 +408,7 @@ func (h *WhitelabelHandler) sendClientInviteEmail(email, name string, isNewUser 
 				"agency":      agencyName,
 				"is_new_user": true,
 				"delivered":   sendErr == nil,
+				"error":       errMsg,
 			})
 		if sendErr != nil {
 			h.log.Warn("sendClientInviteEmail: SendPasswordReset failed",
