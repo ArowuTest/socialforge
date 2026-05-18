@@ -808,7 +808,12 @@ export default function BillingPage() {
   const handleSelectPlan = async (planType: "starter" | "pro" | "agency", interval: "monthly" | "yearly") => {
     setUpgradeLoading(true);
     try {
-      const res = await billingApi.createSubscription({ planType, interval });
+      // Route NGN buyers through Paystack; everyone else stays on Stripe.
+      const res = await billingApi.createSubscription({
+        planType,
+        interval,
+        currency: currency === "NGN" ? "NGN" : "USD",
+      });
       const url = (res.data as { checkout_url?: string; checkoutUrl?: string }).checkout_url
         ?? (res.data as { checkoutUrl?: string }).checkoutUrl;
       if (url) {
@@ -818,9 +823,12 @@ export default function BillingPage() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Could not start checkout";
-      toast.error(msg.includes("STRIPE_NOT_CONFIGURED")
+      const friendly = msg.includes("STRIPE_NOT_CONFIGURED")
         ? "Plan upgrades aren't configured yet. Please contact support to subscribe."
-        : msg);
+        : msg.includes("PAYSTACK_PLAN_NOT_CONFIGURED")
+          ? "Paystack plan for this tier isn't set up yet. Try paying in USD, or contact support."
+          : msg;
+      toast.error(friendly);
     } finally {
       setUpgradeLoading(false);
       setPlanPickerOpen(false);

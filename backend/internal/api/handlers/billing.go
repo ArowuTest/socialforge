@@ -209,6 +209,7 @@ type createSubscriptionRequest struct {
 	PriceID  string `json:"price_id"`
 	PlanType string `json:"planType"` // optional alias: pro / starter / agency
 	Interval string `json:"interval"` // optional: monthly / yearly (default monthly)
+	Currency string `json:"currency"` // optional: USD (default) or NGN — picks Paystack when NGN
 }
 
 // CreateSubscription creates a Stripe Checkout session via the billing service.
@@ -226,6 +227,35 @@ func (h *BillingHandler) CreateSubscription(c *fiber.Ctx) error {
 	var req createSubscriptionRequest
 	if err := c.BodyParser(&req); err != nil {
 		return badRequest(c, "invalid request body", "INVALID_BODY")
+	}
+
+	// ── NGN / Paystack branch ─────────────────────────────────────────────
+	// Currency=NGN routes the subscription through Paystack (auto-recurring
+	// via Paystack Plans). Requires planType + interval; price_id is ignored.
+	if strings.EqualFold(req.Currency, "NGN") {
+		if req.PlanType == "" {
+			return badRequest(c, "planType is required for NGN subscriptions", "VALIDATION_ERROR")
+		}
+		workspaceID := user.ID
+		if wid := c.Params("workspaceId"); wid != "" {
+			if parsed, err := uuid.Parse(wid); err == nil {
+				workspaceID = parsed
+			}
+		}
+		checkoutURL, err := h.billing.InitializePaystackSubscription(
+			c.Context(), user.ID, workspaceID, req.PlanType, req.Interval, user.Email,
+		)
+		if err != nil {
+			h.log.Error("paystack subscription init", zap.Error(err))
+			return badRequest(c, err.Error(), "PAYSTACK_PLAN_NOT_CONFIGURED")
+		}
+		writeAudit(c, h.db, h.log, workspaceID, "subscription.checkout_initiated", "subscription", req.PlanType, map[string]any{
+			"provider":  "paystack",
+			"plan_type": req.PlanType,
+			"interval":  req.Interval,
+			"currency":  "NGN",
+		})
+		return c.JSON(fiber.Map{"data": fiber.Map{"checkout_url": checkoutURL, "provider": "paystack"}})
 	}
 
 	// Resolve price_id from planType + interval if not given directly.

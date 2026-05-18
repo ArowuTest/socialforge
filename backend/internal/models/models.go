@@ -319,8 +319,11 @@ type Workspace struct {
 	AICreditsLimit   int        `gorm:"not null;default:100" json:"ai_credits_limit"`
 	AICreditsResetAt *time.Time `                            json:"ai_credits_reset_at,omitempty"`
 	// Purchased credits (top-up balance, separate from plan allowance)
-	CreditBalance      int    `gorm:"not null;default:0" json:"credit_balance"`
-	PaystackCustomerID string `gorm:"size:255"           json:"paystack_customer_id,omitempty"`
+	CreditBalance       int        `gorm:"not null;default:0" json:"credit_balance"`
+	PaystackCustomerID  string     `gorm:"size:255"           json:"paystack_customer_id,omitempty"`
+	PaystackPlanCode    string     `gorm:"index;size:64"      json:"paystack_plan_code,omitempty"`
+	PaystackLastChargeRef string   `gorm:"size:128"           json:"paystack_last_charge_ref,omitempty"`
+	PaystackLastChargedAt *time.Time `                          json:"paystack_last_charged_at,omitempty"`
 	// Branding overrides for white-label
 	BrandName      string `gorm:"size:255"  json:"brand_name,omitempty"`
 	SecondaryColor string `gorm:"size:7"    json:"secondary_color,omitempty"`

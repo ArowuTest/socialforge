@@ -153,15 +153,24 @@ func (s *Service) HandlePaystackWebhook(ctx context.Context, payload []byte, sig
 			return fmt.Errorf("paystack charge.success unmarshal: %w", err)
 		}
 		meta := data.Data.Metadata
+		// Dispatch by kind: subscription charges activate/renew a workspace
+		// plan; credit top-ups are the legacy path identified by topup_id.
+		if kind, _ := meta["kind"].(string); kind == "subscription" {
+			return s.applyPaystackSubscriptionCharge(ctx, &data)
+		}
 		topupIDStr, ok := meta["topup_id"].(string)
 		if !ok {
-			return fmt.Errorf("paystack webhook: missing topup_id in metadata")
+			return fmt.Errorf("paystack webhook: missing topup_id or kind in metadata")
 		}
 		topupID, err := uuid.Parse(topupIDStr)
 		if err != nil {
 			return fmt.Errorf("paystack webhook: invalid topup_id: %w", err)
 		}
 		return s.ApplyCreditTopUp(ctx, topupID)
+
+	case "subscription.create", "subscription.disable", "subscription.not_renew",
+		"invoice.create", "invoice.payment_failed":
+		return s.handlePaystackSubscriptionEvent(ctx, event.Event, event.Data)
 	}
 
 	return nil // ignore unknown events

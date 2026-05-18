@@ -795,11 +795,15 @@ export const analyticsApi = {
 export const billingApi = {
   getPlans: () => request<ApiResponse<Plan[]>>("/api/v1/billing/plans"),
 
-  createSubscription: (data: { planType: string; interval: "monthly" | "yearly" }) =>
-    request<ApiResponse<{ checkoutUrl: string }>>("/api/v1/billing/subscribe", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+  createSubscription: (data: {
+    planType: string;
+    interval: "monthly" | "yearly";
+    currency?: "USD" | "NGN";
+  }) =>
+    request<ApiResponse<{ checkout_url: string; checkoutUrl?: string; provider?: "stripe" | "paystack" }>>(
+      "/api/v1/billing/subscribe",
+      { method: "POST", body: JSON.stringify(data) }
+    ),
 
   getPortalUrl: () =>
     request<ApiResponse<{ url: string }>>("/api/v1/billing/portal", { method: "POST" }),
