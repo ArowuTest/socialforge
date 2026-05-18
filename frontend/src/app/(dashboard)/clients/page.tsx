@@ -565,11 +565,38 @@ export default function ClientsPage() {
     onError: () => toast.error("Failed to remove client."),
   });
 
-  // Use real data or mock
-  const clients: Client[] = data?.data ?? [];
+  // Backend returns a flat Workspace shape per row; the legacy Client interface
+  // expected a nested {clientWorkspace, socialAccountsCount, postsThisMonth}.
+  // Normalise to a unified view here so the rendering code below stays simple
+  // and never blows up on a missing nested object.
+  const rawClients = data?.data ?? [];
+  type ClientRow = Client & {
+    clientWorkspace: { name: string; id: string };
+    socialAccountsCount: number;
+    postsThisMonth: number;
+    status: "active" | "suspended" | "pending";
+  };
+  const clients: ClientRow[] = rawClients.map((r: unknown) => {
+    const row = r as Partial<Client> & {
+      name?: string;
+      id?: string;
+      plan?: string;
+      clientWorkspace?: { name: string; id: string };
+      socialAccountsCount?: number;
+      postsThisMonth?: number;
+      status?: "active" | "suspended" | "pending";
+    };
+    return {
+      ...(row as Client),
+      clientWorkspace: row.clientWorkspace ?? { name: row.name ?? "(unnamed)", id: row.id ?? "" },
+      socialAccountsCount: row.socialAccountsCount ?? 0,
+      postsThisMonth: row.postsThisMonth ?? 0,
+      status: row.status ?? "active",
+    } as ClientRow;
+  });
 
-  const totalPostsThisMonth = clients.reduce((s, c) => s + c.postsThisMonth, 0);
-  const totalAccounts = clients.reduce((s, c) => s + c.socialAccountsCount, 0);
+  const totalPostsThisMonth = clients.reduce((s, c) => s + (c.postsThisMonth ?? 0), 0);
+  const totalAccounts = clients.reduce((s, c) => s + (c.socialAccountsCount ?? 0), 0);
 
   if (!isAgency) {
     return (
