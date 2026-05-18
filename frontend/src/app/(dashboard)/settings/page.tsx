@@ -1127,13 +1127,31 @@ function WhitelabelTab() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await whitelabelApi.updateConfig({
+      const res = await whitelabelApi.updateConfig({
         is_whitelabel: enabled,
         brand_name: appName || undefined,
         logo_url: logoUrl || undefined,
         primary_color: primaryColor || undefined,
         custom_domain: customDomain || undefined,
       });
+      // Refresh the auth-store workspace immediately so the sidebar swaps
+      // brand without requiring a full page reload. Without this the
+      // dashboard stays on the previous brand until next login — confusing.
+      const updated = res?.data;
+      if (updated) {
+        const current = useAuthStore.getState().workspace;
+        if (current) {
+          useAuthStore.getState().setWorkspace({
+            ...current,
+            is_whitelabel: updated.is_whitelabel,
+            brand_name: updated.brand_name,
+            logo_url: updated.logo_url,
+            primary_color: updated.primary_color,
+            secondary_color: updated.secondary_color,
+            custom_domain: updated.custom_domain,
+          });
+        }
+      }
       toast.success("White-label settings saved.");
     } catch {
       toast.error("Failed to save settings.");

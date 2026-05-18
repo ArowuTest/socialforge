@@ -59,7 +59,7 @@ func SetupRoutes(app *fiber.App, deps Deps) {
 	aiH := handlers.NewAIHandler(deps.DB, deps.AIService, deps.AnalyticsService, deps.AsynqClient, deps.Log)
 	billingH := handlers.NewBillingHandler(deps.BillingService, deps.Log, deps.RDB, deps.DB)
 	analyticsH := handlers.NewAnalyticsHandler(deps.AnalyticsService, deps.Log)
-	whitelabelH := handlers.NewWhitelabelHandler(deps.DB, deps.Config, deps.Log)
+	whitelabelH := handlers.NewWhitelabelHandler(deps.DB, deps.Config, deps.AuthService, deps.NotificationsService, deps.Log)
 	adminH := handlers.NewAdminHandler(deps.DB, repos, deps.Log)
 	storageSvc := storagesvc.New(storagesvc.Config{
 		Endpoint:        deps.Config.Storage.Endpoint,

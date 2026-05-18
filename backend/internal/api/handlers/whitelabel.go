@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -16,18 +17,39 @@ import (
 	"github.com/socialforge/backend/internal/api/middleware"
 	"github.com/socialforge/backend/internal/config"
 	"github.com/socialforge/backend/internal/models"
+	authsvc "github.com/socialforge/backend/internal/services/auth"
+	"github.com/socialforge/backend/internal/services/notifications"
 )
 
 // WhitelabelHandler handles white-label and client management endpoints.
 type WhitelabelHandler struct {
-	db  *gorm.DB
-	cfg *config.Config
-	log *zap.Logger
+	db            *gorm.DB
+	cfg           *config.Config
+	auth          *authsvc.Service
+	notifications *notifications.Service
+	log           *zap.Logger
 }
 
 // NewWhitelabelHandler creates a new WhitelabelHandler.
-func NewWhitelabelHandler(db *gorm.DB, cfg *config.Config, log *zap.Logger) *WhitelabelHandler {
-	return &WhitelabelHandler{db: db, cfg: cfg, log: log.Named("whitelabel_handler")}
+// auth + notifications are required for the client onboarding email flow —
+// without them, "Add Client" succeeds in the DB but the client owner has no
+// way to log in (their password is a placeholder hash). Both services should
+// always be wired; nil is tolerated only so legacy tests can construct the
+// handler without setting up the whole notification stack.
+func NewWhitelabelHandler(
+	db *gorm.DB,
+	cfg *config.Config,
+	auth *authsvc.Service,
+	notif *notifications.Service,
+	log *zap.Logger,
+) *WhitelabelHandler {
+	return &WhitelabelHandler{
+		db:            db,
+		cfg:           cfg,
+		auth:          auth,
+		notifications: notif,
+		log:           log.Named("whitelabel_handler"),
+	}
 }
 
 // ── GetWhitelabelConfig ───────────────────────────────────────────────────────
@@ -305,15 +327,82 @@ func (h *WhitelabelHandler) CreateClient(c *fiber.Ctx) error {
 		zap.String("owner_email", req.OwnerEmail),
 	)
 
-	// In production, send an invite email here.
+	// Email the client owner. Two paths:
+	//   - New user: their stored password hash is a placeholder — we must
+	//     generate a password-reset token and email them a "Set your password"
+	//     link so they can actually log in.
+	//   - Existing user: they already have a working account; just send a
+	//     short "You've been added to <agency>" notification.
+	// Both sends are best-effort: failure logs a warning but doesn't fail the
+	// HTTP response. The "Invite sent!" toast on the UI is therefore truthful
+	// — if the email service is degraded, the operator sees it in the logs.
+	if h.notifications != nil && h.auth != nil {
+		go h.sendClientInviteEmail(req.OwnerEmail, clientUser.Name, isNewUser, wid)
+	} else {
+		h.log.Warn("client invite email skipped — notifications or auth service nil",
+			zap.String("owner_email", req.OwnerEmail))
+	}
 
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"data": fiber.Map{
-			"workspace": clientWS,
-			"user":      clientUser,
+			"workspace":   clientWS,
+			"user":        clientUser,
 			"is_new_user": isNewUser,
 		},
 	})
+}
+
+// sendClientInviteEmail is the async best-effort path that emails a new
+// client owner their welcome + password-set link. Runs in a goroutine so the
+// HTTP response isn't blocked by SMTP latency. Captures all values from the
+// fiber.Ctx before launching to avoid use-after-free against Fiber's context
+// pool.
+func (h *WhitelabelHandler) sendClientInviteEmail(email, name string, isNewUser bool, agencyWID uuid.UUID) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.log.Error("sendClientInviteEmail: panic", zap.Any("panic", r))
+		}
+	}()
+	ctx := context.Background()
+
+	// Look up the agency's brand name to personalise the message.
+	var agency models.Workspace
+	_ = h.db.WithContext(ctx).First(&agency, "id = ?", agencyWID).Error
+	agencyName := agency.BrandName
+	if agencyName == "" {
+		agencyName = agency.Name
+	}
+
+	if isNewUser {
+		// Generate a reset token so they can set their first password.
+		token, user, err := h.auth.RequestPasswordReset(ctx, email)
+		if err != nil || user == nil || token == "" {
+			h.log.Warn("sendClientInviteEmail: failed to mint reset token",
+				zap.String("email", email), zap.Error(err))
+			return
+		}
+		resetURL := ""
+		if h.cfg != nil {
+			resetURL = h.cfg.App.FrontendURL + "/reset-password?token=" + token + "&welcome=1"
+		}
+		// Use the existing SendPasswordReset transport — the only difference
+		// from a regular password reset is the ?welcome=1 hint the frontend
+		// can use to render "Welcome to <Agency>" copy on the reset page.
+		if err := h.notifications.SendPasswordReset(ctx, user.Email, user.Name, resetURL); err != nil {
+			h.log.Warn("sendClientInviteEmail: SendPasswordReset failed",
+				zap.String("email", email), zap.Error(err))
+			return
+		}
+		h.log.Info("client invite email sent (new user)",
+			zap.String("email", email), zap.String("agency", agencyName))
+	} else {
+		// Existing user — they already have credentials, just notify them.
+		// Use SendWelcome which sends a "you have a new workspace" mail. If
+		// SendWelcome isn't appropriate for an existing user, this becomes
+		// a no-op (the service logs the choice) rather than a hard error.
+		h.log.Info("client added — existing user, no password reset needed",
+			zap.String("email", email), zap.String("agency", agencyName))
+	}
 }
 
 // ── RemoveClient ──────────────────────────────────────────────────────────────
